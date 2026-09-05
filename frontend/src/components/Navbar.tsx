@@ -1,0 +1,108 @@
+import { Link, useNavigate } from 'react-router-dom';
+import { MessageSquare, LogOut, User, Search, Store, LayoutDashboard } from 'lucide-react';
+import { useAuth } from '@/stores/authStore';
+import { useState } from 'react';
+
+export function Navbar() {
+  const { user, isAuthenticated, logout } = useAuth();
+  const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
+  return (
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-b border-surface-200/70">
+      <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
+        <Link to="/" className="flex items-center gap-2 shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-instagram flex items-center justify-center shadow-soft">
+            <Store className="w-5 h-5 text-white" />
+          </div>
+          <div className="leading-tight">
+            <span className="text-lg font-extrabold tracking-tight bg-brand-grad bg-clip-text text-transparent">
+              CiCi
+            </span>
+            <span className="block text-[10px] text-surface-400 font-medium -mt-0.5">
+              ¡Tu Centro comercial digital!
+            </span>
+          </div>
+        </Link>
+
+        <form onSubmit={handleSearch} className="hidden md:flex flex-1 max-w-md">
+          <div className="relative w-full">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" />
+            <input
+              type="text"
+              placeholder="Buscar productos..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-surface-50 border border-surface-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-400 transition-all"
+            />
+          </div>
+        </form>
+
+        <div className="flex items-center gap-1.5">
+          {isAuthenticated ? (
+            <>
+              <Link
+                to="/dashboard"
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 rounded-xl transition-all text-sm font-semibold text-white shadow-soft"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span className="hidden sm:inline">Mi Tienda</span>
+              </Link>
+              <Link
+                to="/chat"
+                className="relative p-2.5 hover:bg-surface-100 rounded-xl transition-colors text-surface-600 hover:text-brand-600"
+              >
+                <MessageSquare className="w-5 h-5" />
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="p-2.5 hover:bg-surface-100 rounded-xl transition-colors text-surface-500 hover:text-accent-500"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-2 pl-2">
+                <div className="w-8 h-8 rounded-full bg-instagram flex items-center justify-center overflow-hidden ring-2 ring-white shadow-sm">
+                  {user?.avatarUrl ? (
+                    <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-4 h-4 text-white" />
+                  )}
+                </div>
+                <span className="text-sm font-semibold hidden sm:block text-surface-800">
+                  {user?.name}
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <Link
+                to="/login"
+                className="px-4 py-2 text-sm font-semibold text-surface-700 hover:text-brand-600 transition-colors"
+              >
+                Iniciar Sesión
+              </Link>
+              <Link
+                to="/register"
+                className="px-5 py-2.5 bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 rounded-xl transition-all text-sm font-semibold text-white shadow-soft"
+              >
+                Registrarse
+              </Link>
+            </>
+          )}
+        </div>
+      </div>
+    </nav>
+  );
+}

@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    container_name: cc_platform_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cc_user
+      POSTGRES_PASSWORD: cc_password
+      POSTGRES_DB: cc_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cc_user -d cc_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
