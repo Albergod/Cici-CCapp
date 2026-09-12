@@ -437,8 +437,17 @@ router.get("/admin/stats", requireAdmin, async (_req: AuthRequest, res) => {
 
 // ── Admin: Lista de pagos recientes ────────────────────────────────────
 // GET /api/admin/payments
-router.get("/admin/payments", requireAdmin, async (_req: AuthRequest, res) => {
+router.get("/admin/payments", requireAdmin, async (req: AuthRequest, res) => {
   try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+    const offset = (page - 1) * limit;
+
+    const [countResult] = await db
+      .select({ total: sql<number>`count(*)` })
+      .from(mpPayments);
+    const total = Number(countResult.total);
+
     const rows = await db
       .select({
         id: mpPayments.id,
@@ -450,9 +459,11 @@ router.get("/admin/payments", requireAdmin, async (_req: AuthRequest, res) => {
         processedAt: mpPayments.processedAt,
       })
       .from(mpPayments)
-      .orderBy(desc(mpPayments.processedAt));
+      .orderBy(desc(mpPayments.processedAt))
+      .limit(limit)
+      .offset(offset);
 
-    res.json(rows);
+    res.json({ rows, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (err) {
     console.error("admin payments error:", err);
     res.status(500).json({ error: "Error al obtener pagos" });

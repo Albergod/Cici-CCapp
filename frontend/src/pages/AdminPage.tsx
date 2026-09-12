@@ -18,33 +18,46 @@ type Stats = {
   totalPro: number;
   totalBusiness: number;
   totalPayments: number;
-  recentPayments: Array<{
-    id: string;
-    status: string;
-    plan: string;
-    cycle: string;
-    amount: number;
-    processedAt: string;
-  }>;
+};
+
+type PaymentRow = {
+  id: string;
+  status: string;
+  plan: string;
+  cycle: string;
+  amount: number;
+  processedAt: string;
+};
+
+type PaymentData = {
+  rows: PaymentRow[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 };
 
 export function AdminPage() {
   const [step, setStep] = useState<'login' | 'loaded'>('login');
   const [stats, setStats] = useState<Stats | null>(null);
+  const [payments, setPayments] = useState<PaymentData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingPayments, setLoadingPayments] = useState(false);
 
   const handleLogin = async () => {
     const token = localStorage.getItem('adminToken');
     if (!token) {
-      setError('Primero guarda el token en localStorage. Abre la consola y ejecuta: localStorage.setItem("adminToken", "<TU_TOKEN>")');
+      setError('Primero guarda el token en localStorage. Abre la consola y ejecuta: localStorage.setItem("adminToken", "e9b08717ff8745d04f5ba064da2100bc2a694eb0")');
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const data = await adminApi.stats();
-      setStats(data);
+      const statsData = await adminApi.stats();
+      const paymentsData = await adminApi.payments();
+      setStats(statsData);
+      setPayments(paymentsData);
       setStep('loaded');
     } catch (err: unknown) {
       const msg = (err as Error).message;
@@ -60,10 +73,24 @@ export function AdminPage() {
     try {
       const data = await adminApi.stats();
       setStats(data);
+      const paymentsData = await adminApi.payments();
+      setPayments(paymentsData);
     } catch {
       /* ignore */
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadPaymentsPage = async (page: number) => {
+    setLoadingPayments(true);
+    try {
+      const data = await adminApi.payments(page);
+      setPayments(data);
+    } catch {
+      /* ignore */
+    } finally {
+      setLoadingPayments(false);
     }
   };
 
@@ -101,18 +128,12 @@ export function AdminPage() {
           <button onClick={handleLogin} disabled={loading} className="btn-primary w-full mt-4">
             {loading ? 'Cargando...' : 'Conectar al panel'}
           </button>
-          <button
-            onClick={() => setStep('login')}
-            className="w-full text-center text-sm text-surface-500 hover:text-surface-700 mt-2"
-          >
-            <ArrowLeft className="w-4 h-4 inline" /> Volver al dashboard
-          </button>
         </div>
       </div>
     );
   }
 
-  if (!stats) return null;
+  if (!stats || !payments) return null;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -129,7 +150,6 @@ export function AdminPage() {
         </button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <div className="card p-5 text-center">
           <Store className="w-6 h-6 text-brand-600 mx-auto" />
@@ -153,33 +173,52 @@ export function AdminPage() {
         </div>
       </div>
 
-      {/* Pagos recientes */}
       <div className="card overflow-hidden">
         <div className="p-5 border-b border-surface-100">
-          <h2 className="font-display text-lg font-extrabold text-surface-900">Pagos recientes</h2>
+          <h2 className="font-display text-lg font-extrabold text-surface-900">Pagos registrados</h2>
+          <p className="text-xs text-surface-500 mt-1">{payments.total} pagos en total — página {payments.page} de {payments.totalPages}</p>
         </div>
-        {stats.recentPayments.length === 0 ? (
+        {payments.rows.length === 0 ? (
           <div className="p-8 text-center text-sm text-surface-500">
             No hay pagos registrados todavía.
           </div>
         ) : (
-          <div className="divide-y divide-surface-100">
-            {stats.recentPayments.map((p) => (
-              <div key={p.id} className="flex items-center justify-between p-4 hover:bg-surface-50 transition-colors">
-                <div className="flex items-center gap-4">
-                  {statusIcon(p.status)}
-                  <div>
-                    <p className="text-sm font-semibold text-surface-900">{p.plan} — {p.cycle === 'MONTHLY' ? 'Mensual' : 'Bimensual'}</p>
-                    <p className="text-xs text-surface-500">{p.id.slice(0, 8)}...</p>
+          <>
+            <div className="divide-y divide-surface-100">
+              {payments.rows.map((p) => (
+                <div key={p.id} className="flex items-center justify-between p-4 hover:bg-surface-50 transition-colors">
+                  <div className="flex items-center gap-4">
+                    {statusIcon(p.status)}
+                    <div>
+                      <p className="text-sm font-semibold text-surface-900">{p.plan} — {p.cycle === 'MONTHLY' ? 'Mensual' : 'Bimensual'}</p>
+                      <p className="text-xs text-surface-500">{p.id.slice(0, 8)}...</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-surface-900">${p.amount.toLocaleString()}</p>
+                    <p className="text-xs text-surface-500">{statusLabel(p.status)}</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm font-bold text-surface-900">${p.amount.toLocaleString()}</p>
-                  <p className="text-xs text-surface-500">{statusLabel(p.status)}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between p-4 border-t border-surface-100">
+              <button
+                onClick={() => loadPaymentsPage(payments.page - 1)}
+                disabled={payments.page <= 1 || loadingPayments}
+                className="btn-outline text-sm px-4 py-2 disabled:opacity-40"
+              >
+                ← Anterior
+              </button>
+              <span className="text-sm text-surface-600">{payments.page} / {payments.totalPages}</span>
+              <button
+                onClick={() => loadPaymentsPage(payments.page + 1)}
+                disabled={payments.page >= payments.totalPages || loadingPayments}
+                className="btn-outline text-sm px-4 py-2 disabled:opacity-40"
+              >
+                Siguiente →
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>

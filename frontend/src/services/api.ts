@@ -240,14 +240,20 @@ export const adminApi = {
       }>;
     }>('/stores/admin/stats'),
 
-  payments: () =>
-    adminRequest<Array<{
-      id: string;
-      storeId: string;
-      status: string;
-      plan: string;
-      cycle: string;
-      amount: number;
-      processedAt: string;
-    }>>('/stores/admin/payments'),
+  payments: (page = 1) =>
+    adminRequest<{
+      rows: Array<{
+        id: string;
+        storeId: string;
+        status: string;
+        plan: string;
+        cycle: string;
+        amount: number;
+        processedAt: string;
+      }>;
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+    }>(`/stores/admin/payments?page=${page}`),
 };
