@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { stores, products, sales, saleItems } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
@@ -41,7 +41,7 @@ router.post("/sales", requireAuth, async (req: AuthRequest, res) => {
   // Verificar que todos los productos pertenezcan a esta tienda
   const productsDb = await db.query.products.findMany({
     where: eq(products.storeId, storeId),
-    columns: { id: true, price: true },
+    columns: { id: true, price: true, stock: true },
   });
   const priceMap = new Map(productsDb.map((p) => [p.id, Number(p.price)]));
 
@@ -75,6 +75,27 @@ router.post("/sales", requireAuth, async (req: AuthRequest, res) => {
       quantity: String(item.quantity),
       unitPrice: String(priceMap.get(item.productId)!.toFixed(2)),
     });
+
+    // Descontar stock: al llegar a 0 (o menos) el producto se desactiva solo
+    // en vez de eliminarse, manteniendo su histórico.
+    await db
+      .update(products)
+      .set({
+        stock: sql`GREATEST(0, ${products.stock} - ${Math.floor(item.quantity)})`,
+      })
+      .where(eq(products.id, item.productId));
+
+    const [after] = await db
+      .select({ stock: products.stock })
+      .from(products)
+      .where(eq(products.id, item.productId))
+      .limit(1);
+    if (after && Number(after.stock) <= 0) {
+      await db
+        .update(products)
+        .set({ available: false })
+        .where(eq(products.id, item.productId));
+    }
   }
 
   res.status(201).json({ ...sale, total: Number(sale.total) });
@@ -87,7 +108,7 @@ router.get("/sales/stats", requireAuth, async (req: AuthRequest, res) => {
 
   const productsDb = await db.query.products.findMany({
     where: eq(products.storeId, storeId),
-    columns: { id: true, name: true, price: true },
+    columns: { id: true, name: true, price: true, views: true },
   });
 
   const allSales = await db.query.sales.findMany({
@@ -144,6 +165,21 @@ router.get("/sales/stats", requireAuth, async (req: AuthRequest, res) => {
     .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 5);
 
+  // Productos más vistos (según el contador views)
+  const topViewed = [...productsDb]
+    .sort((a, b) => Number(b.views || 0) - Number(a.views || 0))
+    .slice(0, 5)
+    .map((p) => ({
+      productId: p.id,
+      name: p.name,
+      views: Number(p.views || 0),
+    }));
+
+  // Tasa de conversión: ventas / vistas a productos (todas las vistas sumadas).
+  // Si nadie ha visto productos, mostramos 0 para no dividir entre cero.
+  const totalViews = productsDb.reduce((acc, p) => acc + Number(p.views || 0), 0);
+  const conversionRate = totalViews > 0 ? totalSales / totalViews : 0;
+
   // Ventas recientes para la tabla (más recientes primero)
   const recentSales = allSales.slice(0, 20).map((s) => ({
     id: s.id,
@@ -165,6 +201,9 @@ router.get("/sales/stats", requireAuth, async (req: AuthRequest, res) => {
     todayRevenue,
     customerCount,
     topProducts,
+    topViewed,
+    conversionRate,
+    totalViews,
     recentSales,
     productCount: productsDb.length,
   });

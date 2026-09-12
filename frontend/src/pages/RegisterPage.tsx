@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/services/api';
 import { useAuth } from '@/stores/authStore';
+import { GoogleAuthButton } from '@/components/GoogleAuthButton';
 import { Loader2, Store } from 'lucide-react';
 
 export function RegisterPage() {
@@ -12,6 +13,8 @@ export function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const refCode = searchParams.get('ref') ?? undefined;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,7 +22,7 @@ export function RegisterPage() {
     setError(null);
 
     try {
-      const { token, user } = await api.auth.register(email, password, name);
+      const { token, user } = await api.auth.register(email, password, name, refCode);
       login(token, user);
       navigate('/');
     } catch (err) {
@@ -102,6 +105,8 @@ export function RegisterPage() {
                 'Crear Cuenta'
               )}
             </button>
+
+            <GoogleAuthButton refCode={refCode} onSuccess={() => navigate('/')} />
 
             <p className="text-center text-sm text-surface-500">
               ¿Ya tienes cuenta?{' '}

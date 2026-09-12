@@ -15,7 +15,9 @@ export interface Store {
   description: string | null;
   logoUrl: string | null;
   bannerUrl: string | null;
+  whatsapp?: string | null;
   plan: 'FREE' | 'PRO' | 'BUSINESS';
+  businessType?: 'ROPA' | 'CALZADO' | 'ACCESORIOS' | 'HOGAR' | 'ALIMENTOS' | 'SERVICIOS' | 'OTRO';
   subscriptionCycle?: 'MONTHLY' | 'BI_MONTHLY' | null;
   ownerId: string;
   createdAt: string;
@@ -24,8 +26,13 @@ export interface Store {
   followersCount?: number;
   productsCount?: number;
   contactAvailable?: boolean;
+  following?: boolean;
   subscriptionStatus?: SubscriptionStatus;
   trialEndsAt?: number;
+  prestigePoints?: number;
+  prestigeActive?: boolean;
+  verified?: boolean;
+  referralCode?: string;
   products?: Product[];
   categories?: Category[];
 }
@@ -37,6 +44,8 @@ export interface Product {
   price: number;
   imageUrl: string | null;
   available: boolean;
+  views?: number;
+  stock?: number;
   storeId: string;
   categoryId: string | null;
   createdAt: string;
@@ -54,9 +63,12 @@ export interface Conversation {
   customerId: string;
   storeId: string;
   createdAt: string;
-  store?: Pick<Store, 'name' | 'slug' | 'logoUrl'>;
-  customer?: Pick<User, 'name' | 'avatarUrl'>;
+  assertedProductId?: string;
+  store?: Pick<Store, "name" | "slug" | "logoUrl" | "plan" | "whatsapp">;
+  customer?: Pick<User, "name" | "avatarUrl">;
   lastMessage?: Message;
+  messages?: Message[];
+  unreadCount?: number;
 }
 
 export interface Message {
@@ -65,6 +77,8 @@ export interface Message {
   conversationId: string;
   senderId: string;
   createdAt: string;
+  aiGenerated?: boolean;
+  waText?: string | null;
 }
 
 export interface AuthResponse {
@@ -93,6 +107,12 @@ export interface TopProduct {
   quantity: number;
 }
 
+export interface ViewedProduct {
+  productId: string;
+  name: string;
+  views: number;
+}
+
 export interface SaleStats {
   totalSales: number;
   totalRevenue: number;
@@ -101,5 +121,19 @@ export interface SaleStats {
   customerCount: number;
   productCount: number;
   topProducts: TopProduct[];
+  topViewed: ViewedProduct[];
+  conversionRate: number;
+  totalViews: number;
   recentSales: RecentSale[];
+}
+
+export interface ReferralInfo {
+  active: boolean;
+  referralCode?: string;
+  referralLink?: string;
+  prestigePoints: number;
+  required: number;
+  verified: boolean;
+  productLimit: number;
+  message?: string;
 }

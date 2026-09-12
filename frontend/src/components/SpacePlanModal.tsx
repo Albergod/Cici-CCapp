@@ -5,29 +5,175 @@ import {
   Store,
   Star,
   ShoppingBag,
-  Sparkles,
   ChevronRight,
 } from 'lucide-react';
+import { PLAN_PRICES_COP } from '@/lib/plan-config';
 
 export type SpaceSelection =
   | { type: 'free' }
-  | { type: 'paid'; cycle: 'MONTHLY' | 'BI_MONTHLY' };
+  | { type: 'paid'; plan: 'PRO' | 'BUSINESS'; cycle: 'MONTHLY' | 'BI_MONTHLY' };
+
+export type UpgradeSelection = {
+  plan: 'PRO' | 'BUSINESS';
+  cycle: 'MONTHLY' | 'BI_MONTHLY';
+};
 
 const PLAN_PRICES: Record<'MONTHLY' | 'BI_MONTHLY', { price: string; perMonth: string; badge: string | null }> = {
-  MONTHLY: { price: '$30.000', perMonth: '/mes', badge: null },
-  BI_MONTHLY: { price: '$55.000', perMonth: '/2 meses', badge: 'Ahorra $5.000' },
+  MONTHLY: { price: String(PLAN_PRICES_COP.MONTHLY.amount), perMonth: '/mes', badge: PLAN_PRICES_COP.MONTHLY.savings },
+  BI_MONTHLY: { price: String(PLAN_PRICES_COP.BI_MONTHLY.amount), perMonth: '/2 meses', badge: PLAN_PRICES_COP.BI_MONTHLY.savings },
 };
 
 interface SpacePlanModalProps {
   open: boolean;
   onClose: () => void;
-  onSelect: (selection: SpaceSelection) => void;
+  onSelect?: (selection: SpaceSelection) => void;
+  onUpgrade?: (selection: UpgradeSelection) => void;
+  mode?: 'create' | 'upgrade';
 }
 
-export function SpacePlanModal({ open, onClose, onSelect }: SpacePlanModalProps) {
+function PaidPlanCard({
+  plan,
+  title,
+  desc,
+  icon,
+  badge,
+  badgeClass,
+  isHighlight,
+  features,
+  buttonLabel,
+  onUpgrade,
+}: {
+  plan: 'PRO' | 'BUSINESS';
+  title: string;
+  desc: string;
+  icon: React.ReactNode;
+  badge: string | null;
+  badgeClass: string;
+  isHighlight?: boolean;
+  features: { text: string; included: boolean }[];
+  buttonLabel: string;
+  onUpgrade: (sel: UpgradeSelection) => void;
+}) {
   const [cycle, setCycle] = useState<'MONTHLY' | 'BI_MONTHLY'>('MONTHLY');
+  const price = PLAN_PRICES[cycle];
 
+  return (
+    <div
+      className={`p-5 rounded-2xl text-left transition-all relative ${
+        isHighlight
+          ? 'border-2 border-brand-500 bg-brand-50/40 shadow-soft'
+          : 'border border-surface-200'
+      }`}
+    >
+      {badge && (
+        <span
+          className={`absolute -top-3 left-5 px-2.5 py-0.5 text-[11px] font-extrabold text-white rounded-full flex items-center gap-1 ${badgeClass}`}
+        >
+          {badge}
+        </span>
+      )}
+      <div
+        className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${
+          isHighlight
+            ? 'bg-gradient-to-r from-brand-600 to-accent-500 text-white'
+            : 'bg-surface-100 text-surface-600'
+        }`}
+      >
+        {icon}
+      </div>
+      <h3 className="font-extrabold text-surface-900">{title}</h3>
+      <p className="text-sm text-surface-500 mt-1">{desc}</p>
+      <div className="mt-3 space-y-2 text-sm">
+        {features.map((f) => (
+          <span
+            key={f.text}
+            className="flex items-center gap-2 text-surface-700"
+          >
+            {f.included ? (
+              <Check className="w-4 h-4 text-emerald-500" />
+            ) : (
+              <X className="w-4 h-4 text-surface-300" />
+            )}
+            {f.text}
+          </span>
+        ))}
+      </div>
+
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={() => setCycle('MONTHLY')}
+          className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-colors ${
+            cycle === 'MONTHLY'
+              ? 'border-brand-500 bg-brand-600 text-white'
+              : 'border-surface-200 bg-white text-surface-600 hover:border-brand-300'
+          }`}
+        >
+          Mensual
+        </button>
+        <button
+          onClick={() => setCycle('BI_MONTHLY')}
+          className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-colors ${
+            cycle === 'BI_MONTHLY'
+              ? 'border-brand-500 bg-brand-600 text-white'
+              : 'border-surface-200 bg-white text-surface-600 hover:border-brand-300'
+          }`}
+        >
+          Bimensual
+        </button>
+      </div>
+
+      <div className="mt-4 flex items-end justify-between">
+        <div>
+          <p className="text-xs font-semibold text-surface-400 uppercase tracking-wide">
+            Precio del espacio
+          </p>
+          <p className="text-3xl font-extrabold text-surface-900 leading-none mt-1">
+            {price.price}
+            <span className="text-sm font-semibold text-surface-500">
+              {price.perMonth}
+            </span>
+          </p>
+        </div>
+        {price.badge && (
+          <span className="px-2.5 py-1 text-xs font-extrabold bg-emerald-100 text-emerald-700 rounded-full">
+            {price.badge}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 text-sm text-surface-700">
+        {cycle === 'MONTHLY' ? (
+          <p>
+            Pagas <strong className="text-surface-900">una vez al mes</strong>. Ideal si quieres
+            pagar ligero cada mes.
+          </p>
+        ) : (
+          <p>
+            Pagas <strong className="text-surface-900">cada 2 meses</strong> con mejor precio por
+            mes. Perfecto para ahorrar.
+          </p>
+        )}
+      </div>
+
+      <button
+        onClick={() => onUpgrade({ plan, cycle })}
+        className={`mt-3 w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold text-white transition-all ${
+          isHighlight
+            ? 'bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600'
+            : 'bg-surface-900 hover:bg-surface-800'
+        }`}
+      >
+        {buttonLabel}
+        <ChevronRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'create' }: SpacePlanModalProps) {
   if (!open) return null;
+
+  const isUpgrade = mode === 'upgrade';
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto">
@@ -50,132 +196,77 @@ export function SpacePlanModal({ open, onClose, onSelect }: SpacePlanModalProps)
           </div>
           <div>
             <h2 className="text-xl font-extrabold text-surface-900 leading-tight">
-              Elige tu espacio de venta
+              {isUpgrade ? 'Activa tu Espacio Premium' : 'Elige tu espacio de venta'}
             </h2>
             <p className="text-sm text-surface-500">
-              Arriendo del espacio dentro del centro comercial digital
+              {isUpgrade
+                ? 'Desbloquea los beneficios del plan de pago'
+                : 'Arriendo del espacio dentro del centro comercial digital'}
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-          {/* Plan Free */}
-          <button
-            onClick={() => onSelect({ type: 'free' })}
-            className="p-5 rounded-2xl border border-surface-200 hover:border-brand-300 hover:bg-surface-50 text-left transition-all group"
-          >
-            <div className="w-10 h-10 rounded-xl bg-surface-100 text-surface-600 flex items-center justify-center mb-3 group-hover:bg-brand-100 group-hover:text-brand-600 transition-colors">
-              <ShoppingBag className="w-5 h-5" />
-            </div>
-            <h3 className="font-extrabold text-surface-900">Comerciante Free</h3>
-            <p className="text-sm text-surface-500 mt-1">
-              Comienza sin pagar nada. Publica tus productos y abre tu local.
-            </p>
-            <div className="mt-3 space-y-2 text-sm">
-              <span className="flex items-center gap-2 text-surface-700">
-                <Check className="w-4 h-4 text-emerald-500" />
-                Prueba de 2 meses y 15 días gratis
-              </span>
-              <span className="flex items-center gap-2 text-surface-700">
-                <Check className="w-4 h-4 text-emerald-500" />
-                Contacto con clientes durante la prueba
-              </span>
-              <span className="flex items-center gap-2 text-surface-400">
-                <X className="w-4 h-4" />
-                Sin contacto después de la prueba
-              </span>
-            </div>
-            <span className={`mt-4 inline-flex items-center gap-1 text-sm font-bold px-3 py-1.5 bg-brand-100 text-brand-700 rounded-full`}>
-              Crear mi tienda gratis
-              <ChevronRight className="w-4 h-4" />
-            </span>
-          </button>
-
-          {/* Plan Premium */}
-          <div className="p-5 rounded-2xl border-2 border-brand-500 bg-brand-50/40 shadow-soft relative">
-            <span className="absolute -top-3 left-5 px-2.5 py-0.5 text-[11px] font-extrabold bg-gradient-to-r from-brand-600 to-accent-500 text-white rounded-full flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> RECOMENDADO
-            </span>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-brand-600 to-accent-500 text-white flex items-center justify-center mb-3">
-              <Star className="w-5 h-5" />
-            </div>
-            <h3 className="font-extrabold text-surface-900">Espacio Premium</h3>
-            <p className="text-sm text-surface-500 mt-1">
-              Contacto con clientes garantizado y espacio permanente.
-            </p>
-
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={() => setCycle('MONTHLY')}
-                className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-colors ${
-                  cycle === 'MONTHLY'
-                    ? 'border-brand-500 bg-brand-600 text-white'
-                    : 'border-surface-200 bg-white text-surface-600 hover:border-brand-300'
-                }`}
-              >
-                Mensual
-              </button>
-              <button
-                onClick={() => setCycle('BI_MONTHLY')}
-                className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-colors ${
-                  cycle === 'BI_MONTHLY'
-                    ? 'border-brand-500 bg-brand-600 text-white'
-                    : 'border-surface-200 bg-white text-surface-600 hover:border-brand-300'
-                }`}
-              >
-                Bimensual
-              </button>
-            </div>
-
-            <div className="mt-4 flex items-end justify-between">
-              <div>
-                <p className="text-xs font-semibold text-surface-400 uppercase tracking-wide">
-                  Precio del espacio
-                </p>
-                <p className="text-3xl font-extrabold text-surface-900 leading-none mt-1">
-                  {PLAN_PRICES[cycle].price}
-                  <span className="text-sm font-semibold text-surface-500">
-                    {PLAN_PRICES[cycle].perMonth}
-                  </span>
-                </p>
-              </div>
-              {PLAN_PRICES[cycle].badge && (
-                <span className="px-2.5 py-1 text-xs font-extrabold bg-emerald-100 text-emerald-700 rounded-full">
-                  {PLAN_PRICES[cycle].badge}
-                </span>
-              )}
-            </div>
-
-            <div className="mt-3 text-sm text-surface-700">
-              {cycle === 'MONTHLY' ? (
-                <p>
-                  Pagas <strong className="text-surface-900">una vez al mes</strong>. Ideal si
-                  quieres pagar ligero cada mes.
-                </p>
-              ) : (
-                <p>
-                  Pagas <strong className="text-surface-900">cada 2 meses</strong> con mejor precio
-                  por mes. Perfecto para ahorrar.
-                </p>
-              )}
-            </div>
-
-            <span className="mt-3 text-xs font-semibold text-surface-400">
-              El pago del espacio se habilitará próximamente.
-            </span>
+        <div className={`mt-6 ${isUpgrade ? 'max-w-md mx-auto' : 'grid grid-cols-1 md:grid-cols-2 gap-4'}`}>
+          {!isUpgrade && (
             <button
-              onClick={() => onSelect({ type: 'paid', cycle })}
-              className="mt-3 w-full inline-flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 rounded-xl text-sm font-bold text-white transition-all"
+              onClick={() => onSelect?.({ type: 'free' })}
+              className="p-5 rounded-2xl border border-surface-200 hover:border-brand-300 hover:bg-surface-50 text-left transition-all group"
             >
-              Elegir espacio por {PLAN_PRICES[cycle].price}
-              <ChevronRight className="w-4 h-4" />
+              <div className="w-10 h-10 rounded-xl bg-surface-100 text-surface-600 flex items-center justify-center mb-3 group-hover:bg-brand-100 group-hover:text-brand-600 transition-colors">
+                <ShoppingBag className="w-5 h-5" />
+              </div>
+              <h3 className="font-extrabold text-surface-900">Comerciante Free</h3>
+              <p className="text-sm text-surface-500 mt-1">
+                Comienza sin pagar nada. Publica tus productos y abre tu local.
+              </p>
+              <div className="mt-3 space-y-2 text-sm">
+                <span className="flex items-center gap-2 text-surface-700">
+                  <Check className="w-4 h-4 text-emerald-500" />
+                  Prueba de 30 días gratis
+                </span>
+                <span className="flex items-center gap-2 text-surface-700">
+                  <Check className="w-4 h-4 text-emerald-500" />
+                  Contacto con clientes siempre disponible
+                </span>
+                <span className="flex items-center gap-2 text-surface-400">
+                  <X className="w-4 h-4" />
+                  Sin sistema de prestigio ni referidos
+                </span>
+                <span className="flex items-center gap-2 text-surface-400">
+                  <X className="w-4 h-4" />
+                  Solo 20 productos
+                </span>
+              </div>
+              <span className="mt-4 inline-flex items-center gap-1 text-sm font-bold px-3 py-1.5 bg-brand-100 text-brand-700 rounded-full">
+                Crear mi tienda gratis
+                <ChevronRight className="w-4 h-4" />
+              </span>
             </button>
-          </div>
+          )}
+
+          <PaidPlanCard
+            plan="PRO"
+            title="Espacio Premium"
+            desc="Contacto con clientes garantizado y espacio permanente."
+            icon={<Star className="w-5 h-5" />}
+            badge={isUpgrade ? null : 'RECOMENDADO'}
+            badgeClass="bg-gradient-to-r from-brand-600 to-accent-500"
+            isHighlight={true}
+            features={[
+              { text: 'Sistema de prestigio y referidos', included: true },
+              { text: 'Check verificado al llegar a 100 puntos', included: true },
+              { text: 'Hasta 100 productos', included: true },
+              { text: 'Métricas de ventas y tasa de conversión', included: true },
+            ]}
+            buttonLabel="Elegir este espacio"
+            onUpgrade={(sel) => (isUpgrade ? onUpgrade?.(sel) : onSelect?.({ type: 'paid', plan: sel.plan, cycle: sel.cycle }))}
+          />
         </div>
 
         <p className="mt-5 text-xs text-surface-400 text-center">
-          Al continuar puedes cambiar tu decisión después desde el dashboard. La forma de pago del
-          espacio Premium se habilitará próximamente.
+          {isUpgrade
+            ? 'Al elegir un plan de pago se desbloquea el sistema de prestigio, tu enlace de referidos y toda la suite de métricas exclusivas.'
+            : 'Al continuar puedes cambiar tu decisión después desde el dashboard. Con el espacio Premium se desbloquea tu sistema de prestigio y tu enlace de referidos.'}
         </p>
       </div>
     </div>

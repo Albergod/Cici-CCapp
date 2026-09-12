@@ -7,11 +7,23 @@ import {
   numeric,
   timestamp,
   uniqueIndex,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 export const planEnum = pgEnum("plan_type", ["FREE", "PRO", "BUSINESS"]);
 export const cycleEnum = pgEnum("subscription_cycle", ["MONTHLY", "BI_MONTHLY"]);
+// Tipo de negocio: define si los productos de la tienda requieren talla
+// (Ropa y Calzado sí; el resto, no).
+export const businessTypeEnum = pgEnum("business_type", [
+  "ROPA",
+  "CALZADO",
+  "ACCESORIOS",
+  "HOGAR",
+  "ALIMENTOS",
+  "SERVICIOS",
+  "OTRO",
+]);
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -19,6 +31,7 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
   avatarUrl: text("avatar_url"),
+  refCode: text("ref_code"), // código de referido que trajo a este usuario
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -29,7 +42,9 @@ export const stores = pgTable("stores", {
   description: text("description"),
   logoUrl: text("logo_url"),
   bannerUrl: text("banner_url"),
+  whatsapp: text("whatsapp"),
   plan: planEnum("plan").default("FREE").notNull(),
+  businessType: businessTypeEnum("business_type").default("OTRO").notNull(),
   subscriptionCycle: cycleEnum("subscription_cycle"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   trialStartedAt: timestamp("trial_started_at").defaultNow().notNull(),
@@ -37,6 +52,9 @@ export const stores = pgTable("stores", {
   ownerId: uuid("owner_id")
     .notNull()
     .references(() => users.id),
+  prestigePoints: numeric("prestige_points", { precision: 10, scale: 0 }).default("0").notNull(),
+  referralCode: text("referral_code").unique(),
+  referredByStoreId: uuid("referred_by_store_id"),
 });
 
 export const categories = pgTable(
@@ -60,6 +78,8 @@ export const products = pgTable("products", {
   price: numeric("price", { precision: 10, scale: 2 }).notNull(),
   imageUrl: text("image_url"),
   available: boolean("available").default(true).notNull(),
+  views: numeric("views", { precision: 10, scale: 0 }).default("0").notNull(),
+  stock: numeric("stock", { precision: 10, scale: 0 }).default("0").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   storeId: uuid("store_id")
     .notNull()
@@ -96,6 +116,19 @@ export const conversations = pgTable(
     storeId: uuid("store_id")
       .notNull()
       .references(() => stores.id),
+    assertedProductId: uuid("asserted_product_id").references(() => products.id),
+    // Última vez que cada participante abrió/vio la conversación. Permite
+    // calcular mensajes no leídos por rol sin guardar estado por mensaje.
+    customerLastReadAt: timestamp("customer_last_read_at"),
+    storeOwnerLastReadAt: timestamp("store_owner_last_read_at"),
+    // Carrito del cliente dentro de este chat: la IA conoce cada producto
+    // seleccionado (id + cantidad + opciones como talla/color) desde que se abre
+    // la conversación.
+    cartItems: jsonb("cart_items").$type<{
+      productId: string;
+      quantity: number;
+      options?: { size?: string; color?: string };
+    }[]>(),
   },
   (t) => ({
     customerStoreUnique: uniqueIndex("conversations_customer_store_unique").on(
@@ -115,6 +148,10 @@ export const messages = pgTable("messages", {
   senderId: uuid("sender_id")
     .notNull()
     .references(() => users.id),
+  aiGenerated: boolean("ai_generated").default(false),
+  // Versión del mensaje destinada al WhatsApp del comerciante (cuando la
+  // respuesta IA contiene una factura, difiere en el aviso de cierre).
+  waText: text("wa_text"),
 });
 
 // Registro de ventas del comercio: una venta puede omitir cliente o producto
@@ -139,6 +176,28 @@ export const saleItems = pgTable("sale_items", {
     .references(() => sales.id),
   productId: uuid("product_id").references(() => products.id),
 });
+
+// Pagos procesados por Mercado Pago (Checkout Pro). El único camino válido
+// para pasar a PRO/BUSINESS: el plan se activa SOLO cuando la app confirma que
+// el pago fue aprobado (webhook + verificación del id de pago vs Mercado Pago).
+export const mpPayments = pgTable(
+  "mp_payments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    mpPaymentId: text("mp_payment_id").notNull(), // id del pago en Mercado Pago
+    status: text("status").notNull(), // approved | pending | rejected | ...
+    plan: planEnum("plan").notNull(),
+    cycle: cycleEnum("cycle").notNull(),
+    amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+    processedAt: timestamp("processed_at").defaultNow().notNull(),
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id),
+  },
+  (t) => ({
+    mpPaymentUnique: uniqueIndex("mp_payments_mp_payment_id_unique").on(t.mpPaymentId),
+  }),
+);
 
 // Registro de pagos reportados por el comerciante para validar su espacio Premium
 export const paymentReports = pgTable("payment_reports", {
@@ -170,6 +229,7 @@ export const storesRelations = relations(stores, ({ one, many }) => ({
   conversations: many(conversations),
   sales: many(sales),
   paymentReports: many(paymentReports),
+  mpPayments: many(mpPayments),
 }));
 
 export const categoriesRelations = relations(categories, ({ one, many }) => ({
@@ -191,6 +251,10 @@ export const followsRelations = relations(follows, ({ one }) => ({
 export const conversationsRelations = relations(conversations, ({ one, many }) => ({
   customer: one(users, { fields: [conversations.customerId], references: [users.id] }),
   store: one(stores, { fields: [conversations.storeId], references: [stores.id] }),
+  assertedProduct: one(products, {
+    fields: [conversations.assertedProductId],
+    references: [products.id],
+  }),
   messages: many(messages),
 }));
 
@@ -215,4 +279,8 @@ export const saleItemsRelations = relations(saleItems, ({ one }) => ({
 
 export const paymentReportsRelations = relations(paymentReports, ({ one }) => ({
   store: one(stores, { fields: [paymentReports.storeId], references: [stores.id] }),
+}));
+
+export const mpPaymentsRelations = relations(mpPayments, ({ one }) => ({
+  store: one(stores, { fields: [mpPayments.storeId], references: [stores.id] }),
 }));

@@ -3,7 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/stores/authStore';
 import { api } from '@/services/api';
 import { Conversation, Message } from '@/types';
-import { Loader2, Send, ArrowLeft, MessageSquare } from 'lucide-react';
+import { Loader2, Send, ArrowLeft, MessageSquare, Bot, MessageCircle, Receipt } from 'lucide-react';
+
+const isInvoice = (content: string) =>
+  content.includes('Pedido Confirmado') || content.includes('✅ *Pedido*');
 
 export function ChatPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -64,9 +67,30 @@ export function ChatPage() {
       const messagesData = await api.chat.getMessages(id);
       setMessages(messagesData);
       connectWebSocket(id);
+      api.chat
+        .markRead(id)
+        .then(() => updateConversationReadState(id))
+        .catch(() => {});
     } catch (err) {
       console.error('Error loading conversation:', err);
     }
+  };
+
+  // Actualiza en la lista solo la conversación indicada (último mensaje y
+  // badge de no leídos) sin volver a cargar todo.
+  const updateConversationReadState = (convId: string, message?: Message) => {
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === convId
+          ? {
+              ...c,
+              lastMessage: message ?? c.lastMessage,
+              unreadCount:
+                message && message.senderId === user?.id ? c.unreadCount : 0,
+            }
+          : c,
+      ),
+    );
   };
 
   const connectWebSocket = (convId: string) => {
@@ -81,11 +105,19 @@ export function ChatPage() {
       const data = JSON.parse(event.data);
       if (data.type === 'message') {
         setMessages((prev) => [...prev, data.message]);
+        updateConversationReadState(convId, data.message);
+        if (data.message.senderId !== user?.id) {
+          api.chat.markRead(convId).catch(() => {});
+        }
       }
     };
 
     ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      console.warn('WebSocket error:', error);
+    };
+
+    ws.onclose = () => {
+      if (wsRef.current === ws) wsRef.current = null;
     };
 
     wsRef.current = ws;
@@ -93,16 +125,31 @@ export function ChatPage() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      return;
-    }
+    const content = newMessage.trim();
+    if (!content || !conversationId) return;
 
     setSending(true);
     try {
-      wsRef.current.send(JSON.stringify({ content: newMessage.trim() }));
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ content }));
+          setNewMessage('');
+          return;
+        } catch (err) {
+          console.warn('WebSocket falló, reintentando por HTTP:', err);
+        }
+      }
+      // El WebSocket no está disponible: se usa el endpoint HTTP (el servidor
+      // igual genera la respuesta IA y la guarda).
+      const { message, aiReply } = await api.chat.sendMessage(conversationId, content);
+      const appended = aiReply ? [message, aiReply] : [message];
+      setMessages((prev) => [...prev, ...appended]);
+      updateConversationReadState(conversationId, aiReply || message);
       setNewMessage('');
     } catch (err) {
       console.error('Error sending message:', err);
+      alert('No se pudo enviar el mensaje. Revisa tu conexión e inténtalo de nuevo.');
     } finally {
       setSending(false);
     }
@@ -148,6 +195,7 @@ export function ChatPage() {
           ) : (
             conversations.map((conv) => {
               const avatar = getConversationAvatar(conv);
+              const unread = conv.unreadCount ?? 0;
               return (
                 <button
                   key={conv.id}
@@ -174,6 +222,11 @@ export function ChatPage() {
                         {conv.lastMessage?.content || 'Sin mensajes'}
                       </p>
                     </div>
+                    {unread > 0 && (
+                      <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-accent-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                        {unread > 99 ? '99+' : unread}
+                      </span>
+                    )}
                   </div>
                 </button>
               );
@@ -210,6 +263,20 @@ export function ChatPage() {
                   {getConversationTitle(activeConversation)}
                 </span>
               </div>
+              {activeConversation?.store?.whatsapp && user?.id === activeConversation.customerId && (
+                <a
+                  href={`https://wa.me/${activeConversation.store.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(
+                    `Hola ${activeConversation.store.name}! Me interesa continuar esta conversación en el chat de la tienda.`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Continuar por WhatsApp"
+                  className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-50 text-green-600 border border-green-200 text-xs font-bold hover:bg-green-100 transition-colors"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  WhatsApp
+                </a>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-50/50">
@@ -227,7 +294,30 @@ export function ChatPage() {
                         : 'bg-white text-surface-900'
                     }`}
                   >
-                    <p className="text-sm leading-relaxed">{msg.content}</p>
+                    {msg.aiGenerated && (
+                      <div
+                        className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide mb-1 px-1.5 py-0.5 rounded-full ${
+                          msg.senderId === user?.id
+                            ? 'bg-white/20 text-white'
+                            : 'bg-brand-50 text-brand-600'
+                        }`}
+                      >
+                        <Bot className="w-3 h-3" />
+                        Respuesta IA
+                      </div>
+                    )}
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                    {msg.aiGenerated && isInvoice(msg.content) && activeConversation?.store?.whatsapp && user?.id === activeConversation.customerId && (
+                      <a
+                        href={`https://wa.me/${activeConversation.store.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(msg.waText || msg.content)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2.5 inline-flex items-center gap-1.5 w-full justify-center py-2 px-3 rounded-lg text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors"
+                      >
+                        <Receipt className="w-3.5 h-3.5" />
+                        Enviar pedido al comerciante
+                      </a>
+                    )}
                     <p
                       className={`text-xs mt-1 ${
                         msg.senderId === user?.id ? 'text-white/70' : 'text-surface-400'

@@ -1,18 +1,18 @@
 // Lógica de negocio de suscripciones y periodo de prueba.
 // Modelo de negocio: "centro comercial digital".
 // - Cada creador abre su tienda (local).
-// - El contacto directo con clientes (chat) está disponible durante el
-//   periodo de prueba gratuita y, después, solo con suscripción de espacio.
+// - El contacto directo con clientes (chat) está SIEMPRE disponible: quien prueba
+//   la app necesita experimentar su valor para luego pagar por el espacio y el
+//   sistema de prestigio/referidos. La suscripción de pago otorga prestigio,
+//   referidos, más productos y permanencia del local.
 
-// Periodo de prueba: 2 meses y 15 días = 75 días de prueba gratis.
-export const TRIAL_DURATION_MS =
-  45 * 24 * 60 * 60 * 1000 + // 45 días
-  30 * 24 * 60 * 60 * 1000; // 30 días => 75 días en total
+// Periodo de prueba del plan gratis: 30 días.
+export const TRIAL_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type SubscriptionStatus = "trial" | "active" | "expired";
 
 export interface ContactEligibility {
-  /** true si el cliente/creador puede usar el contacto directo */
+  /** true si el cliente/creador puede usar el contacto directo. Siempre disponible. */
   contactAvailable: boolean;
   status: SubscriptionStatus;
   /** fecha (ms) en que finaliza la prueba gratis o null si ya pasó */
@@ -24,11 +24,11 @@ export interface ContactEligibility {
 }
 
 /**
- * Evalúa si una tienda puede ofrecer contacto directo (chat) con clientes.
+ * Evalúa la suscripción de una tienda.
  *
- * La tienda recibe el contacto habilitado:
- *  1. Durante el período de prueba gratuita (TRIAL_DURATION_MS desde trialStartedAt), o
- *  2. Mientras haya una suscripción de espacio vigente (subscriptionExpiresAt > now).
+ * El contacto con clientes SIEMPRE está habilitado (no es el muro de pago).
+ * El estado de suscripción se mantiene para propósitos informativos y para
+ * activar los servicios premium del plan de pago (prestigio/referidos).
  */
 export function getContactEligibility(
   trialStartedAt: Date | string | null | undefined,
@@ -51,7 +51,8 @@ export function getContactEligibility(
       ? "trial"
       : "expired";
 
-  const contactAvailable = onTrial || subscribed;
+  // El contacto nunca se bloquea.
+  const contactAvailable = true;
 
   return {
     contactAvailable,

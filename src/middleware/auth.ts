@@ -27,4 +27,19 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
   }
 }
 
+// Igual que requireAuth pero no falla si no hay token: deja req.userId sin definir.
+export function optionalAuth(req: AuthRequest, _res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+  if (header && header.startsWith("Bearer ")) {
+    const token = header.slice("Bearer ".length);
+    try {
+      const payload = jwt.verify(token, JWT_SECRET) as { userId: string };
+      req.userId = payload.userId;
+    } catch {
+      // token inválido: se ignora, se trata como sin sesión
+    }
+  }
+  next();
+}
+
 export { JWT_SECRET };

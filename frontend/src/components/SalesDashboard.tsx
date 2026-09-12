@@ -10,9 +10,41 @@ import {
   Loader2,
   ShoppingCart,
   Trophy,
+  Eye,
+  Percent,
+  Lock,
 } from 'lucide-react';
 import { SaleStats, Store } from '@/types';
 import { api } from '@/services/api';
+
+function PremiumLock({
+  title,
+  desc,
+  onUpgrade,
+}: {
+  title: string;
+  desc: string;
+  onUpgrade: () => void;
+}) {
+  return (
+    <div className="card p-6 border-dashed border-2 border-surface-200">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-7 h-7 rounded-lg bg-surface-100 text-surface-400 flex items-center justify-center">
+          <Lock className="w-4 h-4" />
+        </div>
+        <h4 className="font-extrabold text-surface-900">{title}</h4>
+      </div>
+      <p className="text-sm text-surface-500 leading-relaxed">{desc}</p>
+      <p className="mt-2 text-xs text-surface-400 font-medium">
+        Exclusivo de planes de pago (PRO y BUSINESS)
+      </p>
+      <button onClick={onUpgrade} className="btn-primary mt-4 text-sm">
+        <Lock className="w-4 h-4" />
+        Activar Espacio Premium
+      </button>
+    </div>
+  );
+}
 
 function fmt(n: number): string {
   return new Intl.NumberFormat('es-CO', {
@@ -22,7 +54,11 @@ function fmt(n: number): string {
   }).format(n);
 }
 
-export function SalesDashboard({ store }: { store: Store }) {
+function fmtPct(n: number): string {
+  return `${(n * 100).toFixed(2)}%`;
+}
+
+export function SalesDashboard({ store, onUpgrade }: { store: Store; onUpgrade: () => void }) {
   const products = store.products ?? [];
   const [stats, setStats] = useState<SaleStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -306,6 +342,94 @@ export function SalesDashboard({ store }: { store: Store }) {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Eye className="w-5 h-5 text-brand-500" />
+            <h4 className="font-extrabold text-surface-900">Productos más vistos</h4>
+          </div>
+          {store.plan === 'FREE' ? (
+            <PremiumLock
+              title="Productos más vistos"
+              onUpgrade={onUpgrade}
+              desc="Descubre qué productos atraen más atención de tus clientes y enfoca tu catálogo en los favoritos."
+            />
+          ) : !stats || stats.topViewed.length === 0 ? (
+            <p className="text-sm text-surface-400 text-center py-6">
+              Comparte tu tienda para que los clientes vean tus productos.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {stats.topViewed.map((p, i) => (
+                <div key={p.productId || i} className="flex items-center gap-3">
+                  <span className="w-7 h-7 rounded-lg bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-extrabold">
+                    {i + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-surface-900 text-sm truncate">
+                      {p.name}
+                    </p>
+                    <div className="h-1.5 bg-surface-100 rounded-full mt-1">
+                      <div
+                        className="h-1.5 bg-gradient-to-r from-brand-500 to-accent-500 rounded-full"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (p.views / (stats.topViewed[0]?.views || 1)) * 100
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold text-surface-700">
+                    {p.views} vistas
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Percent className="w-5 h-5 text-accent-500" />
+            <h4 className="font-extrabold text-surface-900">Tasa de conversión</h4>
+          </div>
+          {store.plan === 'FREE' ? (
+            <PremiumLock
+              title="Tasa de conversión"
+              onUpgrade={onUpgrade}
+              desc="Mide cuántas visitas a tus productos se convierten en ventas y optimiza lo que más convierte."
+            />
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-surface-50 rounded-2xl p-5 text-center">
+                  <p className="text-3xl font-extrabold text-accent-600">
+                    {stats ? fmtPct(stats.conversionRate) : '—'}
+                  </p>
+                  <p className="text-xs font-semibold text-surface-500 mt-1">
+                    Ventas / Vistas
+                  </p>
+                </div>
+                <div className="bg-surface-50 rounded-2xl p-5 text-center">
+                  <p className="text-3xl font-extrabold text-brand-600">
+                    {stats?.totalViews ?? '—'}
+                  </p>
+                  <p className="text-xs font-semibold text-surface-500 mt-1">
+                    Vistas totales
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-surface-400 mt-4">
+                Cada vez que un cliente ve un producto de tu tienda cuenta como una vista.
+                La conversión mide cuántas de esas vistas terminan en venta.
+              </p>
+            </>
           )}
         </div>
 

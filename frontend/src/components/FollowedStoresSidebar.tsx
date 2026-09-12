@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Store } from '@/types';
 import { api } from '@/services/api';
 import { useAuth } from '@/stores/authStore';
-import { Store as StoreIcon, Heart, LogIn, Compass, Loader2, X } from 'lucide-react';
+import { StoreIcon, Heart, LogIn, Compass, Loader2, X } from 'lucide-react';
+import { useFollowsVersion } from '@/stores/followsStore';
 
 interface FollowedStoresSidebarProps {
   mode?: 'fixed' | 'drawer';
@@ -16,6 +17,7 @@ export function FollowedStoresSidebar({
 }: FollowedStoresSidebarProps) {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const follows = useFollowsVersion();
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(false);
   const isDrawer = mode === 'drawer';
@@ -23,24 +25,24 @@ export function FollowedStoresSidebar({
     ? 'flex w-80 h-full flex-col bg-white'
     : 'hidden lg:flex w-64 h-[calc(100vh-4rem)] sticky top-16 bg-white border-r border-surface-200 flex-col shrink-0';
 
-  useEffect(() => {
+  const loadFollows = () => {
     if (!isAuthenticated) {
       setStores([]);
       return;
     }
-    let active = true;
-    setLoading(true);
     api.stores
       .following()
-      .then((data) => {
-        if (active) setStores(data);
-      })
+      .then((data) => setStores(data))
       .catch(() => {})
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    setLoading(true);
+    loadFollows();
+    const unsubscribe = follows.subscribe(loadFollows);
     return () => {
-      active = false;
+      unsubscribe();
     };
   }, [isAuthenticated]);
 
@@ -155,14 +157,6 @@ export function FollowedStoresSidebar({
           </>
         )}
       </aside>
-
-      {isDrawer && (
-        <div
-          className="absolute inset-0 bg-black/40 z-0"
-          onClick={onClose}
-          aria-hidden
-        />
-      )}
     </>
   );
 }

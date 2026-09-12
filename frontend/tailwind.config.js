@@ -43,7 +43,8 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        surface: ['Manrope', 'system-ui', '-apple-system', 'sans-serif'],
+        display: ['Space Grotesk', 'Manrope', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         card: '0 1px 3px rgba(0,0,0,0.05), 0 8px 24px -8px rgba(0,0,0,0.08)',

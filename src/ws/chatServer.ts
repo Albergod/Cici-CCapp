@@ -1,11 +1,11 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server } from "http";
 import jwt from "jsonwebtoken";
-import { eq } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import { db } from "../db/client";
-import { conversations, messages, stores } from "../db/schema";
+import { conversations, messages, stores, products } from "../db/schema";
 import { JWT_SECRET } from "../middleware/auth";
-import { getContactEligibility } from "../lib/subscription";
+import { getIAStoreReply, buildInvoiceVersions } from "../lib/ai";
 
 interface ClientInfo {
   ws: WebSocket;
@@ -75,19 +75,12 @@ export function attachChatWebSocket(server: Server) {
     // El cliente solo puede conectarse si la tienda tiene el contacto activo
     // (prueba gratis vigente o suscripción de espacio). El dueño siempre accede.
     if (isCustomer) {
-      const store = await db
-        .select()
-        .from(stores)
-        .where(eq(stores.id, conversation.storeId))
-        .limit(1);
+      const store = await db.select().from(stores).where(eq(stores.id, conversation.storeId)).limit(1);
       if (!store[0]) {
         ws.close(4004, "Conversación no encontrada");
         return;
       }
-      const elig = getContactEligibility(
-        store[0].trialStartedAt,
-        store[0].subscriptionExpiresAt,
-      );
+      const elig = { contactAvailable: true }; // contacto siempre disponible
       if (!elig.contactAvailable) {
         ws.close(4005, "Contacto no disponible: se requiere suscripción de espacio");
         return;
@@ -102,12 +95,80 @@ export function attachChatWebSocket(server: Server) {
         const { content } = JSON.parse(raw.toString());
         if (!content || typeof content !== "string" || !content.trim()) return;
 
+        // Insertar el mensaje del cliente
         const [message] = await db
           .insert(messages)
           .values({ conversationId, senderId: userId, content: content.trim() })
           .returning();
 
         broadcast(conversationId, { type: "message", message });
+
+        // La IA solo actúa si el cliente llegó por una productCard (hay producto
+        // asociado a la conversación). Si usó el botón "Contactar" general de la
+        // tienda, el mensaje queda esperando la respuesta del vendedor humano.
+        const isCustomerMsg = conversation.customerId === userId;
+        const isPaidPlan = conversation.store.plan === "PRO" || conversation.store.plan === "BUSINESS";
+
+        if (isCustomerMsg && isPaidPlan && conversation.assertedProductId) {
+          // Traer los productos de la tienda
+          const storeWithProducts = await db.query.stores.findFirst({
+            where: eq(stores.id, conversation.storeId),
+            with: { products: true },
+          });
+
+          if (storeWithProducts) {
+            const storeInfo = {
+              name: storeWithProducts.name,
+              plan: storeWithProducts.plan as "PRO" | "BUSINESS",
+              prestigeActive: true,
+              whatsapp: storeWithProducts.whatsapp ?? null,
+              needsSizes: (storeWithProducts.businessType as string || "OTRO") === "ROPA"
+                || (storeWithProducts.businessType as string || "OTRO") === "CALZADO",
+            };
+
+            const storeProducts = (storeWithProducts.products || []).map((p) => ({
+              name: p.name,
+              price: Number(p.price),
+              description: p.description ?? undefined,
+              stock: p.stock !== undefined && p.stock !== null ? Number(p.stock) : null,
+            }));
+
+            const contextProduct = conversation.assertedProductId
+              ? storeWithProducts.products?.find((p) => p.id === conversation.assertedProductId) ?? null
+              : null;
+
+            // Historial previo para que la IA recuerde datos ya aportados
+            const history = await db
+              .select({ content: messages.content })
+              .from(messages)
+              .where(eq(messages.conversationId, conversationId))
+              .orderBy(asc(messages.createdAt));
+
+            const aiReply = await getIAStoreReply({
+              store: storeInfo,
+              products: storeProducts,
+              history,
+              contextProduct,
+            });
+
+            // Si es una factura, separar versión chat (cliente) y WhatsApp (comerciante)
+            const invoiceVersions = buildInvoiceVersions(aiReply);
+
+            // Insertar el mensaje de la IA
+            const [aiMsg] = await db
+              .insert(messages)
+              .values({
+                conversationId,
+                senderId: storeWithProducts.ownerId,
+                content: invoiceVersions ? invoiceVersions.chat : aiReply,
+                waText: invoiceVersions ? invoiceVersions.wa : null,
+                aiGenerated: true,
+              })
+              .returning();
+
+            broadcast(conversationId, { type: "message", message: aiMsg });
+          }
+        }
       } catch {
         ws.send(JSON.stringify({ type: "error", error: "Payload inválido" }));
       }

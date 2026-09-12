@@ -1,9 +1,10 @@
 import { X, Wallet, Check, Smartphone, ShieldCheck, QrCode } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { PLAN_PRICES_COP } from '@/lib/plan-config';
 
 export type PlanCycle = 'MONTHLY' | 'BI_MONTHLY';
 
-// ─── Configuración del cobro Nequi Negocios ────────────────────────────────
+// ─── Configuración del cobro Nequi Negocios ──────────────────────────
 // Cada ciclo de pago tiene SU PROPIO QR con el monto predefinido, para que el
 // cliente escanee el correcto y pague bien. Cuando tengas tu cuenta de Nequi
 // Negocios, genera UN link/QR de cobro por cada monto y pégalo aquí.
@@ -13,8 +14,8 @@ const APP_BRAND = 'CC Platform';
 // CADA plan. Mientras no la tengas, déjalos en null y se generará un marcador
 // para que la factura luzca igual.
 const NEQUI_URLS: Record<PlanCycle, string | null> = {
-  MONTHLY: null, // ej. "https://cuenta-nequi.com/cobrar?monto=30000&concepto=mes"
-  BI_MONTHLY: null, // ej. "https://cuenta-nequi.com/cobrar?monto=55000&concepto=bimensual"
+  MONTHLY: null, // ej. "https://cuenta-nequi.com/cobrar?monto=20000&concepto=mes"
+  BI_MONTHLY: null, // ej. "https://cuenta-nequi.com/cobrar?monto=30000&concepto=bimensual"
 };
 
 function buildPaymentData(cycle: PlanCycle): string {
@@ -23,9 +24,12 @@ function buildPaymentData(cycle: PlanCycle): string {
   const url = NEQUI_URLS[cycle];
   if (url) return url;
   const isMonthly = cycle === 'MONTHLY';
+  const price = isMonthly
+    ? String(PLAN_PRICES_COP.MONTHLY.amount)
+    : String(PLAN_PRICES_COP.BI_MONTHLY.amount);
   return isMonthly
-    ? `CC Platform · Espacio Mensual · $30.000`
-    : `CC Platform · Espacio Bimensual · $55.000`;
+    ? `CC Platform · Espacio Mensual · ${price}`
+    : `CC Platform · Espacio Bimensual · ${price}`;
 }
 
 const INVOICE_DATA: Record<
@@ -33,17 +37,17 @@ const INVOICE_DATA: Record<
   { price: string; perMonth: string; period: string; savings: string | null; badge: string }
 > = {
   MONTHLY: {
-    price: '30.000',
+    price: String(PLAN_PRICES_COP.MONTHLY.amount),
     perMonth: '/mes',
     period: '1 mes de espacio',
-    savings: null,
+    savings: PLAN_PRICES_COP.MONTHLY.savings,
     badge: 'Mensual',
   },
   BI_MONTHLY: {
-    price: '55.000',
+    price: String(PLAN_PRICES_COP.BI_MONTHLY.amount),
     perMonth: '/2 meses',
     period: '2 meses de espacio',
-    savings: '$5.000',
+    savings: PLAN_PRICES_COP.BI_MONTHLY.savings,
     badge: 'Bimensual',
   },
 };
@@ -53,9 +57,18 @@ interface NequiInvoiceModalProps {
   cycle: PlanCycle;
   onConfirm: () => void;
   onClose: () => void;
+  confirmLabel?: string;
+  bottomNote?: string;
 }
 
-export function NequiInvoiceModal({ open, cycle, onConfirm, onClose }: NequiInvoiceModalProps) {
+export function NequiInvoiceModal({
+  open,
+  cycle,
+  onConfirm,
+  onClose,
+  confirmLabel = 'Ya pagué, crear mi tienda',
+  bottomNote = 'Al confirmar, tu tienda se crea con el Espacio Premium activo y se desbloquea tu sistema de prestigio y referidos. La validación manual del pago se habilita en una próxima fase.',
+}: NequiInvoiceModalProps) {
   if (!open) return null;
 
   const data = INVOICE_DATA[cycle];
@@ -156,7 +169,7 @@ export function NequiInvoiceModal({ open, cycle, onConfirm, onClose }: NequiInvo
         <div className="mt-5 flex flex-col gap-2.5">
           <button onClick={onConfirm} className="btn-primary w-full">
             <Check className="w-4 h-4" />
-            Ya pagué, crear mi tienda
+            {confirmLabel}
           </button>
           <button
             onClick={onClose}
@@ -168,9 +181,7 @@ export function NequiInvoiceModal({ open, cycle, onConfirm, onClose }: NequiInvo
 
         <p className="mt-4 flex items-start gap-1.5 text-[11px] text-surface-400">
           <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-          Tu tienda se crea de inmediato con la prueba gratis. Cuando confirmemos tu pago, se
-          activará tu espacio Premium por el período elegido. Actualmente la confirmación de pago
-          se habilita en una próxima fase.
+          {bottomNote}
         </p>
       </div>
     </div>

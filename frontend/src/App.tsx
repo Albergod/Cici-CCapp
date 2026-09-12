@@ -10,6 +10,7 @@ import { StorePage } from '@/pages/StorePage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { ChatPage } from '@/pages/ChatPage';
 import { SearchPage } from '@/pages/SearchPage';
+import { AdminPage } from '@/pages/AdminPage';
 
 const AUTH_PAGES = ['/login', '/register'];
 
@@ -38,6 +39,11 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 
           {drawerOpen && (
             <div className="lg:hidden fixed inset-0 z-50">
+              <div
+                className="absolute inset-0 bg-black/40"
+                onClick={() => setDrawerOpen(false)}
+                aria-hidden
+              />
               <div className="absolute top-16 bottom-0 left-0 z-10 shadow-lift">
                 <FollowedStoresSidebar
                   mode="drawer"
@@ -116,6 +122,14 @@ function App() {
         element={
           <AppLayout>
             <SearchPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <AppLayout>
+            <AdminPage />
           </AppLayout>
         }
       />

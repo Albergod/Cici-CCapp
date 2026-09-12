@@ -3,19 +3,21 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Store } from '@/types';
 import { api } from '@/services/api';
 import { useAuth } from '@/stores/authStore';
+import { useFollowsVersion } from '@/stores/followsStore';
 import { ProductCard } from '@/components/ProductCard';
-import { Loader2, Users, Package, MessageSquare, ArrowLeft, UserCheck, Lock } from 'lucide-react';
+import { Loader2, Users, Package, MessageSquare, ArrowLeft, UserCheck, BadgeCheck, Share2, Check, Sparkles } from 'lucide-react';
 
 export function StorePage() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const follows = useFollowsVersion();
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [following, setFollowing] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
-  const [contactBlocked, setContactBlocked] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (slug) loadStore();
@@ -27,6 +29,7 @@ export function StorePage() {
       const data = await api.stores.getBySlug(slug!);
       setStore(data);
       setFollowersCount(data.followersCount || 0);
+      setFollowing(!!data.following);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar tienda');
     } finally {
@@ -44,35 +47,44 @@ export function StorePage() {
       const result = await api.stores.follow(store.id);
       setFollowing(result.following);
       setFollowersCount((prev) => (result.following ? prev + 1 : prev - 1));
+      follows.notifyFollowsChanged();
     } catch (err) {
       console.error('Error following store:', err);
     }
   };
 
-  const handleContact = async () => {
-    // Si la tienda explícitamente no tiene contacto disponible, avisamos sin llamar a la API.
-    if (store && store.contactAvailable === false) {
-      setContactBlocked(true);
-      return;
-    }
-
+  const handleContact = async (productId?: string) => {
     if (!isAuthenticated || !store) {
       navigate('/login');
       return;
     }
 
-    try {
-      setContactBlocked(false);
-      const conversation = await api.chat.openConversation(store.id);
-      navigate(`/chat/${conversation.id}`);
-    } catch (err: any) {
-      // El backend devuelve code: 'SUBSCRIPTION_REQUIRED' cuando no hay contacto activo.
-      if (err?.message?.includes('suscripción') || err?.message?.includes('contacto')) {
-        setContactBlocked(true);
-      } else {
-        console.error('Error opening conversation:', err);
-      }
+    if (productId) {
+      api.products.registerView(productId).catch(() => {});
     }
+
+    try {
+      const conversation = await api.chat.openConversation(store.id, productId);
+      navigate(`/chat/${conversation.id}`);
+    } catch (err) {
+      console.error('Error opening conversation:', err);
+    }
+  };
+
+  const handleShare = async () => {
+    const url = `${window.location.origin}/store/${store?.slug}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const input = document.createElement('input');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   if (loading) {
@@ -96,101 +108,156 @@ export function StorePage() {
     );
   }
 
-  const gradient = 'bg-gradient-to-br from-brand-600 via-brand-500 to-accent-500';
-
   return (
     <div className="min-h-screen pt-16">
-      <div className={`relative h-48 md:h-60 ${gradient}`}>
-        {store.bannerUrl && (
+      {/* ── Portada ─────────────────────────────────────────── */}
+      <div className="relative h-56 md:h-72 overflow-hidden bg-gradient-to-br from-brand-700 via-brand-500 to-accent-500">
+        {store.bannerUrl ? (
           <img src={store.bannerUrl} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'radial-gradient(circle at 20% 30%, #fff 0, transparent 45%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.6) 0, transparent 40%)' }} />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-surface-100 via-surface-100/20 to-black/20" />
+        {!store.bannerUrl && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-[10rem] md:text-[14rem] font-display font-bold text-white/10 leading-none select-none">
+              {store.name.charAt(0).toUpperCase()}
+            </span>
+          </div>
+        )}
         <button
           onClick={() => navigate(-1)}
-          className="absolute top-4 left-4 p-2.5 rounded-full bg-white/85 hover:bg-white text-surface-700 shadow-soft transition-colors"
+          className="absolute top-4 left-4 p-2.5 rounded-full bg-white/90 backdrop-blur hover:bg-white text-surface-700 shadow-lift transition-all active:scale-95"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4">
-        <div className="relative -mt-14 mb-8">
+      {/* ── Cabecera de la tienda ───────────────────────────── */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="relative -mt-14 mb-10">
           <div className="flex flex-col md:flex-row items-start md:items-end gap-5">
-            <div className="w-28 h-28 rounded-3xl bg-white shadow-lift flex items-center justify-center overflow-hidden ring-4 ring-white">
-              {store.logoUrl ? (
-                <img src={store.logoUrl} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className={`w-full h-full ${gradient} flex items-center justify-center text-white text-4xl font-extrabold`}>
-                  {store.name.charAt(0).toUpperCase()}
+            <div className="relative shrink-0">
+              <div className="absolute -inset-1.5 rounded-[1.9rem] bg-gradient-to-br from-brand-500 to-accent-500 opacity-70 blur-[6px]" />
+              <div className="relative w-28 h-28 rounded-3xl bg-white shadow-lift flex items-center justify-center overflow-hidden ring-4 ring-white">
+                {store.logoUrl ? (
+                  <img src={store.logoUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="w-full h-full bg-gradient-to-br from-brand-600 to-accent-500 flex items-center justify-center text-white text-4xl font-display font-bold">
+                    {store.name.charAt(0).toUpperCase()}
+                  </span>
+                )}
+              </div>
+              {store.verified && (
+                <span className="absolute -bottom-2 -right-2 inline-flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white ring-4 ring-white shadow-soft">
+                  <BadgeCheck className="w-4 h-4" />
                 </span>
               )}
             </div>
 
-            <div className="flex-1">
-              <h1 className="text-2xl md:text-3xl font-extrabold text-surface-900">
-                {store.name}
-              </h1>
-              {store.description && (
-                <p className="text-surface-500 mt-1.5 max-w-2xl">{store.description}</p>
-              )}
-
-              <div className="flex items-center flex-wrap gap-5 mt-4 text-sm text-surface-500 font-medium">
-                <span className="inline-flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-brand-500" />
-                  <strong className="text-surface-900">{followersCount}</strong> seguidores
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <Package className="w-4 h-4 text-brand-500" />
-                  <strong className="text-surface-900">{store.products?.length || 0}</strong> productos
-                </span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2.5 flex-wrap mt-3 md:mt-0">
                 {store.plan !== 'FREE' && (
-                  <span className="px-2.5 py-1 text-xs font-bold bg-brand-100 text-brand-700 rounded-full">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gradient-to-r from-brand-600 to-accent-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-soft">
+                    <Sparkles className="w-3 h-3" />
                     {store.plan}
                   </span>
                 )}
+                <h1 className="font-display text-3xl md:text-4xl font-bold text-surface-900 tracking-tight flex items-center gap-2">
+                  {store.name}
+                  {store.verified && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+                      <BadgeCheck className="w-3.5 h-3.5" />
+                      Verificada
+                    </span>
+                  )}
+                </h1>
+              </div>
+              {store.description && (
+                <p className="text-surface-500 mt-2 max-w-2xl text-[15px] leading-relaxed">
+                  {store.description}
+                </p>
+              )}
+
+              <div className="flex items-center gap-6 mt-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-brand-50 text-brand-600">
+                    <Users className="w-4 h-4" />
+                  </span>
+                  <div>
+                    <strong className="font-display text-lg font-bold text-surface-900 leading-none">{followersCount}</strong>
+                    <span className="block text-xs text-surface-500 mt-0.5">seguidores</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-accent-50 text-accent-500">
+                    <Package className="w-4 h-4" />
+                  </span>
+                  <div>
+                    <strong className="font-display text-lg font-bold text-surface-900 leading-none">{store.products?.length || 0}</strong>
+                    <span className="block text-xs text-surface-500 mt-0.5">productos</span>
+                  </div>
+                </div>
               </div>
             </div>
 
             <div className="flex gap-2.5 w-full md:w-auto">
               <button
                 onClick={handleFollow}
-                className={`flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98] ${
+                className={`flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl text-sm font-semibold transition-all active:scale-[0.98] ${
                   following
                     ? 'bg-surface-100 text-surface-700 border border-surface-200 hover:bg-surface-200'
-                    : 'bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 text-white shadow-soft'
+                    : 'bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 text-white shadow-lift'
                 }`}
               >
                 <UserCheck className="w-4 h-4" />
                 {following ? 'Siguiendo' : 'Seguir'}
               </button>
               <button
-                onClick={handleContact}
-                disabled={store.contactAvailable === false}
-                className={`flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98] ${
-                  store.contactAvailable === false
-                    ? 'bg-surface-100 text-surface-400 border border-surface-200 cursor-not-allowed'
-                    : 'text-surface-700 bg-white border border-surface-200 hover:bg-surface-50 shadow-soft'
-                }`}
+                onClick={() => handleContact()}
+                className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl text-sm font-semibold transition-all active:scale-[0.98] text-surface-900 bg-white border border-surface-200 hover:border-brand-300 hover:shadow-soft"
               >
-                {store.contactAvailable === false ? (
-                  <Lock className="w-4 h-4" />
+                <MessageSquare className="w-4 h-4 text-brand-500" />
+                Contactar
+              </button>
+              <button
+                onClick={handleShare}
+                className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-sm font-semibold transition-all active:scale-[0.98] text-surface-900 bg-white border border-surface-200 hover:border-surface-300 hover:shadow-soft"
+                aria-label="Compartir tienda"
+              >
+                {copied ? (
+                  <Check className="w-4 h-4 text-emerald-500" />
                 ) : (
-                  <MessageSquare className="w-4 h-4 text-brand-500" />
+                  <Share2 className="w-4 h-4 text-surface-500" />
                 )}
-                {store.contactAvailable === false ? 'Contacto cerrado' : 'Contactar'}
               </button>
             </div>
           </div>
         </div>
 
-        <div className="mb-8">
-          <h2 className="text-lg font-extrabold text-surface-900 mb-4">Productos</h2>
+        {/* ── Productos ─────────────────────────────────────── */}
+        <div className="mb-10">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="font-display text-xl md:text-2xl font-bold text-surface-900 tracking-tight flex items-center gap-2.5">
+              Productos
+              <span className="inline-flex items-center justify-center min-w-[1.75rem] h-6 px-2 rounded-full bg-brand-100 text-brand-700 text-xs font-bold">
+                {store.products?.length || 0}
+              </span>
+            </h2>
+            {store.products && store.products.length > 0 && (
+              <span className="hidden sm:block text-xs text-surface-400 font-medium">
+                Toque un producto para consultar.
+              </span>
+            )}
+          </div>
+
           {!store.products || store.products.length === 0 ? (
-            <div className="text-center py-14 card p-10">
-              <div className="w-14 h-14 rounded-2xl bg-surface-100 text-surface-400 flex items-center justify-center mx-auto mb-3">
+            <div className="text-center py-16 card p-10">
+              <div className="w-14 h-14 rounded-2xl bg-surface-100 text-surface-400 flex items-center justify-center mx-auto mb-4">
                 <Package className="w-7 h-7" />
               </div>
-              <p className="text-surface-500">Esta tienda aún no tiene productos</p>
+              <p className="font-display font-bold text-surface-700 mb-1">Aún no hay productos</p>
+              <p className="text-surface-400 text-sm">Vuelve pronto, esta tienda está abriendo su vitrina.</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -198,43 +265,12 @@ export function StorePage() {
                 <ProductCard
                   key={product.id}
                   product={product}
-                  onContact={store.contactAvailable === false ? undefined : handleContact}
+                  onContact={handleContact}
                 />
               ))}
             </div>
           )}
         </div>
-
-        {store.contactAvailable === false && (
-          <div className="mb-8 p-4 bg-surface-50 border border-surface-200 rounded-2xl flex items-center gap-3 text-sm text-surface-600">
-            <Lock className="w-5 h-5 text-surface-400 shrink-0" />
-            <span>
-              Esta tienda no tiene el <strong>canal de contacto</strong> activo. El vendedor completó su periodo de prueba
-              y necesita una <strong>suscripción de espacio</strong> para recibir mensajes.
-            </span>
-          </div>
-        )}
-
-        {contactBlocked && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-surface-900/50 backdrop-blur-sm" onClick={() => setContactBlocked(false)} />
-            <div className="card p-6 w-full max-w-sm relative shadow-lift">
-              <div className="w-12 h-12 rounded-2xl bg-surface-100 text-surface-500 flex items-center justify-center mx-auto mb-4">
-                <Lock className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-extrabold text-surface-900 text-center mb-2">
-                Contacto no disponible
-              </h3>
-              <p className="text-sm text-surface-600 text-center mb-5">
-                Esta tienda ha terminado su periodo de prueba y necesita una suscripción de espacio para habilitar
-                el contacto con clientes.
-              </p>
-              <button onClick={() => setContactBlocked(false)} className="btn-primary w-full">
-                Entendido
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

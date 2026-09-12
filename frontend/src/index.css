@@ -3,7 +3,12 @@
 @tailwind utilities;
 
 * {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Space Grotesk', 'Manrope', system-ui, sans-serif;
+  letter-spacing: -0.01em;
 }
 
 html {
@@ -14,10 +19,11 @@ html {
 body {
   @apply bg-surface-100 text-surface-900 min-h-screen;
   background-image: radial-gradient(
-    ellipse at top right,
-    rgba(168, 85, 247, 0.06),
-    transparent 50%
-  );
+      ellipse at top right,
+      rgba(168, 85, 247, 0.08),
+      transparent 50%
+    ),
+    radial-gradient(ellipse at bottom left, rgba(244, 63, 94, 0.05), transparent 40%);
   background-attachment: fixed;
 }
 

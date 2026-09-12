@@ -1,36 +1,53 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/stores/authStore';
 import { api } from '@/services/api';
-import { Store } from '@/types';
+import { Store, Product } from '@/types';
 import { StoreRulesModal } from '@/components/StoreRulesModal';
 import { SpacePlanModal, SpaceSelection } from '@/components/SpacePlanModal';
-import { NequiInvoiceModal } from '@/components/NequiInvoiceModal';
+import { UpgradeSpaceModal } from '@/components/UpgradeSpaceModal';
+import { PremiumUnlockedModal } from '@/components/PremiumUnlockedModal';
+import { PaymentResultModal, PaymentResultState } from '@/components/PaymentResultModal';
 import { SalesDashboard } from '@/components/SalesDashboard';
-import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle } from 'lucide-react';
+import { PrestigeCard } from '@/components/PrestigeCard';
+import { ShareStoreCard } from '@/components/ShareStoreCard';
+import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp } from 'lucide-react';
 
 export function DashboardPage() {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [showSpaceModal, setShowSpaceModal] = useState(false);
-  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [pendingCycle, setPendingCycle] = useState<'MONTHLY' | 'BI_MONTHLY' | undefined>(
-    undefined
-  );
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showPremiumUnlocked, setShowPremiumUnlocked] = useState(false);
+  const [unlockedPlan, setUnlockedPlan] = useState<'PRO' | 'BUSINESS'>('PRO');
+  const [unlockedCycle, setUnlockedCycle] = useState<'MONTHLY' | 'BI_MONTHLY'>('MONTHLY');
+  const [requestedPaidPlan, setRequestedPaidPlan] = useState(false);
+  const [paymentResult, setPaymentResult] = useState<PaymentResultState>(null);
   const [storeName, setStoreName] = useState('');
   const [storeDescription, setStoreDescription] = useState('');
+  const [storeBusinessType, setStoreBusinessType] = useState<'ROPA' | 'CALZADO' | 'ACCESORIOS' | 'HOGAR' | 'ALIMENTOS' | 'SERVICIOS' | 'OTRO'>('OTRO');
   const [showProductForm, setShowProductForm] = useState(false);
   const [addingProduct, setAddingProduct] = useState(false);
   const [productName, setProductName] = useState('');
   const [productDescription, setProductDescription] = useState('');
   const [productPrice, setProductPrice] = useState('');
+  const [productStock, setProductStock] = useState('');
   const [productImageUrl, setProductImageUrl] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [savingStore, setSavingStore] = useState(false);
+  const [editStoreName, setEditStoreName] = useState('');
+  const [editStoreDescription, setEditStoreDescription] = useState('');
+  const [editLogoUrl, setEditLogoUrl] = useState('');
+  const [editBannerUrl, setEditBannerUrl] = useState('');
+  const [editWhatsapp, setEditWhatsapp] = useState('');
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -39,6 +56,65 @@ export function DashboardPage() {
     }
     loadUserStore();
   }, [isAuthenticated]);
+
+  // Retorno del checkout de Mercado Pago: la URL llega con collection_id y
+  // collection_status. Verificamos el pago contra el backend (que lo confirma
+  // contra Mercado Pago) y manejamos approved / pending / failure.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const paymentId = searchParams.get('collection_id') || searchParams.get('payment_id');
+    if (!paymentId) return;
+
+    (async () => {
+      const result = await api.payments.status(paymentId).catch(() => null);
+      const cleanParams = new URLSearchParams(searchParams);
+      cleanParams.delete('collection_id');
+      cleanParams.delete('payment_id');
+      cleanParams.delete('collection_status');
+      cleanParams.delete('status');
+      cleanParams.delete('external_reference');
+      cleanParams.delete('preference_id');
+      cleanParams.delete('merchant_order_id');
+      cleanParams.delete('payment_type');
+      setSearchParams(cleanParams, { replace: true });
+
+      if (!result) {
+        setPaymentResult({ kind: 'failure', reason: 'not_found' });
+        return;
+      }
+      if (result.status === 'approved') {
+        setUnlockedPlan(result.plan ?? 'PRO');
+        setUnlockedCycle(result.cycle ?? 'MONTHLY');
+        setPaymentResult({ kind: 'success', plan: result.plan ?? 'PRO', cycle: result.cycle ?? 'MONTHLY' });
+        loadUserStore();
+      } else if (result.status === 'pending' || result.status === 'in_process') {
+        setPaymentResult({ kind: 'pending' });
+      } else {
+        setPaymentResult({ kind: 'failure', reason: result.detail ?? result.status });
+      }
+    })();
+  }, [isAuthenticated, searchParams]);
+
+  const retryPayment = () => {
+    // Llama de nuevo al último paymentId en la URL o limpia para reabrir checkout.
+    const paymentId = searchParams.get('collection_id') || searchParams.get('payment_id');
+    if (!paymentId) {
+      setPaymentResult(null);
+      setShowUpgradeModal(true);
+      return;
+    }
+    (async () => {
+      const result = await api.payments.status(paymentId).catch(() => null);
+      if (result?.status === 'approved') {
+        setUnlockedPlan(result.plan ?? 'PRO');
+        setUnlockedCycle(result.cycle ?? 'MONTHLY');
+        setPaymentResult({ kind: 'success', plan: result.plan ?? 'PRO', cycle: result.cycle ?? 'MONTHLY' });
+        loadUserStore();
+      } else {
+        setPaymentResult({ kind: 'pending' });
+      }
+    })();
+  };
 
   const loadUserStore = async () => {
     try {
@@ -62,14 +138,21 @@ export function DashboardPage() {
     setCreating(true);
 
     try {
+      // Las tiendas siempre se crean en plan FREE: el plan de pago se activa
+      // SOLO tras pagar aprobado por Mercado Pago (UpgradeSpaceModal).
       const newStore = await api.stores.create({
         name: storeName,
         description: storeDescription || undefined,
-        subscriptionCycle: pendingCycle,
+        businessType: storeBusinessType,
       });
       setStore(newStore);
       setShowCreateForm(false);
-      setPendingCycle(undefined);
+      setStoreBusinessType('OTRO');
+      // Si el usuario había elegido un plan de pago, lanzamos el pago enseguida.
+      if (requestedPaidPlan) {
+        setRequestedPaidPlan(false);
+        setShowUpgradeModal(true);
+      }
     } catch (err) {
       console.error('Error creating store:', err);
     } finally {
@@ -79,27 +162,24 @@ export function DashboardPage() {
 
   const handleSpaceSelect = (selection: SpaceSelection) => {
     setShowSpaceModal(false);
-    if (selection.type === 'paid') {
-      setPendingCycle(selection.cycle);
-      setShowInvoiceModal(true);
-    } else {
-      setPendingCycle(undefined);
-      setShowCreateForm(true);
-    }
-  };
-
-  const handleInvoiceConfirm = () => {
-    setShowInvoiceModal(false);
+    setRequestedPaidPlan(selection.type === 'paid');
     setShowCreateForm(true);
   };
+
+  const openUpgrade = () => setShowUpgradeModal(true);
 
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!store) return;
     setFormError(null);
     const price = Number(productPrice);
+    const stock = Number(productStock);
     if (!productName.trim() || Number.isNaN(price) || price <= 0) {
       setFormError('Ingresa un nombre válido y un precio mayor a 0.');
+      return;
+    }
+    if (Number.isNaN(stock) || stock < 0 || !Number.isInteger(stock)) {
+      setFormError('Ingresa un stock válido (número entero mayor o igual a 0).');
       return;
     }
 
@@ -109,6 +189,7 @@ export function DashboardPage() {
         name: productName.trim(),
         description: productDescription.trim() || undefined,
         price,
+        stock,
         imageUrl: productImageUrl.trim() || undefined,
       });
       setStore((prev) =>
@@ -118,11 +199,119 @@ export function DashboardPage() {
       setProductName('');
       setProductDescription('');
       setProductPrice('');
+      setProductStock('');
       setProductImageUrl('');
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Error al crear producto');
     } finally {
       setAddingProduct(false);
+    }
+  };
+
+  const handleAdjustStock = async (product: Product) => {
+    const input = window.prompt(
+      `Nuevo stock para "${product.name}" (0 = se desactiva solo):`,
+      String(product.stock ?? 0)
+    );
+    if (input === null) return;
+    const stock = Number(input);
+    if (Number.isNaN(stock) || stock < 0 || !Number.isInteger(stock)) {
+      setFormError('Ingresa un stock válido (entero >= 0).');
+      return;
+    }
+    try {
+      const updated = await api.products.update(product.id, { stock });
+      setStore((prev) =>
+        prev
+          ? {
+              ...prev,
+              products: (prev.products || []).map((p) =>
+                p.id === product.id ? { ...p, ...updated } : p
+              ),
+            }
+          : prev
+      );
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Error al ajustar stock');
+    }
+  };
+
+  const handleOpenEdit = () => {
+    if (!store) return;
+    setEditStoreName(store.name);
+    setEditStoreDescription(store.description ?? '');
+    setEditLogoUrl(store.logoUrl ?? '');
+    setEditBannerUrl(store.bannerUrl ?? '');
+    setEditWhatsapp(store.whatsapp ?? '');
+    setShowEditModal(true);
+  };
+
+  const handleSaveStore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!store) return;
+    setSavingStore(true);
+    setFormError(null);
+    try {
+      const updated = await api.stores.update(store.id, {
+        name: editStoreName.trim(),
+        description: editStoreDescription.trim() || undefined,
+        logoUrl: editLogoUrl.trim() || undefined,
+        bannerUrl: editBannerUrl.trim() || undefined,
+        whatsapp: editWhatsapp.trim() || undefined,
+      });
+      // Refresca desde el endpoint de detalle para traer los contadores actualizados.
+      const detail = await api.stores.getBySlug(updated.slug);
+      setStore(detail);
+      setShowEditModal(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Error al guardar la tienda');
+    } finally {
+      setSavingStore(false);
+    }
+  };
+
+  const handleProductImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImage(true);
+    setFormError(null);
+    try {
+      const url = await api.upload(file);
+      setProductImageUrl(url);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Error al subir la imagen');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSavingStore(true);
+    setFormError(null);
+    try {
+      const url = await api.upload(file);
+      setEditLogoUrl(url);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Error al subir la imagen');
+    } finally {
+      setSavingStore(false);
+    }
+  };
+
+  const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSavingStore(true);
+    setFormError(null);
+    try {
+      const url = await api.upload(file);
+      setEditBannerUrl(url);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Error al subir la imagen');
+    } finally {
+      setSavingStore(false);
     }
   };
 
@@ -142,7 +331,7 @@ export function DashboardPage() {
             <LayoutDashboard className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-extrabold text-surface-900 leading-tight">Dashboard</h1>
+            <h1 className="font-display text-2xl font-bold text-surface-900 leading-tight tracking-tight">Dashboard</h1>
             <p className="text-sm text-surface-500">Gestiona tu tienda y tus productos</p>
           </div>
         </div>
@@ -152,7 +341,7 @@ export function DashboardPage() {
             <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-brand-100 to-accent-100 text-brand-600 flex items-center justify-center mx-auto mb-5">
               <StoreIcon className="w-10 h-10" />
             </div>
-            <h2 className="text-xl font-extrabold text-surface-900 mb-2">Crea tu tienda</h2>
+            <h2 className="font-display text-xl font-bold text-surface-900 mb-2">Crea tu tienda</h2>
             <p className="text-surface-500 mb-8 max-w-md mx-auto">
               Comienza a vender tus productos en el centro comercial digital
             </p>
@@ -163,7 +352,7 @@ export function DashboardPage() {
           </div>
         ) : showCreateForm ? (
           <div className="card p-6 md:p-8 max-w-xl mx-auto">
-            <h2 className="text-xl font-extrabold text-surface-900 mb-6">Nueva Tienda</h2>
+            <h2 className="font-display text-xl font-bold text-surface-900 mb-6">Nueva Tienda</h2>
             <form onSubmit={handleCreateStore} className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-surface-700 mb-1.5">
@@ -178,6 +367,29 @@ export function DashboardPage() {
                   className="input"
                   placeholder="Mi Tienda Increíble"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-surface-700 mb-1.5">
+                  Tipo de tienda
+                </label>
+                <select
+                  value={storeBusinessType}
+                  onChange={(e) => setStoreBusinessType(e.target.value as typeof storeBusinessType)}
+                  className="input"
+                >
+                  <option value="ROPA">Ropa</option>
+                  <option value="CALZADO">Calzado</option>
+                  <option value="ACCESORIOS">Accesorios / Joyería / Relojes</option>
+                  <option value="HOGAR">Hogar</option>
+                  <option value="ALIMENTOS">Alimentos</option>
+                  <option value="SERVICIOS">Servicios</option>
+                  <option value="OTRO">Otro</option>
+                </select>
+                <p className="text-xs text-surface-500 mt-1">
+                  Recuerda elegir <b>Accesorios / Joyería / Relojes</b> si vendes relojes: así la IA nunca
+                  preguntará tallas.
+                </p>
               </div>
 
               <div>
@@ -204,7 +416,7 @@ export function DashboardPage() {
                     'Crear Tienda'
                   )}
                 </button>
-                <button type="button" onClick={() => { setShowCreateForm(false); setPendingCycle(undefined); }} className="btn-ghost">
+                <button type="button" onClick={() => { setShowCreateForm(false); setRequestedPaidPlan(false); }} className="btn-ghost">
                   Cancelar
                 </button>
               </div>
@@ -225,7 +437,14 @@ export function DashboardPage() {
                     )}
                   </div>
                   <div>
-                    <h2 className="text-lg font-extrabold text-surface-900">{store.name}</h2>
+                    <h2 className="font-display text-lg font-bold text-surface-900 flex items-center gap-1.5">
+                      {store.name}
+                      {store.verified && (
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-600 text-white shrink-0">
+                          <BadgeCheck className="w-3.5 h-3.5" />
+                        </span>
+                      )}
+                    </h2>
                     {store.description && (
                       <p className="text-sm text-surface-500 mt-0.5 line-clamp-1">{store.description}</p>
                     )}
@@ -244,20 +463,41 @@ export function DashboardPage() {
                     </div>
                   </div>
                 </div>
-                <button onClick={() => navigate(`/store/${store.slug}`)} className="btn-ghost text-sm">
-                  <ExternalLink className="w-4 h-4" />
-                  Ver Tienda
-                </button>
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <button onClick={() => navigate(`/store/${store.slug}`)} className="btn-ghost text-sm flex-1 sm:flex-none">
+                    <ExternalLink className="w-4 h-4" />
+                    Ver Tienda
+                  </button>
+                  <button
+                    onClick={handleOpenEdit}
+                    className="btn-ghost text-sm flex-1 sm:flex-none"
+                  >
+                    <Pencil className="w-4 h-4" />
+                    Personalizar
+                  </button>
+                </div>
               </div>
             </div>
 
-            <DashboardSubscription store={store} />
+            <DashboardSubscription store={store} onUpgrade={openUpgrade} />
 
-            <SalesDashboard store={store} />
+            <ShareStoreCard
+              url={`${window.location.origin}/store/${store.slug}`}
+              name={store.name}
+            />
+
+            <PrestigeCard onUpgrade={openUpgrade} />
+
+            <SalesDashboard store={store} onUpgrade={openUpgrade} />
 
             <div className="card p-6">
               <div className="flex items-center justify-between mb-5">
-                <h3 className="text-lg font-extrabold text-surface-900">Productos</h3>
+                <div>
+                  <h3 className="font-display text-lg font-bold text-surface-900">Productos</h3>
+                  <p className="text-xs text-surface-500">
+                    {store.products?.length ?? 0} / {productLimit(store.plan)} en tu plan {store.plan}
+                  </p>
+                </div>
                 <button
                   onClick={() => setShowProductForm((v) => !v)}
                   className={showProductForm ? 'btn-ghost text-sm' : 'btn-primary text-sm'}
@@ -307,6 +547,24 @@ export function DashboardPage() {
                         placeholder="19.99"
                       />
                     </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-surface-700 mb-1.5">
+                        Stock disponible
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        value={productStock}
+                        onChange={(e) => setProductStock(e.target.value)}
+                        required
+                        className="input"
+                        placeholder="Ej: 50"
+                      />
+                      <p className="text-xs text-surface-400 mt-1">
+                        Se oculta en tu tienda. Al llegar a 0 el producto se desactiva solo.
+                      </p>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-surface-700 mb-1.5">
@@ -322,14 +580,41 @@ export function DashboardPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-surface-700 mb-1.5">
-                      URL de imagen (opcional)
+                      Imagen del producto (opcional)
                     </label>
+                    <div className="flex items-center gap-3">
+                      <div className="w-14 h-14 rounded-xl bg-surface-100 flex items-center justify-center overflow-hidden shrink-0">
+                        {productImageUrl ? (
+                          <img src={productImageUrl} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <ImageIcon className="w-6 h-6 text-surface-400" />
+                        )}
+                      </div>
+                      <div className="flex-1 space-y-1.5">
+                        <label className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold bg-surface-900 text-white rounded-xl cursor-pointer hover:bg-surface-800 transition-colors">
+                          {uploadingImage ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Upload className="w-3.5 h-3.5" />
+                          )}
+                          {uploadingImage ? 'Subiendo...' : 'Subir imagen'}
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+                            hidden
+                            disabled={uploadingImage}
+                            onChange={handleProductImageUpload}
+                          />
+                        </label>
+                        <p className="text-xs text-surface-400">Máx. 5 MB (jpg, png, webp, gif)</p>
+                      </div>
+                    </div>
                     <input
                       type="url"
                       value={productImageUrl}
                       onChange={(e) => setProductImageUrl(e.target.value)}
-                      className="input"
-                      placeholder="https://..."
+                      className="input mt-2"
+                      placeholder="...o pega una URL https://"
                     />
                   </div>
                   <button type="submit" disabled={addingProduct} className="btn-primary">
@@ -381,15 +666,36 @@ export function DashboardPage() {
                           </p>
                         </div>
                       </div>
-                      <span
-                        className={`shrink-0 px-2.5 py-1 text-xs font-bold rounded-full ${
-                          product.available
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-accent-100 text-accent-700'
-                        }`}
-                      >
-                        {product.available ? 'Disponible' : 'No disponible'}
-                      </span>
+                      <div className="shrink-0 flex items-center gap-2">
+                        {typeof product.stock === 'number' && (
+                          <span
+                            className={`px-2.5 py-1 text-xs font-bold rounded-full ${
+                              product.stock > 0
+                                ? 'bg-surface-200 text-surface-700'
+                                : 'bg-accent-100 text-accent-700'
+                            }`}
+                          >
+                            {product.stock > 0 ? `${product.stock} en stock` : 'Agotado'}
+                          </span>
+                        )}
+                        <span
+                          className={`px-2.5 py-1 text-xs font-bold rounded-full ${
+                            product.available
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-accent-100 text-accent-700'
+                          }`}
+                        >
+                          {product.available ? 'Disponible' : 'No disponible'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleAdjustStock(product)}
+                          title="Ajustar stock"
+                          className="p-1.5 text-surface-500 hover:text-brand-600 transition-colors"
+                        >
+                          <Settings2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -413,12 +719,221 @@ export function DashboardPage() {
           onClose={() => setShowSpaceModal(false)}
         />
 
-        <NequiInvoiceModal
-          open={showInvoiceModal}
-          cycle={pendingCycle ?? 'MONTHLY'}
-          onConfirm={handleInvoiceConfirm}
-          onClose={() => setShowInvoiceModal(false)}
+        <UpgradeSpaceModal
+          open={showUpgradeModal}
+          storeId={store?.id}
+          onClose={() => setShowUpgradeModal(false)}
         />
+
+        <PremiumUnlockedModal
+          open={showPremiumUnlocked}
+          plan={unlockedPlan}
+          cycle={unlockedCycle}
+          onClose={() => setShowPremiumUnlocked(false)}
+        />
+
+        <PaymentResultModal
+          open={paymentResult}
+          onClose={() => setPaymentResult(null)}
+          onRetry={retryPayment}
+        />
+
+        {showEditModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto">
+            <div
+              className="absolute inset-0 bg-surface-900/50 backdrop-blur-sm"
+              onClick={() => setShowEditModal(false)}
+            />
+            <div className="card p-6 md:p-7 w-full max-w-lg relative shadow-lift my-8">
+              <button
+                onClick={() => setShowEditModal(false)}
+                aria-label="Cerrar"
+                className="absolute top-3 right-3 p-2 rounded-full hover:bg-surface-100 text-surface-500 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-r from-brand-600 to-accent-500 flex items-center justify-center shrink-0">
+                  <Palette className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="font-display text-xl font-bold text-surface-900 leading-tight tracking-tight">
+                    Personaliza tu tienda
+                  </h2>
+                  <p className="text-sm text-surface-500">
+                    Tu marca se muestra en la portada y el perfil
+                  </p>
+                </div>
+              </div>
+
+              {/* Vistas previas */}
+              <div className="mb-5 rounded-2xl overflow-hidden border border-surface-200">
+                <div className="h-24 bg-gradient-to-r from-brand-600 to-accent-500 relative flex items-end">
+                  {editBannerUrl.trim() && (
+                    <img src={editBannerUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                  )}
+                  <div className="absolute -bottom-6 left-4 w-14 h-14 rounded-xl bg-white shadow-lift flex items-center justify-center overflow-hidden ring-4 ring-white">
+                    {editLogoUrl.trim() ? (
+                      <img src={editLogoUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-brand-600 text-2xl font-extrabold">
+                        {(editStoreName || '?').charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="h-10 bg-white" />
+              </div>
+
+              <form onSubmit={handleSaveStore} className="space-y-4">
+                {formError && (
+                  <div className="p-3 bg-accent-50 border border-accent-200 rounded-xl text-sm text-accent-600">
+                    {formError}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-semibold text-surface-700 mb-1.5">
+                    Nombre de la tienda
+                  </label>
+                  <input
+                    type="text"
+                    value={editStoreName}
+                    onChange={(e) => setEditStoreName(e.target.value)}
+                    required
+                    minLength={2}
+                    className="input"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-surface-700 mb-1.5">
+                    Descripción
+                  </label>
+                  <textarea
+                    value={editStoreDescription}
+                    onChange={(e) => setEditStoreDescription(e.target.value)}
+                    rows={2}
+                    className="input resize-none"
+                    placeholder="Cuéntanos sobre tu marca..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-surface-700 mb-1.5">
+                    WhatsApp (solo número, ej: 56912345678)
+                  </label>
+                  <input
+                    type="text"
+                    value={editWhatsapp}
+                    onChange={(e) => setEditWhatsapp(e.target.value)}
+                    className="input"
+                    placeholder="56912345678"
+                    maxLength={20}
+                  />
+                  <p className="text-xs text-surface-400 mt-1">
+                    Usado para que los clientes cierren la compra por WhatsApp.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-surface-700 mb-1.5">
+                    Foto de perfil (logo)
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-surface-100 flex items-center justify-center overflow-hidden shrink-0">
+                      {editLogoUrl ? (
+                        <img src={editLogoUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <ImageIcon className="w-5 h-5 text-surface-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 flex gap-2">
+                      <label className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold bg-surface-900 text-white rounded-xl cursor-pointer hover:bg-surface-800 transition-colors shrink-0">
+                        <Upload className="w-3.5 h-3.5" />
+                        Subir
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+                          hidden
+                          disabled={savingStore}
+                          onChange={handleLogoUpload}
+                        />
+                      </label>
+                      <input
+                        type="url"
+                        value={editLogoUrl}
+                        onChange={(e) => setEditLogoUrl(e.target.value)}
+                        className="input"
+                        placeholder="https://..."
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-surface-700 mb-1.5">
+                    Foto de portada (banner)
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-surface-100 flex items-center justify-center overflow-hidden shrink-0">
+                      {editBannerUrl ? (
+                        <img src={editBannerUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <ImageIcon className="w-5 h-5 text-surface-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 flex gap-2">
+                      <label className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold bg-surface-900 text-white rounded-xl cursor-pointer hover:bg-surface-800 transition-colors shrink-0">
+                        <Upload className="w-3.5 h-3.5" />
+                        Subir
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+                          hidden
+                          disabled={savingStore}
+                          onChange={handleBannerUpload}
+                        />
+                      </label>
+                      <input
+                        type="url"
+                        value={editBannerUrl}
+                        onChange={(e) => setEditBannerUrl(e.target.value)}
+                        className="input"
+                        placeholder="https://..."
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-xs text-surface-400">
+                  Escoge una imagen desde tu dispositivo (máx. 5 MB) o pega una URL.
+                </p>
+
+                <div className="flex gap-3 pt-2">
+                  <button type="submit" disabled={savingStore} className="btn-primary flex-1">
+                    {savingStore ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Guardando...
+                      </>
+                    ) : (
+                      'Guardar cambios'
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(false)}
+                    className="btn-ghost"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -430,26 +945,95 @@ function formatDaysLeft(ms: number | undefined): string {
   return `${days} día${days !== 1 ? 's' : ''}`;
 }
 
-function DashboardSubscription({ store }: { store: Store }) {
+function DashboardSubscription({ store, onUpgrade }: { store: Store; onUpgrade: () => void }) {
   const status = store.subscriptionStatus ?? 'trial';
   const trialEndsAt = store.trialEndsAt;
+  const [open, setOpen] = useState(false);
 
   if (status === 'active') {
+    const benefits = [
+      {
+        icon: <LayoutDashboard className="w-4 h-4" />,
+        title: 'Tu centro de mando',
+        desc: 'Desde aquí controlas todo tu negocio en un solo lugar: tu vitrina, tus ventas, tu stock y tu prestigio.',
+      },
+      {
+        icon: <TrendingUp className="w-4 h-4" />,
+        title: 'Métricas en tiempo real',
+        desc: 'Mira tus ventas de hoy, tus ingresos totales, los productos más vistos y tu tasa de conversión. Sabes cómo va tu negocio sin salir del panel.',
+      },
+      {
+        icon: <Package className="w-4 h-4" />,
+        title: `Catálogo de hasta ${store.plan === 'BUSINESS' ? 500 : 100} productos`,
+        desc: 'Publica, edita y controla el stock de todo tu catálogo. Cuando algo se agota, la plataforma lo desactiva sola para que no overvendas.',
+      },
+      {
+        icon: <Users className="w-4 h-4" />,
+        title: 'Ventas y referidos que suman',
+        desc: 'Registra tus ventas, gana prestigio con cada referido y sube el nivel de tu tienda hasta el sello de verificado.',
+      },
+      ...(store.plan !== 'FREE'
+        ? [
+            {
+              icon: <Bot className="w-4 h-4" />,
+              title: 'Asistente IA que vende por ti',
+              desc: 'Tu chat responde solo: atiende a los clientes, les da precios, les responde del producto y los lleva a tu WhatsApp para cerrar la venta.',
+            },
+          ]
+        : []),
+    ];
+
     return (
-      <div className="card p-5 flex items-start gap-4">
-        <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-          <ShieldCheck className="w-5 h-5" />
-        </div>
-        <div className="flex-1">
-          <p className="font-bold text-surface-900">Suscripción activa</p>
-          <p className="text-sm text-surface-600 mt-0.5">
-            Tu espacio de venta está activo. El contacto con clientes está habilitado.
-          </p>
-          <span className="inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 text-xs font-bold bg-emerald-100 text-emerald-700 rounded-full">
-            <CreditCard className="w-3.5 h-3.5" />
-            Plan {store.plan}
-          </span>
-        </div>
+      <div className="card overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="w-full p-5 flex items-center gap-4 text-left hover:bg-surface-50/60 transition-colors"
+        >
+          <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <div className="flex-1">
+            <p className="font-bold text-surface-900">Espacio Premium activo</p>
+            <p className="text-sm text-surface-600 mt-0.5">
+              Tu plan {store.plan} está desbloqueando el dashboard completo.
+            </p>
+            <span className="inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 text-xs font-bold bg-emerald-100 text-emerald-700 rounded-full">
+              <CreditCard className="w-3.5 h-3.5" />
+              Plan {store.plan} activo
+            </span>
+          </div>
+          <div className="w-8 h-8 rounded-full bg-surface-900 text-white flex items-center justify-center shrink-0">
+            {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </div>
+        </button>
+
+        {open && (
+          <div className="px-5 pb-5 border-t border-surface-100">
+            <p className="text-sm text-surface-500 pt-4">
+              Esto es lo que tu dashboard ya está haciendo por ti:
+            </p>
+            <ul className="mt-3 space-y-3">
+              {benefits.map((b) => (
+                <li key={b.title} className="flex items-start gap-3">
+                  <div className="mt-0.5 w-7 h-7 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                    {b.icon}
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-surface-900">{b.title}</p>
+                    <p className="text-sm text-surface-600">{b.desc}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex items-start gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+              <p className="text-sm text-emerald-800">
+                Estás en el plan completo: los reportes, el stock y el asistente IA están activos ahora mismo.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -461,16 +1045,17 @@ function DashboardSubscription({ store }: { store: Store }) {
           <AlertTriangle className="w-5 h-5" />
         </div>
         <div className="flex-1">
-          <p className="font-bold text-surface-900">Prueba finalizada</p>
+          <p className="font-bold text-surface-900">Activa tu Espacio Premium</p>
           <p className="text-sm text-surface-600 mt-0.5">
-            Tu periodo de prueba terminó. El contacto con clientes está desactivado.
+            El contacto con tus clientes sigue disponible. Al activar tu espacio desbloqueas el
+            sistema de prestigio, tu enlace de referidos y el límite ampliado de productos.
           </p>
           <button
-            onClick={() => navigateToStore(store.slug)}
+            onClick={onUpgrade}
             className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-gradient-to-r from-brand-600 to-accent-500 text-white rounded-full hover:from-brand-700 hover:to-accent-600 transition-all"
           >
             <CreditCard className="w-3.5 h-3.5" />
-            Activar suscripción de espacio
+            Activar Espacio Premium
           </button>
         </div>
       </div>
@@ -485,7 +1070,11 @@ function DashboardSubscription({ store }: { store: Store }) {
       <div className="flex-1">
         <p className="font-bold text-surface-900">Periodo de prueba gratis</p>
         <p className="text-sm text-surface-600 mt-0.5">
-          Disfrutas de <strong>2 meses y 15 días</strong> de prueba. El contacto con clientes está disponible.
+          Disfrutas de <strong>30 días</strong> de prueba. El contacto con tus clientes
+          está disponible siempre.{' '}
+          <span className="font-semibold text-brand-700">
+            Activa tu plan de pago para desbloquear el sistema de prestigio.
+          </span>
           {trialEndsAt && (
             <span className="font-semibold text-brand-700">
               {' '}Te quedan {formatDaysLeft(trialEndsAt)}.
@@ -497,7 +1086,7 @@ function DashboardSubscription({ store }: { store: Store }) {
   );
 }
 
-// Necesita acceso a navigate; definimos un helper separado para evitar hooks en subcomponente.
-function navigateToStore(slug: string) {
-  window.location.href = `/store/${slug}`;
+function productLimit(plan: string | undefined): number {
+  const limits: Record<string, number> = { FREE: 20, PRO: 100, BUSINESS: 500 };
+  return limits[plan ?? 'FREE'] ?? 20;
 }

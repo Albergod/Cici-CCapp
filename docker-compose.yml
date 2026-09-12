@@ -1,6 +1,40 @@
+# Producción con Postgres local. Para la nube, usa Neon/Supabase
+# y comenta el servicio db.
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cc_platform_app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - DATABASE_URL=postgresql://cc_user:cc_password@db:5432/cc_platform
+      - JWT_SECRET=${JWT_SECRET}
+      - PORT=3000
+      - MP_ACCESS_TOKEN=${MP_ACCESS_TOKEN}
+      - MP_PUBLIC_KEY=${MP_PUBLIC_KEY}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:3000}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-resend}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_FROM=${SMTP_FROM}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   db:
-    image: postgres:16
+    image: postgres:16-alpine
     container_name: cc_platform_db
     restart: unless-stopped
     environment:

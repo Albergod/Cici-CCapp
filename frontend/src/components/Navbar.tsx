@@ -1,12 +1,38 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { MessageSquare, LogOut, User, Search, Store, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '@/stores/authStore';
-import { useState } from 'react';
+import { api } from '@/services/api';
+import { useEffect, useState } from 'react';
 
 export function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setUnread(0);
+      return;
+    }
+    let cancelled = false;
+    const refresh = () => {
+      api.chat
+        .unreadCount()
+        .then(({ totalUnread }) => {
+          if (!cancelled) setUnread(totalUnread);
+        })
+        .catch(() => {});
+    };
+    refresh();
+    const id = setInterval(refresh, 30000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [isAuthenticated]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +91,11 @@ export function Navbar() {
                 className="relative p-2.5 hover:bg-surface-100 rounded-xl transition-colors text-surface-600 hover:text-brand-600"
               >
                 <MessageSquare className="w-5 h-5" />
+                {unread > 0 && (
+                  <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-accent-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm">
+                    {unread > 99 ? '99+' : unread}
+                  </span>
+                )}
               </Link>
               <button
                 onClick={handleLogout}

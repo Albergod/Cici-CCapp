@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq, and, ilike, desc } from "drizzle-orm";
+import { eq, and, ilike, desc, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { products, stores } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
+import { getProductLimit } from "../lib/prestige";
+import { imageUrl } from "../lib/validators";
 
 const router = Router();
 
@@ -11,15 +13,16 @@ const productSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   price: z.number().positive(),
-  imageUrl: z.string().url().optional(),
+  imageUrl: imageUrl().optional(),
   categoryId: z.string().uuid().optional(),
+  stock: z.number().int().min(0).optional(),
 });
 
 async function assertStoreOwner(storeId: string, userId: string) {
   const [store] = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
   if (!store) return { ok: false as const, status: 404, msg: "Tienda no encontrada" };
   if (store.ownerId !== userId) return { ok: false as const, status: 403, msg: "No eres dueño de esta tienda" };
-  return { ok: true as const };
+  return { ok: true as const, plan: store.plan };
 }
 
 // Publicar producto en una tienda
@@ -30,11 +33,24 @@ router.post("/stores/:storeId/products", requireAuth, async (req: AuthRequest, r
   const parsed = productSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+  // Límite de productos según el plan (FREE=20, PRO=100, BUSINESS=500).
+  const limit = getProductLimit(check.plan);
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(products)
+    .where(and(eq(products.storeId, req.params.storeId), eq(products.available, true)));
+  if (count >= limit) {
+    return res.status(403).json({
+      error: `Alcanzaste el límite de ${limit} productos en tu plan actual.`,
+    });
+  }
+
   const [product] = await db
     .insert(products)
     .values({
       ...parsed.data,
       price: parsed.data.price.toFixed(2),
+      stock: String(parsed.data.stock ?? 0),
       storeId: req.params.storeId,
     })
     .returning();
@@ -53,6 +69,14 @@ router.patch("/products/:id", requireAuth, async (req: AuthRequest, res) => {
   const patch: Record<string, unknown> = { ...req.body };
   if (typeof patch.price === "number") patch.price = patch.price.toFixed(2);
 
+  // Regla de stock: si el stock llega a 0 el producto se desactiva solo
+  // (en vez de eliminarlo). Si vuelve a tener stock > 0, se reactiva.
+  if (patch.stock !== undefined) {
+    const stock = Math.max(0, Math.floor(Number(patch.stock) || 0));
+    patch.stock = String(stock);
+    patch.available = stock > 0;
+  }
+
   const [updated] = await db
     .update(products)
     .set(patch)
@@ -60,6 +84,15 @@ router.patch("/products/:id", requireAuth, async (req: AuthRequest, res) => {
     .returning();
 
   res.json(updated);
+});
+
+// Registrar una vista a un producto (para "Productos más vistos")
+router.post("/products/:id/views", async (req, res) => {
+  await db
+    .update(products)
+    .set({ views: sql`${products.views} + 1` })
+    .where(eq(products.id, req.params.id));
+  res.status(204).end();
 });
 
 // Búsqueda / tendencias de productos (across todas las tiendas)
@@ -71,6 +104,18 @@ router.get("/products", async (req, res) => {
     where: and(eq(products.available, true), ilike(products.name, `%${q}%`)),
     limit: take,
     orderBy: [desc(products.createdAt)],
+    columns: {
+      id: true,
+      name: true,
+      description: true,
+      price: true,
+      imageUrl: true,
+      available: true,
+      views: true,
+      createdAt: true,
+      storeId: true,
+      categoryId: true,
+    },
     with: {
       store: { columns: { name: true, slug: true, logoUrl: true } },
     },

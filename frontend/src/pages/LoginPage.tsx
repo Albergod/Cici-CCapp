@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '@/services/api';
 import { useAuth } from '@/stores/authStore';
+import { GoogleAuthButton } from '@/components/GoogleAuthButton';
 import { Loader2, Store } from 'lucide-react';
 
 export function LoginPage() {
@@ -85,6 +86,8 @@ export function LoginPage() {
                 'Iniciar Sesión'
               )}
             </button>
+
+            <GoogleAuthButton onSuccess={() => navigate('/')} />
 
             <p className="text-center text-sm text-surface-500">
               ¿No tienes cuenta?{' '}

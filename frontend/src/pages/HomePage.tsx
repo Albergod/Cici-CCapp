@@ -50,31 +50,33 @@ export function HomePage() {
   return (
     <div className="min-h-screen pt-16">
       <div className="max-w-7xl mx-auto px-4 py-10">
-        <div className="rounded-3xl bg-gradient-to-br from-brand-600 via-brand-500 to-accent-500 text-white p-10 md:p-14 text-center shadow-lift mb-12 relative overflow-hidden">
+        <div className="rounded-3xl bg-gradient-to-br from-brand-700 via-brand-500 to-accent-500 text-white p-10 md:p-14 text-center shadow-[0_20px_60px_-20px_rgba(147,51,234,0.5)] mb-12 relative overflow-hidden">
           <div className="absolute -top-16 -right-16 w-64 h-64 bg-white/10 rounded-full blur-2xl" />
           <div className="absolute -bottom-20 -left-10 w-72 h-72 bg-white/10 rounded-full blur-2xl" />
+          <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(circle at 30% 20%, rgba(255,255,255,0.12) 0, transparent 35%)' }} />
           <div className="relative">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-xs font-semibold backdrop-blur-sm mb-4">
               <Sparkles className="w-3.5 h-3.5" />
               Plan gratis para empezar
             </span>
-            <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-3 leading-tight">
+            <h1 className="font-display text-3xl md:text-5xl font-bold tracking-tight mb-3 leading-tight">
               Tu Centro Comercial Digital
             </h1>
             <p className="text-white/80 text-base md:text-lg max-w-2xl mx-auto">
-              Descubre tiendas únicas, conecta con emprendedores y encuentra productos increíbles
+              Descubre tiendas únicas, chatea directo con cada emprendedor y compra en minutos.
+              ¿Tienes algo para vender? Abre tu propia tienda gratis hoy.
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
           {features.map((f) => (
-            <div key={f.title} className="card p-5 flex items-start gap-4 hover:shadow-lift transition-all">
-              <div className="w-11 h-11 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center shrink-0">
+            <div key={f.title} className="card p-5 flex items-start gap-4 hover:shadow-lift hover:-translate-y-0.5 transition-all">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-100 to-accent-100 text-brand-600 flex items-center justify-center shrink-0">
                 <f.icon className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-surface-900">{f.title}</h3>
+                <h3 className="font-display font-bold text-surface-900">{f.title}</h3>
                 <p className="text-sm text-surface-500 mt-0.5">{f.desc}</p>
               </div>
             </div>
@@ -84,7 +86,7 @@ export function HomePage() {
         <div className="mb-12">
           <div className="flex items-center justify-between mb-5">
             <div>
-              <h2 className="text-xl font-extrabold text-surface-900">Productos destacados</h2>
+              <h2 className="font-display text-xl md:text-2xl font-bold text-surface-900 tracking-tight">Productos destacados</h2>
               <p className="text-sm text-surface-500">De las tiendas del centro comercial</p>
             </div>
           </div>
@@ -92,8 +94,8 @@ export function HomePage() {
         </div>
 
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-extrabold text-surface-900">Tiendas destacadas</h2>
-          <span className="text-sm text-surface-400">Explora lo nuevo</span>
+          <h2 className="font-display text-xl md:text-2xl font-bold text-surface-900 tracking-tight">Tiendas destacadas</h2>
+          <span className="text-sm text-surface-400 hidden sm:block">Explora lo nuevo</span>
         </div>
 
         {loading ? (

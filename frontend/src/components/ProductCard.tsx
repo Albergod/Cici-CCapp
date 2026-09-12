@@ -3,7 +3,7 @@ import { MessageSquare, Package } from 'lucide-react';
 
 interface ProductCardProps {
   product: Product;
-  onContact?: () => void;
+  onContact?: (productId: string) => void;
 }
 
 export function ProductCard({ product, onContact }: ProductCardProps) {
@@ -31,7 +31,7 @@ export function ProductCard({ product, onContact }: ProductCardProps) {
       </div>
 
       <div className="p-3.5 flex flex-col flex-1">
-        <h3 className="font-bold text-surface-900 text-sm truncate">{product.name}</h3>
+        <h3 className="font-display font-bold text-surface-900 text-sm truncate">{product.name}</h3>
         {product.description && (
           <p className="text-xs text-surface-500 line-clamp-2 mt-0.5 flex-1">
             {product.description}
@@ -46,7 +46,7 @@ export function ProductCard({ product, onContact }: ProductCardProps) {
           </span>
           {product.available && onContact && (
             <button
-              onClick={onContact}
+              onClick={() => onContact(product.id)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 transition-all active:scale-95"
             >
               <MessageSquare className="w-3.5 h-3.5" />

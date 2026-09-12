@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Users, Package } from 'lucide-react';
+import { Users, Package, BadgeCheck, Sparkles } from 'lucide-react';
 import { Store } from '@/types';
 
 interface StoreCardProps {
@@ -23,6 +23,12 @@ export function StoreCard({ store }: StoreCardProps) {
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
+        {store.verified && (
+          <span className="absolute top-3 right-3 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-soft">
+            <BadgeCheck className="w-3 h-3" />
+            Verificada
+          </span>
+        )}
       </div>
 
       <div className="p-4">
@@ -37,9 +43,22 @@ export function StoreCard({ store }: StoreCardProps) {
             )}
           </div>
         </div>
-        <h3 className="font-bold text-surface-900 truncate group-hover:text-brand-600 transition-colors">
+        <h3 className="font-display font-bold text-surface-900 truncate group-hover:text-brand-600 transition-colors">
           {store.name}
         </h3>
+        <div className="flex items-center gap-1.5 mt-1">
+          {store.plan !== 'FREE' && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-brand-600 to-accent-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-soft">
+              <Sparkles className="w-2.5 h-2.5" />
+              Premium
+            </span>
+          )}
+          {store.plan === 'FREE' && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-surface-100 text-surface-500 text-[10px] font-bold uppercase tracking-wider">
+              Plan Gratis
+            </span>
+          )}
+        </div>
         {store.description && (
           <p className="text-sm text-surface-500 line-clamp-2 mt-1">
             {store.description}

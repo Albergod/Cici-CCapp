@@ -5,13 +5,17 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/client";
 import { users } from "../db/schema";
 import { signToken } from "../middleware/auth";
+import { authLimiter } from "../middleware/rate-limit";
 
 const router = Router();
+
+router.use(authLimiter); // Aplica a todo este router (login, register)
 
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   name: z.string().min(2),
+  refCode: z.string().optional(),
 });
 
 router.post("/register", async (req, res) => {
@@ -19,7 +23,7 @@ router.post("/register", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { email, password, name } = parsed.data;
+  const { email, password, name, refCode } = parsed.data;
 
   const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (existing.length > 0) {
@@ -29,7 +33,7 @@ router.post("/register", async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
   const [user] = await db
     .insert(users)
-    .values({ email, passwordHash, name })
+    .values({ email, passwordHash, name, refCode: refCode ?? null })
     .returning();
 
   const token = signToken(user.id);
@@ -59,6 +63,46 @@ router.post("/login", async (req, res) => {
 
   const token = signToken(user.id);
   res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+});
+
+// ── Recuperación de contraseña ──────────────────────────────────────────────
+const forgotSchema = z.object({ email: z.string().email() });
+
+router.post("/forgot-password", async (req, res) => {
+  const parsed = forgotSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Email inválido" });
+
+  const { email } = parsed.data;
+
+  // No revelar si el email existe o no.
+  const resetLink = await import("../lib/email").then((m) => m.sendResetLink(email));
+
+  res.json({
+    message: "Si el email está registrado, recibirás el enlace para reiniciar.",
+    link: process.env.NODE_ENV === "development" ? resetLink : undefined,
+  });
+});
+
+const resetSchema = z.object({
+  token: z.string(),
+  password: z.string().min(6),
+});
+
+router.post("/reset-password", async (req, res) => {
+  const parsed = resetSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { token, password } = parsed.data;
+  const email = await import("../lib/email").then((m) => m.validateAndConsumeToken(token));
+
+  if (!email) return res.status(400).json({ error: "Token inválido o expirado" });
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  await db.update(users).set({ passwordHash }).where(eq(users.email, email));
+
+  const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const jwt = signToken(user.id);
+  res.json({ message: "Contraseña reiniciada", token: jwt });
 });
 
 export default router;
