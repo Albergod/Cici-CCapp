@@ -190,9 +190,11 @@ export const mpPayments = pgTable(
     cycle: cycleEnum("cycle").notNull(),
     amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
     processedAt: timestamp("processed_at").defaultNow().notNull(),
-    storeId: uuid("store_id")
-      .notNull()
-      .references(() => stores.id),
+    // storeId puede ser nulo: el comerciante puede pagar antes de crear su
+    // tienda. En ese caso el pago queda asociado al usuario (userId) y el plan
+    // se activa cuando el comerciante cree su tienda (routes/store.routes.ts).
+    storeId: uuid("store_id").references(() => stores.id),
+    userId: uuid("user_id").references(() => users.id),
   },
   (t) => ({
     mpPaymentUnique: uniqueIndex("mp_payments_mp_payment_id_unique").on(t.mpPaymentId),

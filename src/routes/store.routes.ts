@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq, and, sql, desc, count } from "drizzle-orm";
+import { eq, and, sql, desc, count, isNull, lt, ne, isNotNull } from "drizzle-orm";
 import { db } from "../db/client";
 import { stores, follows, users, products, mpPayments } from "../db/schema";
 import { requireAuth, optionalAuth, AuthRequest } from "../middleware/auth";
@@ -10,23 +10,27 @@ import {
   PRESTIGE_PER_REFERRAL,
   getProductLimit,
   computePrestigeStatus,
+  VERIFIED_THRESHOLD,
 } from "../lib/prestige";
+import { activatePaidPlan } from "../lib/plans";
 
 const router = Router();
 
-// ── Downgrade de tiendas vencidas ─────────────────────────────────────────────
-// Ejecuta periodicamente (ej. vía cron de Railway o Cloudflare) para bajar a
-// FREE las tiendas cuyo subscriptionExpiresAt pasó.  IMPORTANTE: este endpoint
-// NO está protegido para el público. Usa ADMIN_TOKEN o encrírrelo tras proxy.
-async function expireStoresAndReturnCount(): Promise<number> {
+// ── Downgrade automático de tiendas vencidas ─────────────────────────────────
+// Baja a FREE las tiendas (PRO Y BUSINESS) cuyo subscriptionExpiresAt pasó.
+// Se dispara en cada arranque y luego por un cron interno (index.ts), además
+// del endpoint /admin/expire-stores (protegido con ADMIN_TOKEN) para forzarlo.
+// Idempotente: una tienda ya FREE nunca vuelve a pasar por aquí.
+export async function expireStoresAndReturnCount(): Promise<number> {
   const now = new Date();
   const result = await db
     .update(stores)
     .set({ plan: "FREE", subscriptionCycle: null, subscriptionExpiresAt: null })
     .where(
       and(
-        sql`subscription_expires_at < '${now.toISOString()}'`,
-        eq(stores.plan, sql`"PRO"`),
+        lt(stores.subscriptionExpiresAt, now),
+        isNotNull(stores.subscriptionExpiresAt),
+        ne(stores.plan, "FREE"),
       ),
     )
     .returning({ id: stores.id });
@@ -70,10 +74,11 @@ const createStoreSchema = z.object({
 });
 
 // Crear tienda ("abrir tu local").
-// IMPORTANTE: las tiendas se crean SIEMPRE en plan FREE. Un plan de pago
-// (PRO/BUSINESS) solo se activa cuando un pago real es aprobado por Mercado
-// Pago (ver routes/payments.routes.ts → activatePaidPlan). Así, jamás se
-// concede premium sin que el pago haya sido confirmado.
+// Las tiendas se crean SIEMPRE en plan FREE. Un plan de pago (PRO/BUSINESS)
+// solo se activa cuando un pago real es aprobado (ver payments/wompi). Si el
+// comerciante ya pagó su plan ANTES de crear la tienda (pago sin storeId, fila
+// approved con store_id NULL), ese plan se aplica aquí a la tienda recién
+// creada. Así SIEMPRE: sin pago aprobado jamás se concede premium.
 router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const parsed = createStoreSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -122,6 +127,34 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       ownerId: req.userId!,
     })
     .returning();
+
+  // Si el comerciante ya pagó su plan (pago aprobado sin tienda asociada),
+  // activamos ese plan en la tienda recién creada y ligamos el pago a ella.
+  const [paid] = await db
+    .select()
+    .from(mpPayments)
+    .where(
+      and(
+        eq(mpPayments.userId, req.userId!),
+        isNull(mpPayments.storeId),
+        eq(mpPayments.status, "approved"),
+      ),
+    )
+    .limit(1);
+
+  if (paid) {
+    try {
+      await activatePaidPlan(store.id, paid.plan as "PRO" | "BUSINESS", paid.cycle as "MONTHLY" | "BI_MONTHLY");
+      await db
+        .update(mpPayments)
+        .set({ storeId: store.id })
+        .where(eq(mpPayments.id, paid.id));
+      const [updated] = await db.select().from(stores).where(eq(stores.id, store.id)).limit(1);
+      return res.status(201).json(updated ?? store);
+    } catch (err) {
+      console.error("aplicar plan pagado al crear la tienda:", err);
+    }
+  }
 
   res.status(201).json(store);
 });
@@ -192,7 +225,7 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
       message:
         "El sistema de prestigio se activa al elegir un plan de pago. Invita a otros emprendedores y gana el check verificado.",
       prestigePoints: 0,
-      required: 100,
+      required: VERIFIED_THRESHOLD,
       verified: false,
       productLimit: getProductLimit(store.plan),
     });
@@ -203,7 +236,7 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
     referralCode: store.referralCode,
     referralLink: `${req.protocol}://${req.get("host")}/register?ref=${store.referralCode}`,
     prestigePoints: prestige,
-    required: 100,
+    required: VERIFIED_THRESHOLD,
     verified: computePrestigeStatus(prestige) === "verified",
     productLimit: getProductLimit(store.plan),
   });

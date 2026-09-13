@@ -13,6 +13,28 @@ import { PrestigeCard } from '@/components/PrestigeCard';
 import { ShareStoreCard } from '@/components/ShareStoreCard';
 import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp } from 'lucide-react';
 
+// Datos de la tienda por crear, guardados mientras se paga. Sobreviven al
+// redirect de Mercado Pago para que la tienda se cree recién cuando el pago es
+// confirmado (jamás se crea una tienda "fantasma" si el pago se cancela).
+const PENDING_STORE_KEY = 'cc-pending-store-draft';
+
+type StoreBusinessType = 'ROPA' | 'CALZADO' | 'ACCESORIOS' | 'HOGAR' | 'ALIMENTOS' | 'SERVICIOS' | 'OTRO';
+
+type StoreDraft = {
+  name: string;
+  description?: string;
+  businessType: StoreBusinessType;
+};
+
+function readStoreDraft(): StoreDraft | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_STORE_KEY);
+    return raw ? (JSON.parse(raw) as StoreDraft) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function DashboardPage() {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -27,7 +49,7 @@ export function DashboardPage() {
   const [showPremiumUnlocked, setShowPremiumUnlocked] = useState(false);
   const [unlockedPlan, setUnlockedPlan] = useState<'PRO' | 'BUSINESS'>('PRO');
   const [unlockedCycle, setUnlockedCycle] = useState<'MONTHLY' | 'BI_MONTHLY'>('MONTHLY');
-  const [requestedPaidPlan, setRequestedPaidPlan] = useState(false);
+  const [pendingCreatePlan, setPendingCreatePlan] = useState<SpaceSelection | null>(null);
   const [paymentResult, setPaymentResult] = useState<PaymentResultState>(null);
   const [storeName, setStoreName] = useState('');
   const [storeDescription, setStoreDescription] = useState('');
@@ -85,8 +107,15 @@ export function DashboardPage() {
       if (result.status === 'approved') {
         setUnlockedPlan(result.plan ?? 'PRO');
         setUnlockedCycle(result.cycle ?? 'MONTHLY');
-        setPaymentResult({ kind: 'success', plan: result.plan ?? 'PRO', cycle: result.cycle ?? 'MONTHLY' });
-        loadUserStore();
+        // Si se pagó sin tienda, crearla YA (el backend le aplica el plan).
+        (async () => {
+          const hasDraft = !!readStoreDraft();
+          const ok = hasDraft ? await finalizePaidStore() : true;
+          if (ok) {
+            setPaymentResult({ kind: 'success', plan: result.plan ?? 'PRO', cycle: result.cycle ?? 'MONTHLY' });
+          }
+          loadUserStore();
+        })();
       } else if (result.status === 'pending' || result.status === 'in_process') {
         setPaymentResult({ kind: 'pending' });
       } else {
@@ -108,8 +137,14 @@ export function DashboardPage() {
       if (result?.status === 'approved') {
         setUnlockedPlan(result.plan ?? 'PRO');
         setUnlockedCycle(result.cycle ?? 'MONTHLY');
-        setPaymentResult({ kind: 'success', plan: result.plan ?? 'PRO', cycle: result.cycle ?? 'MONTHLY' });
-        loadUserStore();
+        (async () => {
+          const hasDraft = !!readStoreDraft();
+          const ok = hasDraft ? await finalizePaidStore() : true;
+          if (ok) {
+            setPaymentResult({ kind: 'success', plan: result.plan ?? 'PRO', cycle: result.cycle ?? 'MONTHLY' });
+          }
+          loadUserStore();
+        })();
       } else {
         setPaymentResult({ kind: 'pending' });
       }
@@ -138,8 +173,24 @@ export function DashboardPage() {
     setCreating(true);
 
     try {
-      // Las tiendas siempre se crean en plan FREE: el plan de pago se activa
-      // SOLO tras pagar aprobado por Mercado Pago (UpgradeSpaceModal).
+      // Flujo de pago: el comerciante eligió un plan de pago. NO se crea la
+      // tienda todavía (nada de tiendas fantasma). Guardamos los datos y vamos
+      // directo al pago; la tienda se crea SOLO cuando el pago es confirmado.
+      if (pendingCreatePlan) {
+        sessionStorage.setItem(
+          PENDING_STORE_KEY,
+          JSON.stringify({
+            name: storeName,
+            description: storeDescription || undefined,
+            businessType: storeBusinessType,
+          }),
+        );
+        setShowCreateForm(false);
+        setShowUpgradeModal(true);
+        return;
+      }
+
+      // Plan free: la tienda se crea al momento, como siempre.
       const newStore = await api.stores.create({
         name: storeName,
         description: storeDescription || undefined,
@@ -148,11 +199,6 @@ export function DashboardPage() {
       setStore(newStore);
       setShowCreateForm(false);
       setStoreBusinessType('OTRO');
-      // Si el usuario había elegido un plan de pago, lanzamos el pago enseguida.
-      if (requestedPaidPlan) {
-        setRequestedPaidPlan(false);
-        setShowUpgradeModal(true);
-      }
     } catch (err) {
       console.error('Error creating store:', err);
     } finally {
@@ -162,8 +208,29 @@ export function DashboardPage() {
 
   const handleSpaceSelect = (selection: SpaceSelection) => {
     setShowSpaceModal(false);
-    setRequestedPaidPlan(selection.type === 'paid');
+    setPendingCreatePlan(selection.type === 'paid' ? selection : null);
     setShowCreateForm(true);
+  };
+
+  // Un pago SIN tienda fue confirmado: crea la tienda con los datos guardados.
+  // El backend le aplica el plan ya pagado (store.routes.ts). Devuelve true si
+  // la tienda se creó correctamente.
+  const finalizePaidStore = async (): Promise<boolean> => {
+    const draft = readStoreDraft();
+    if (!draft) return false;
+    try {
+      const created = await api.stores.create({
+        name: draft.name,
+        description: draft.description,
+        businessType: draft.businessType,
+      });
+      sessionStorage.removeItem(PENDING_STORE_KEY);
+      setStore(created);
+      return true;
+    } catch (err) {
+      console.error('Error creando la tienda tras el pago:', err);
+      return false;
+    }
   };
 
   const openUpgrade = () => setShowUpgradeModal(true);
@@ -353,6 +420,11 @@ export function DashboardPage() {
         ) : showCreateForm ? (
           <div className="card p-6 md:p-8 max-w-xl mx-auto">
             <h2 className="font-display text-xl font-bold text-surface-900 mb-6">Nueva Tienda</h2>
+            {pendingCreatePlan && (
+              <p className="text-xs text-brand-600 -mt-4 mb-4">
+                Pagarás primero; tu tienda se creará solo cuando el pago sea confirmado.
+              </p>
+            )}
             <form onSubmit={handleCreateStore} className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-surface-700 mb-1.5">
@@ -407,7 +479,9 @@ export function DashboardPage() {
 
               <div className="flex gap-3 pt-2">
                 <button type="submit" disabled={creating} className="btn-primary flex-1">
-                  {creating ? (
+                  {pendingCreatePlan ? (
+                    'Continuar al pago'
+                  ) : creating ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       Creando...
@@ -416,7 +490,7 @@ export function DashboardPage() {
                     'Crear Tienda'
                   )}
                 </button>
-                <button type="button" onClick={() => { setShowCreateForm(false); setRequestedPaidPlan(false); }} className="btn-ghost">
+                <button type="button" onClick={() => { setShowCreateForm(false); setPendingCreatePlan(null); sessionStorage.removeItem(PENDING_STORE_KEY); }} className="btn-ghost">
                   Cancelar
                 </button>
               </div>
@@ -424,6 +498,51 @@ export function DashboardPage() {
           </div>
         ) : store ? (
           <div className="space-y-6">
+            {store.plan !== 'FREE' && store.subscriptionExpiresAt && (() => {
+              const daysLeft = Math.ceil(
+                (new Date(store.subscriptionExpiresAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+              );
+              if (daysLeft <= 0) return null;
+              const urgent = daysLeft <= 3;
+              const expiresOn = new Date(store.subscriptionExpiresAt!).toLocaleDateString('es-CO', {
+                day: 'numeric',
+                month: 'long',
+              });
+              return (
+                <div
+                  className={`rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-2 ${
+                    urgent ? 'border-red-300 bg-red-50' : 'border-amber-300 bg-amber-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-11 h-11 rounded-xl text-white flex items-center justify-center shrink-0 ${
+                        urgent ? 'bg-red-500' : 'bg-amber-500'
+                      }`}
+                    >
+                      <AlertTriangle className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className={`font-display text-base font-extrabold ${urgent ? 'text-red-700' : 'text-amber-800'}`}>
+                        {urgent ? '¡Tu plan vence muy pronto!' : 'Tu plan Premium está por vencer'}
+                      </p>
+                      <p className={`text-sm ${urgent ? 'text-red-600' : 'text-amber-700'}`}>
+                        {daysLeft === 1 ? 'Te queda 1 día' : `Te quedan ${daysLeft} días`} · vence el{' '}
+                        <strong className="font-bold">{expiresOn}</strong>. Renueva tu espacio antes de volver a ser Free.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={openUpgrade}
+                    className={`shrink-0 inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition-colors ${
+                      urgent ? 'bg-red-600 hover:bg-red-700' : 'bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600'
+                    }`}
+                  >
+                    Renovar plan
+                  </button>
+                </div>
+              );
+            })()}
             <div className="card p-6">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
@@ -722,7 +841,30 @@ export function DashboardPage() {
         <UpgradeSpaceModal
           open={showUpgradeModal}
           storeId={store?.id}
-          onClose={() => setShowUpgradeModal(false)}
+          onClose={() => {
+            setShowUpgradeModal(false);
+            setPendingCreatePlan(null);
+            sessionStorage.removeItem(PENDING_STORE_KEY);
+          }}
+          onPaymentResult={(state) => {
+            if (state?.kind === 'success') {
+              setShowUpgradeModal(false);
+              setUnlockedPlan(state.plan);
+              setUnlockedCycle(state.cycle);
+              // Si se pagó sin tienda, crearla YA (el backend le aplica el plan).
+              (async () => {
+                const hasDraft = !!readStoreDraft();
+                const ok = hasDraft ? await finalizePaidStore() : true;
+                if (ok) {
+                  setPaymentResult({ kind: 'success', plan: state.plan, cycle: state.cycle });
+                }
+                loadUserStore();
+              })();
+            } else if (state?.kind === 'failure') {
+              setShowUpgradeModal(false);
+              setPaymentResult(state);
+            }
+          }}
         />
 
         <PremiumUnlockedModal

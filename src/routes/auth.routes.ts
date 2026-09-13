@@ -5,11 +5,9 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/client";
 import { users } from "../db/schema";
 import { signToken } from "../middleware/auth";
-import { authLimiter } from "../middleware/rate-limit";
+import { authLimiter, registerLimiter } from "../middleware/rate-limit";
 
 const router = Router();
-
-router.use(authLimiter); // Aplica a todo este router (login, register)
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -18,7 +16,7 @@ const registerSchema = z.object({
   refCode: z.string().optional(),
 });
 
-router.post("/register", async (req, res) => {
+router.post("/register", registerLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -48,7 +46,7 @@ const loginSchema = z.object({
   password: z.string(),
 });
 
-router.post("/login", async (req, res) => {
+router.post("/login", authLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -68,7 +66,7 @@ router.post("/login", async (req, res) => {
 // ── Recuperación de contraseña ──────────────────────────────────────────────
 const forgotSchema = z.object({ email: z.string().email() });
 
-router.post("/forgot-password", async (req, res) => {
+router.post("/forgot-password", authLimiter, async (req, res) => {
   const parsed = forgotSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Email inválido" });
 
@@ -88,7 +86,7 @@ const resetSchema = z.object({
   password: z.string().min(6),
 });
 
-router.post("/reset-password", async (req, res) => {
+router.post("/reset-password", authLimiter, async (req, res) => {
   const parsed = resetSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 

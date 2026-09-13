@@ -15,11 +15,22 @@ import chatRoutes from "./routes/chat.routes";
 import saleRoutes from "./routes/sale.routes";
 import uploadRoutes from "./routes/upload.routes";
 import paymentRoutes from "./routes/payments.routes";
+import wompiRoutes from "./routes/wompi.routes";
 import { attachChatWebSocket } from "./ws/chatServer";
-import { globalLimiter, authLimiter } from "./middleware/rate-limit";
+import { globalLimiter } from "./middleware/rate-limit";
+import { expireStoresAndReturnCount } from "./routes/store.routes";
 
 export function createApp() {
   const app = express();
+
+  // ── Trust proxy ──────────────────────────────────────────────────────────
+  // Detrás de un reverse proxy (Railway/Render/Cloudflare), req.ip viene de
+  // X-Forwarded-For. TRUST_PROXY=1 (o N saltos) hace que el rate-limit y las
+  // URLs generadas usen la IP y el host reales del cliente.
+  const trustProxy = process.env.TRUST_PROXY;
+  if (trustProxy) {
+    app.set("trust proxy", trustProxy === "true" ? 1 : Number(trustProxy) || 1);
+  }
 
   // ── Rate limiting global ──────────────────────────────────────────────────
   app.use(globalLimiter);
@@ -29,20 +40,23 @@ export function createApp() {
   app.use(morgan("dev"));
 
   // ── Archivos estáticos (términos, privacidad, etc.) ────────────────────────
-  const publicDir = path.join(process.cwd(), "public");
+  // Resolvemos rutas desde la ubicación real del código (__dirname) en vez de
+  // process.cwd(), porque el cwd puede variar según el entorno (Alwaysdata).
+  const appRoot = path.resolve(__dirname, "..");
+  const publicDir = path.join(appRoot, "public");
   if (fs.existsSync(publicDir)) {
     app.use(express.static(publicDir));
     console.log(`📄 Sirviendo archivos públicos desde ${publicDir}`);
   }
 
-  const uploadsDir = path.join(process.cwd(), "uploads");
+  const uploadsDir = path.join(appRoot, "uploads");
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
   app.use("/uploads", express.static(uploadsDir));
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
 
-  // ── Rutas de autenticación (rate-limit más estricto) ──────────────────────
-  app.use("/api/auth", authLimiter, authRoutes);
+  // ── Rutas de autenticación (rate-limit por endpoint dentro del router) ───
+  app.use("/api/auth", authRoutes);
   app.use("/api/auth", googleAuthRoutes);
   app.use("/api/stores", storeRoutes);
   app.use("/api", productRoutes);
@@ -50,8 +64,9 @@ export function createApp() {
   app.use("/api", saleRoutes);
   app.use("/api/upload", uploadRoutes);
   app.use("/api/payments", paymentRoutes);
+  app.use("/api/payments/wompi", wompiRoutes);
 
-  const frontendDist = path.join(process.cwd(), "frontend", "dist");
+  const frontendDist = path.join(appRoot, "frontend", "dist");
   if (fs.existsSync(frontendDist)) {
     app.use(express.static(frontendDist));
     app.get("*", (req, res, next) => {
@@ -77,6 +92,22 @@ if (isMainModule) {
     console.log(`🏬 CC Platform corriendo en http://localhost:${PORT}`);
     console.log(`   WebSocket de chat en ws://localhost:${PORT}/ws/chat`);
   });
+
+  // ── Cron de expiración de planes ─────────────────────────────────────────
+  // Baja automáticamente a FREE las tiendas cuyo plan (PRO/BUSINESS) venció.
+  // Corremos en el arranque (limpia vencidas) y cada hora: idempotente y barato.
+  async function runExpiryCheck() {
+    try {
+      const expired = await expireStoresAndReturnCount();
+      if (expired > 0) {
+        console.log(`⏳ ${expired} tienda(s) con plan vencido → FREE`);
+      }
+    } catch (err) {
+      console.error("error en cron de expiración:", err);
+    }
+  }
+  runExpiryCheck();
+  setInterval(runExpiryCheck, 60 * 60 * 1000);
 }
 
 // Export default para compatibilidad con import default.

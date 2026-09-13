@@ -2,10 +2,10 @@
   "name": "cc-platform",
   "version": "0.1.0",
   "description": "Centro Comercial Digital — MVP backend (users, tiendas, productos, chat)",
-  "type": "module",
+  "type": "commonjs",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && cp src/index.ts dist/index.mjs || true; tsc",
+    "build": "rm -rf dist && tsc",
     "start": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",

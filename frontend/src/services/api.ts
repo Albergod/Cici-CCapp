@@ -16,6 +16,15 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
+    // Sesión inválida o expirada: si es una API autenticada, cerramos sesión
+    // solos para no dejar al usuario varado a mitad de pago con un error raro.
+    if (response.status === 401 && !endpoint.startsWith('/auth/')) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      if (window.location.pathname !== '/login') {
+        window.location.assign('/login');
+      }
+    }
     const error = await response.json().catch(() => ({ error: 'Error desconocido' }));
     throw new Error(error.error || error.message || `Error ${response.status}`);
   }
@@ -114,17 +123,29 @@ export const api = {
   upload: uploadImage,
 
   payments: {
-    createPreference: async (storeId: string, plan: 'PRO' | 'BUSINESS', cycle: 'MONTHLY' | 'BI_MONTHLY') =>
+    createPreference: async (storeId: string | null | undefined, plan: 'PRO' | 'BUSINESS', cycle: 'MONTHLY' | 'BI_MONTHLY') =>
       request<{ preferenceId: string; initPoint: string; amount: number; cycle: 'MONTHLY' | 'BI_MONTHLY' }>(
         '/payments/preferences',
         {
           method: 'POST',
-          body: JSON.stringify({ storeId, plan, cycle }),
+          body: JSON.stringify(storeId ? { storeId, plan, cycle } : { plan, cycle }),
         }
       ),
     status: (paymentId: string) =>
       request<{ approved: boolean; status: string; detail?: string; plan?: 'PRO' | 'BUSINESS'; cycle?: 'MONTHLY' | 'BI_MONTHLY'; amount?: number }>(
         `/payments/status?paymentId=${encodeURIComponent(paymentId)}`
+      ),
+    createNequi: (storeId: string | null | undefined, plan: 'PRO' | 'BUSINESS', cycle: 'MONTHLY' | 'BI_MONTHLY', phoneNumber: string) =>
+      request<{ transactionId: string; reference: string; amount: number; cycle: 'MONTHLY' | 'BI_MONTHLY' }>(
+        '/payments/wompi/nequi',
+        {
+          method: 'POST',
+          body: JSON.stringify(storeId ? { storeId, plan, cycle, phoneNumber } : { plan, cycle, phoneNumber }),
+        }
+      ),
+    wompiStatus: (transactionId: string) =>
+      request<{ approved: boolean; status: string; detail?: string; plan?: 'PRO' | 'BUSINESS'; cycle?: 'MONTHLY' | 'BI_MONTHLY'; amount?: number }>(
+        `/payments/wompi/status?transactionId=${encodeURIComponent(transactionId)}`
       ),
   },
 

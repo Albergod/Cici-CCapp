@@ -2,3 +2,5 @@ node_modules/
 dist/
 .env
 *.log
+Cici-CCapp/
+query_test.ts
