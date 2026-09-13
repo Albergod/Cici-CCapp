@@ -49,6 +49,7 @@ export interface Product {
   storeId: string;
   categoryId: string | null;
   createdAt: string;
+  attributes?: Record<string, string | number | boolean>;
   store?: Pick<Store, 'name' | 'slug' | 'logoUrl'>;
 }
 

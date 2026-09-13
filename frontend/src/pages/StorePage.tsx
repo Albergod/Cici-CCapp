@@ -265,6 +265,7 @@ export function StorePage() {
                 <ProductCard
                   key={product.id}
                   product={product}
+                  businessType={store.businessType}
                   onContact={handleContact}
                 />
               ))}

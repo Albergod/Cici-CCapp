@@ -11,6 +11,7 @@ import { PaymentResultModal, PaymentResultState } from '@/components/PaymentResu
 import { SalesDashboard } from '@/components/SalesDashboard';
 import { PrestigeCard } from '@/components/PrestigeCard';
 import { ShareStoreCard } from '@/components/ShareStoreCard';
+import { fieldsFor, attributesToTitledList } from '@/lib/categoryFields';
 import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp } from 'lucide-react';
 
 // Datos de la tienda por crear, guardados mientras se paga. Sobreviven al
@@ -61,6 +62,7 @@ export function DashboardPage() {
   const [productPrice, setProductPrice] = useState('');
   const [productStock, setProductStock] = useState('');
   const [productImageUrl, setProductImageUrl] = useState('');
+  const [productAttributes, setProductAttributes] = useState<Record<string, string | number | boolean>>({});
   const [uploadingImage, setUploadingImage] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -258,6 +260,7 @@ export function DashboardPage() {
         price,
         stock,
         imageUrl: productImageUrl.trim() || undefined,
+        attributes: productAttributes,
       });
       setStore((prev) =>
         prev ? { ...prev, products: [...(prev.products || []), product] } : prev
@@ -268,6 +271,7 @@ export function DashboardPage() {
       setProductPrice('');
       setProductStock('');
       setProductImageUrl('');
+      setProductAttributes({});
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Error al crear producto');
     } finally {
@@ -618,7 +622,10 @@ export function DashboardPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => setShowProductForm((v) => !v)}
+                  onClick={() => {
+                    if (!showProductForm) setProductAttributes({});
+                    setShowProductForm((v) => !v);
+                  }}
                   className={showProductForm ? 'btn-ghost text-sm' : 'btn-primary text-sm'}
                 >
                   {showProductForm ? (
@@ -697,6 +704,80 @@ export function DashboardPage() {
                       placeholder="Describe tu producto..."
                     />
                   </div>
+                  {fieldsFor(store.businessType).length > 0 && (
+                    <div className="p-4 bg-white rounded-2xl border border-surface-200">
+                      <p className="text-sm font-semibold text-surface-800 flex items-center gap-1.5">
+                        <Settings2 className="w-4 h-4 text-surface-400" />
+                        Detalles para tu tipo de tienda
+                      </p>
+                      <p className="text-xs text-surface-400 mt-0.5 mb-3">
+                        La IA del chat usará estos datos para identificar la variante exacta que elige tu cliente.
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {fieldsFor(store.businessType).map((field) => (
+                          <div key={field.key}>
+                            <label className="block text-sm font-semibold text-surface-700 mb-1.5">
+                              {field.label}
+                            </label>
+                            {field.type === 'select' && (
+                              <select
+                                value={String(productAttributes[field.key] ?? '')}
+                                onChange={(e) =>
+                                  setProductAttributes((prev) => ({ ...prev, [field.key]: e.target.value }))
+                                }
+                                className="input"
+                              >
+                                <option value="">— Selecciona —</option>
+                                {(field.options ?? []).map((o) => (
+                                  <option key={o} value={o}>{o}</option>
+                                ))}
+                              </select>
+                            )}
+                            {field.type === 'number' && (
+                              <input
+                                type="number"
+                                min={field.min}
+                                max={field.max}
+                                value={String(productAttributes[field.key] ?? '')}
+                                onChange={(e) =>
+                                  setProductAttributes((prev) => ({ ...prev, [field.key]: e.target.value === '' ? '' : Number(e.target.value) }))
+                                }
+                                className="input"
+                                placeholder={field.placeholder}
+                              />
+                            )}
+                            {field.type === 'boolean' && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setProductAttributes((prev) => ({ ...prev, [field.key]: !(prev[field.key] as boolean | undefined) }))
+                                }
+                                className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold transition-colors ${
+                                  productAttributes[field.key]
+                                    ? 'bg-accent-50 border-accent-300 text-accent-600'
+                                    : 'border-surface-300 text-surface-500 hover:border-surface-400'
+                                }`}
+                              >
+                                <span className={`w-3.5 h-3.5 rounded-full border-2 ${productAttributes[field.key] ? 'bg-accent-500 border-accent-500' : 'border-surface-300'}`} />
+                                {productAttributes[field.key] ? 'Sí' : 'No'}
+                              </button>
+                            )}
+                            {field.type === 'text' && (
+                              <input
+                                type="text"
+                                value={String(productAttributes[field.key] ?? '')}
+                                onChange={(e) =>
+                                  setProductAttributes((prev) => ({ ...prev, [field.key]: e.target.value }))
+                                }
+                                className="input"
+                                placeholder={field.placeholder}
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-semibold text-surface-700 mb-1.5">
                       Imagen del producto (opcional)
@@ -783,6 +864,18 @@ export function DashboardPage() {
                               ? product.price.toFixed(2)
                               : Number(product.price).toFixed(2)}
                           </p>
+                          {attributesToTitledList(store.businessType, product.attributes).length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {attributesToTitledList(store.businessType, product.attributes).map((a) => (
+                                <span
+                                  key={a.key}
+                                  className="px-1.5 py-0.5 text-[10px] font-semibold bg-brand-50 text-brand-700 border border-brand-100 rounded-md"
+                                >
+                                  {a.label}: {a.value}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="shrink-0 flex items-center gap-2">

@@ -6,8 +6,11 @@ import { products, stores } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { getProductLimit } from "../lib/prestige";
 import { imageUrl } from "../lib/validators";
+import { sanitizeAttributes, BusinessType } from "../lib/categoryFields";
 
 const router = Router();
+
+const attributesSchema = z.record(z.string(), z.union([z.string(), z.number(), z.boolean()]));
 
 const productSchema = z.object({
   name: z.string().min(1),
@@ -16,13 +19,14 @@ const productSchema = z.object({
   imageUrl: imageUrl().optional(),
   categoryId: z.string().uuid().optional(),
   stock: z.number().int().min(0).optional(),
+  attributes: attributesSchema.optional(),
 });
 
 async function assertStoreOwner(storeId: string, userId: string) {
   const [store] = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
   if (!store) return { ok: false as const, status: 404, msg: "Tienda no encontrada" };
   if (store.ownerId !== userId) return { ok: false as const, status: 403, msg: "No eres dueño de esta tienda" };
-  return { ok: true as const, plan: store.plan };
+  return { ok: true as const, plan: store.plan, businessType: store.businessType as BusinessType };
 }
 
 // Publicar producto en una tienda
@@ -51,6 +55,7 @@ router.post("/stores/:storeId/products", requireAuth, async (req: AuthRequest, r
       ...parsed.data,
       price: parsed.data.price.toFixed(2),
       stock: String(parsed.data.stock ?? 0),
+      attributes: sanitizeAttributes(check.businessType, parsed.data.attributes),
       storeId: req.params.storeId,
     })
     .returning();
@@ -68,6 +73,9 @@ router.patch("/products/:id", requireAuth, async (req: AuthRequest, res) => {
 
   const patch: Record<string, unknown> = { ...req.body };
   if (typeof patch.price === "number") patch.price = patch.price.toFixed(2);
+  if (patch.attributes !== undefined) {
+    patch.attributes = sanitizeAttributes(check.businessType, patch.attributes as Record<string, unknown>);
+  }
 
   // Regla de stock: si el stock llega a 0 el producto se desactiva solo
   // (en vez de eliminarlo). Si vuelve a tener stock > 0, se reactiva.

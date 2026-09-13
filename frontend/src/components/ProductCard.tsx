@@ -1,12 +1,15 @@
 import { Product } from '@/types';
 import { MessageSquare, Package } from 'lucide-react';
+import { attributesToTitledList, BusinessType } from '@/lib/categoryFields';
 
 interface ProductCardProps {
   product: Product;
   onContact?: (productId: string) => void;
+  businessType?: BusinessType;
 }
 
-export function ProductCard({ product, onContact }: ProductCardProps) {
+export function ProductCard({ product, onContact, businessType }: ProductCardProps) {
+  const chips = attributesToTitledList(businessType, product.attributes);
   return (
     <div className="group bg-white rounded-2xl overflow-hidden shadow-card hover:shadow-lift transition-all duration-300 hover:-translate-y-0.5 border border-surface-200/60 flex flex-col">
       <div className="relative aspect-square bg-surface-100 overflow-hidden">
@@ -36,6 +39,18 @@ export function ProductCard({ product, onContact }: ProductCardProps) {
           <p className="text-xs text-surface-500 line-clamp-2 mt-0.5 flex-1">
             {product.description}
           </p>
+        )}
+        {chips.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {chips.map((c) => (
+              <span
+                key={c.key}
+                className="px-1.5 py-0.5 text-[10px] font-semibold bg-brand-50 text-brand-700 border border-brand-100 rounded-md"
+              >
+                {c.label}: {c.value}
+              </span>
+            ))}
+          </div>
         )}
 
         <div className="flex items-center justify-between mt-3">

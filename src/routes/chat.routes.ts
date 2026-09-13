@@ -313,6 +313,7 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
       price: Number(p.price),
       description: p.description ?? undefined,
       stock: p.stock !== undefined && p.stock !== null ? Number(p.stock) : null,
+      attributes: p.attributes ?? undefined,
     })) || [];
 
     const contextProduct = conversation.assertedProductId
@@ -338,7 +339,9 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
       store: storeInfo,
       products: storeProducts,
       history: orderHistory,
-      contextProduct,
+      contextProduct: contextProduct
+        ? { name: (contextProduct as any).name, attributes: (contextProduct as any).attributes ?? undefined }
+        : null,
       customerName: customer?.name,
     });
 

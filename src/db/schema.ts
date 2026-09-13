@@ -80,6 +80,12 @@ export const products = pgTable("products", {
   available: boolean("available").default(true).notNull(),
   views: numeric("views", { precision: 10, scale: 0 }).default("0").notNull(),
   stock: numeric("stock", { precision: 10, scale: 0 }).default("0").notNull(),
+  // Campos de la categoría de la tienda (talla, habitaciones, porción, etc.).
+  // Son un JSON libre: cada tipo de negocio define los suyos (src/lib/categoryFields.ts).
+  attributes: jsonb("attributes")
+    .$type<Record<string, string | number | boolean>>()
+    .default({})
+    .notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   storeId: uuid("store_id")
     .notNull()

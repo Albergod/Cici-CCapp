@@ -1,4 +1,5 @@
 import { OpenAI } from "openai";
+import { attributesSummary, BusinessType } from "./categoryFields";
 
 // ── Configuración por entorno ──────────────────────────────────────────
 const AI_PROVIDER = process.env.AI_PROVIDER || "groq";
@@ -54,12 +55,15 @@ const BUSINESS_TYPE_PROFILES: Record<string, BusinessProfile> = {
     greetingNote: "tienda de accesorios, joyería o relojes",
   },
   HOGAR: {
-    label: "tienda de artículos para el hogar",
+    label: "tienda de arriendos de apartamentos",
     closingQuestions:
-      "confirma cuántas unidades quiere el cliente; para muebles o artículos grandes, pregunta si necesita detalles de envío o las medidas del artículo.",
-    productPlaceholder: "[Nombre del producto] x[cantidad]",
-    neverAsk: "tallas corporales ni medidas de personas en ningún caso.",
-    greetingNote: "tienda de hogar",
+      "pregunta el periodo de arriendo (desde cuándo y por cuánto tiempo), si la unidad debe ser amoblada o no, la zona/ubicación preferida y cuántas personas la ocuparán; verifica que la unidad cumpla lo pedido según sus atributos (habitaciones, baños, área).",
+    productPlaceholder: "[Nombre del apartamento] (período [desde – hasta])",
+    productNote:
+      "usa los atributos del producto (habitaciones, baños, área, amoblado, ubicación) para describir la unidad en la conversación.",
+    invoiceExtra: ["*Período:* [fecha desde – hasta]", "*Amoblado:* [sí / no]"],
+    neverAsk: "tallas, medidas corporales ni 'talles' de ropa; un arriendo no se compra ni lleva talla.",
+    greetingNote: "tienda de arriendos de apartamentos",
   },
   ALIMENTOS: {
     label: "tienda de alimentos",
@@ -106,7 +110,13 @@ export function storeNeedsSizes(store: StoreInfo): boolean {
 }
 
 // ── Tipos auxiliares ──────────────────────────────────────────────────
-type ProductShort = { name: string; price: number; description?: string; stock?: number | null };
+type ProductShort = {
+  name: string;
+  price: number;
+  description?: string;
+  stock?: number | null;
+  attributes?: Record<string, string | number | boolean>;
+};
 type StoreInfo = {
   name: string;
   plan: "FREE" | "PRO" | "BUSINESS";
@@ -238,7 +248,7 @@ export async function getIAStoreReply({
   store: StoreInfo;
   products: ProductShort[];
   history?: { content: string }[];
-  contextProduct?: { name: string } | null;
+  contextProduct?: { name: string; attributes?: Record<string, string | number | boolean> } | null;
   customerName?: string;
 }): Promise<string> {
   const lastMessage = history && history.length > 0 ? history[history.length - 1] : undefined;
@@ -264,14 +274,22 @@ export async function getIAStoreReply({
             : p.stock !== undefined && p.stock !== null && p.stock < 10
               ? ` [solo quedan ${p.stock}]`
               : "";
-        return `- ${p.name}: $${formatPrice(p.price)}${p.description ? ` - ${p.description.substring(0, 60)}` : ""}${stockNote}`;
+        const attrsNote =
+          p.attributes && Object.keys(p.attributes).length > 0
+            ? ` (${attributesSummary(store.businessType as BusinessType | undefined, p.attributes)})`
+            : "";
+        return `- ${p.name}: $${formatPrice(p.price)}${attrsNote}${p.description ? ` - ${p.description.substring(0, 60)}` : ""}${stockNote}`;
       })
       .join("\n");
     const waLine = store.whatsapp && /^\d{7,15}$/.test(store.whatsapp)
       ? `WhatsApp del comerciante para cerrar ventas: ${store.whatsapp}`
       : "El comerciante aún no configuró un número de WhatsApp. Si el cliente quiere cerrar una compra, ofrécele dejarlo anotado para que el dueño le escriba.";
     const contextLine = contextProduct?.name
-      ? `El cliente llegó al chat mirando este producto: "${contextProduct.name}". Respóndele como si ese producto fuera el foco de tu atención, sin olvidar que también tienes el resto del catálogo.`
+      ? `El cliente llegó al chat mirando este producto: "${contextProduct.name}". Respóndele como si ese producto fuera el foco de tu atención, sin olvidar que también tienes el resto del catálogo.${
+          contextProduct.attributes && Object.keys(contextProduct.attributes).length > 0
+            ? ` ${contextProduct.name} tiene estos atributos: ${attributesSummary(store.businessType as BusinessType | undefined, contextProduct.attributes)}.`
+            : ""
+        }`
       : "El cliente abrió el chat sin seleccionar un producto específico, así que acompaña su consulta con naturalidad.";
 
     const profile = profileFor(store);
