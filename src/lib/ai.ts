@@ -50,7 +50,7 @@ const BUSINESS_TYPE_PROFILES: Record<string, BusinessProfile> = {
     productPlaceholder: "[Nombre del producto] (variante [color/modelo/material])",
     productNote: "solo agrega (medida [mm o tamaño]) si el cliente la mencionó o si aplica al artículo.",
     neverAsk:
-      "'talla' en ropas ni tallajes; un número que mencione el cliente (p. ej. 'esfera de 42mm') es una medida, no una talla; no lo asumas como tallaje.",
+      "'talla' en ropas ni tallajes en NINGÚN caso, ni aunque el catálogo o la descripción de un producto mencione talles o medidas; un número que mencione el cliente (p. ej. 'esfera de 42mm') es una medida, no una talla. Preguntá siempre por la variante (color/modelo/material) y, si aplica, la medida del artículo.",
     greetingNote: "tienda de accesorios, joyería o relojes",
   },
   HOGAR: {
