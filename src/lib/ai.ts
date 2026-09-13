@@ -10,6 +10,101 @@ export const openai = AI_API_KEY
   ? new OpenAI({ apiKey: AI_API_KEY, baseURL: AI_BASE_URL })
   : null;
 
+// ── Perfiles por tipo de negocio ──────────────────────────────────────
+// Cada categoría define cómo la IA debe acompañar la venta: qué datos
+// verificar ANTES de confirmar un pedido, cómo escribir la línea Producto
+// de la factura, si la factura lleva campos extra (fecha/lugar), y qué
+// nunca debe preguntar ni asumir.
+type BusinessProfile = {
+  label: string;
+  closingQuestions: string;
+  productPlaceholder: string;
+  productNote?: string;
+  invoiceExtra?: string[];
+  neverAsk: string;
+  greetingNote: string;
+};
+
+const BUSINESS_TYPE_PROFILES: Record<string, BusinessProfile> = {
+  ROPA: {
+    label: "tienda de ropa",
+    closingQuestions:
+      "pregunta la talla deseada si el cliente no la menciona y confirma que esté disponible; también pregunta el color o estilo que prefiere si el cliente no lo indicó.",
+    productPlaceholder: "[Nombre del producto] (talla [número])",
+    productNote: "solo agrega (color [color]) si el cliente lo mencionó.",
+    neverAsk: "medidas corporales ni tallas distintas a las del catálogo; no inventes tallas disponibles.",
+    greetingNote: "tienda de ropa",
+  },
+  CALZADO: {
+    label: "tienda de calzado",
+    closingQuestions:
+      "pregunta el número de calzado si el cliente no lo menciona y confirma que esté disponible.",
+    productPlaceholder: "[Nombre del producto] (talla [número])",
+    neverAsk: "tallajes corporales ni medidas distintas a las del catálogo.",
+    greetingNote: "tienda de calzado",
+  },
+  ACCESORIOS: {
+    label: "tienda de accesorios, joyería o relojes",
+    closingQuestions:
+      "pregunta la variante deseada (color, modelo o material) si el cliente no la indica. Si el artículo es anillo, pulsera o reloj, pregunta el tamaño/diámetro que prefiere (p. ej. medida en mm) sin llamarlo 'talla'.",
+    productPlaceholder: "[Nombre del producto] (variante [color/modelo/material])",
+    productNote: "solo agrega (medida [mm o tamaño]) si el cliente la mencionó o si aplica al artículo.",
+    neverAsk:
+      "'talla' en ropas ni tallajes; un número que mencione el cliente (p. ej. 'esfera de 42mm') es una medida, no una talla; no lo asumas como tallaje.",
+    greetingNote: "tienda de accesorios, joyería o relojes",
+  },
+  HOGAR: {
+    label: "tienda de artículos para el hogar",
+    closingQuestions:
+      "confirma cuántas unidades quiere el cliente; para muebles o artículos grandes, pregunta si necesita detalles de envío o las medidas del artículo.",
+    productPlaceholder: "[Nombre del producto] x[cantidad]",
+    neverAsk: "tallas corporales ni medidas de personas en ningún caso.",
+    greetingNote: "tienda de hogar",
+  },
+  ALIMENTOS: {
+    label: "tienda de alimentos",
+    closingQuestions:
+      "confirma la cantidad o porción; pregunta si hay restricciones o alérgenos relevantes que considerar; y pregunta si el cliente prefiere retirar en el local o que se entregue a domicilio.",
+    productPlaceholder: "[Nombre del producto] x[cantidad] (porción si aplica)",
+    neverAsk: "tallas corporales; si el cliente menciona alérgenos, no hagas recomendaciones médicas.",
+    greetingNote: "tienda de alimentos",
+  },
+  SERVICIOS: {
+    label: "prestador de servicios",
+    closingQuestions:
+      "pregunta la fecha deseada, la hora y el lugar donde se prestará el servicio (a domicilio o en el local).",
+    productPlaceholder: "[Nombre del servicio]",
+    invoiceExtra: [
+      "*Fecha y hora:* [fecha y hora acordadas]",
+      "*Lugar:* [dirección o 'en el local']",
+    ],
+    neverAsk: "tallas ni medidas corporales en ningún caso.",
+    greetingNote: "prestador de servicios",
+  },
+  OTRO: {
+    label: "tienda",
+    closingQuestions:
+      "verifica cualquier variante relevante que el catálogo indique para el producto (sin inventar opciones).",
+    productPlaceholder: "[Nombre del producto]",
+    neverAsk: "tallas de ropa salvo que el nombre del producto o el catálogo lo indique.",
+    greetingNote: "tienda",
+  },
+};
+
+// `needsSizes` por compatibilidad: solo ROPA/CALZADO piden tallas.
+function storeBusinessType(store: StoreInfo): string {
+  return (store.businessType ?? "OTRO").toUpperCase();
+}
+
+function profileFor(store: StoreInfo): BusinessProfile {
+  return BUSINESS_TYPE_PROFILES[storeBusinessType(store)] ?? BUSINESS_TYPE_PROFILES.OTRO;
+}
+
+export function storeNeedsSizes(store: StoreInfo): boolean {
+  const type = storeBusinessType(store);
+  return type === "ROPA" || type === "CALZADO";
+}
+
 // ── Tipos auxiliares ──────────────────────────────────────────────────
 type ProductShort = { name: string; price: number; description?: string; stock?: number | null };
 type StoreInfo = {
@@ -17,8 +112,7 @@ type StoreInfo = {
   plan: "FREE" | "PRO" | "BUSINESS";
   prestigeActive: boolean;
   whatsapp?: string | null;
-  // Si la tienda vende ROPA o CALZADO, la IA debe pedir la talla al cliente.
-  needsSizes?: boolean;
+  businessType?: string;
 };
 
 // ── Fallback determinístico ────────────────────────────────────────────
@@ -117,7 +211,8 @@ export async function getStoreGreeting(
     return fallbackGreeting({ storeName: store.name, productName: product?.name });
   }
   try {
-    const prompt = `Eres un asistente virtual de una tienda llamada "${store.name}" (plan ${store.plan}). El cliente acaba de abrir el chat mirando el producto "${product?.name}". Escribe un saludo cálido, natural y breve (máx. 30 palabras) que invite a preguntar por ese producto o por otras dudas. No menciones precios ni disponibilidad en el saludo inicial; solo presentate y abre la conversación.`;
+    const profile = profileFor(store);
+    const prompt = `Eres un asistente virtual de "${store.name}" (plan ${store.plan}, ${profile.label}). El cliente acaba de abrir el chat mirando el producto "${product?.name}". Escribe un saludo cálido, natural y breve (máx. 30 palabras) que invite a preguntar por ese producto o por otras dudas. No menciones precios ni disponibilidad en el saludo inicial; solo presentate y abre la conversación.`;
     const resp = await openai!.chat.completions.create({
       model: AI_MODEL,
       messages: [{ role: "user", content: prompt }],
@@ -179,32 +274,45 @@ export async function getIAStoreReply({
       ? `El cliente llegó al chat mirando este producto: "${contextProduct.name}". Respóndele como si ese producto fuera el foco de tu atención, sin olvidar que también tienes el resto del catálogo.`
       : "El cliente abrió el chat sin seleccionar un producto específico, así que acompaña su consulta con naturalidad.";
 
-    // Talla: solo en tiendas ROPA/CALZADO. En relojes, joyas, accesorios u
-    // otros, nunca ofrecer ni preguntar por tallas al cliente.
-    const sizeInstruct = store.needsSizes
-      ? "Esta tienda vende ROPA o CALZADO: al atender un pedido o una duda de compra, pregunta la talla deseada si el cliente no la menciona, y confirma que esté disponible."
-      : "Esta tienda NO vende ropa ni calzado: no preguntes por tallas, talles ni medidas. Un número que mencione el cliente (ej. 'esfera de 42mm') no es una talla; no lo asumas como tal.";
+    const profile = profileFor(store);
+
+    // Comportamiento según el tipo de negocio: qué preguntar antes de una
+    // venta y qué nunca preguntar ni asumir.
+    const sizeInstruct = `
+Tipo de tienda: ${profile.label} (definido por el comerciante). Para acompañar una venta:
+- ${profile.closingQuestions}
+
+Qué NO hacer:
+- ${profile.neverAsk}
+
+Si el cliente ya dio esos datos en mensajes anteriores, no se los vuelvas a pedir.`;
 
     // Historial de la conversación para no repetir preguntas ya respondidas
     const historyLines = (history ?? []).slice(-10).map((h) => `- ${h.content}`).join("\n");
 
-    // Instrucciones de pedido y factura
+    const invoiceExtraLines = profile.invoiceExtra ? `\n${profile.invoiceExtra.join("\n")}\n` : "";
+    const productNoteLine = profile.productNote
+      ? `\nNota para la línea Producto de la factura: ${profile.productNote}`
+      : "";
+
+    // Instrucciones de pedido y factura (adaptadas a la categoría)
     const orderInstruct = `
 Cuando el cliente confirme que quiere comprar un producto:
 1. Verifica que tengas el nombre del cliente${customerName ? ` (en esta conversación el cliente se llama: ${customerName})` : ". Si no lo conoces, pídelo"}.
 2. Verifica que tengas la dirección de entrega completa.
 3. Verifica que tengas un número de teléfono de contacto.
-Si falta alguno de estos datos, pídelos de forma natural antes de confirmar el pedido.
+4. ${profile.closingQuestions}
+Si falta alguno de estos datos, pídelos de forma natural antes de confirmar el pedido (siempre respetando lo indicado en el perfil de la tienda).${productNoteLine}
 
-Cuando tengas todos los datos, responde SOLO con la factura siguiente (formato WhatsApp con *negrita*, delimitada por ---, y donde [número] es cualquier talla):
+Cuando tengas todos los datos, responde SOLO con la factura siguiente (formato WhatsApp con *negrita*, delimitada por ---):
 
 ---
 ✅ *Pedido Confirmado*
 
 *Cliente:* ${customerName || "[Nombre del cliente]"}
-*Producto:* [Nombre del producto][ si necesita talla: (talla [número])]
+*Producto:* ${profile.productPlaceholder}
 *Precio:* $[precio]
-
+${invoiceExtraLines}
 *Dirección de entrega:* [Dirección completa]
 *Teléfono:* [Teléfono de contacto]
 
@@ -213,7 +321,7 @@ Total: $[precio]
 
 No agregues nada fuera de esos guiones ni después de la línea de Total: ni saludos, ni explicaciones, ni despedidas, ni notas.`;
 
-    const prompt = `Sos el asistente de la tienda "${store.name}" (plan ${store.plan}). El cliente acaba de escribir: "${lastMessage?.content || "hola"}".
+    const prompt = `Sos el asistente de la tienda "${store.name}" (plan ${store.plan}, ${profile.label}). El cliente acaba de escribir: "${lastMessage?.content || "hola"}".
 Respondé de forma natural, breve (máx. 80 palabras), en español, como si fueras el dueño de la tienda.
 Usá solo la información del catálogo a continuación. Si un producto está marcado [AGOTADO], decile que se agotó y ofrecé ayuda con otros productos; nunca ofrezcas vender un producto agotado. No inventes precios ni datos que no sean los del catálogo ni del WhatsApp del comerciante.
 

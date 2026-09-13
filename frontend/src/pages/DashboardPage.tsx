@@ -459,8 +459,8 @@ export function DashboardPage() {
                   <option value="OTRO">Otro</option>
                 </select>
                 <p className="text-xs text-surface-500 mt-1">
-                  Recuerda elegir <b>Accesorios / Joyería / Relojes</b> si vendes relojes: así la IA nunca
-                  preguntará tallas.
+                  El asistente de IA del chat se adapta a este tipo de tienda: pregunta los datos
+                  adecuados (talla, modelo, cantidad, fecha, etc.) antes de confirmar un pedido.
                 </p>
               </div>
 

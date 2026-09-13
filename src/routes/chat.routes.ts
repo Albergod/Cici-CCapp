@@ -300,15 +300,12 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
   const hasContext = !!conversation.assertedProductId;
 
   if (isCustomer && isPaidPlan && hasContext) {
-    const needsSizes = (conversation.store.businessType as string || "OTRO") === "ROPA"
-      || (conversation.store.businessType as string || "OTRO") === "CALZADO";
-
     const storeInfo = {
       name: conversation.store.name,
       plan: conversation.store.plan as "PRO" | "BUSINESS",
       prestigeActive: true,
       whatsapp: conversation.store.whatsapp ?? null,
-      needsSizes,
+      businessType: conversation.store.businessType as string,
     };
 
     const storeProducts = conversation.store.products?.map((p: any) => ({
