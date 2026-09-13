@@ -1,11 +1,10 @@
-import "dotenv/config";
+import "./lib/boot-env";
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
 import http from "http";
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
 
 import authRoutes from "./routes/auth.routes";
 import googleAuthRoutes from "./routes/auth-google.routes";
@@ -83,7 +82,7 @@ export const app = createApp();
 
 // ── SERVER solo se inicia si este archivo es ejecutado directamente (no importado).
 // Los tests importan app desde aquí o desde test-utils.ts y no levantan el server.
-const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
+const isMainModule = process.argv[1] === __filename;
 if (isMainModule) {
   const server = http.createServer(app);
   attachChatWebSocket(server);

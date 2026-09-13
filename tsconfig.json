@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
     "lib": ["ES2022"],
     "outDir": "dist",
-    "rootDir": ".",
+    "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -16,6 +16,6 @@
     "moduleDetection": "force",
     "noEmit": false
   },
-  "include": ["src/**/*.ts", "vitest.config.mjs"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "frontend", "tests"]
 }

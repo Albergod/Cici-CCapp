@@ -59,7 +59,7 @@ function PaidPlanCard({
 
   return (
     <div
-      className={`p-5 rounded-2xl text-left transition-all relative ${
+      className={`p-4 md:p-5 rounded-2xl text-left transition-all relative ${
         isHighlight
           ? 'border-2 border-brand-500 bg-brand-50/40 shadow-soft'
           : 'border border-surface-200'
@@ -127,7 +127,7 @@ function PaidPlanCard({
           <p className="text-xs font-semibold text-surface-400 uppercase tracking-wide">
             Precio del espacio
           </p>
-          <p className="text-3xl font-extrabold text-surface-900 leading-none mt-1">
+          <p className="text-2xl md:text-3xl font-extrabold text-surface-900 leading-none mt-1">
             {price.price}
             <span className="text-sm font-semibold text-surface-500">
               {price.perMonth}
@@ -176,16 +176,16 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
   const isUpgrade = mode === 'upgrade';
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-[100] flex overflow-y-auto">
       <div
-        className="absolute inset-0 bg-surface-900/50 backdrop-blur-sm"
+        className="fixed inset-0 bg-surface-900/50 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="card p-6 md:p-8 w-full max-w-2xl relative shadow-lift my-8">
+      <div className="card p-4 md:p-8 w-full max-w-2xl relative shadow-lift m-auto my-4 md:my-8">
         <button
           onClick={onClose}
           aria-label="Cerrar"
-          className="absolute top-3 right-3 p-2 rounded-full hover:bg-surface-100 text-surface-500 transition-colors"
+          className="absolute top-3 right-3 z-10 p-2 rounded-full bg-white/90 hover:bg-surface-100 text-surface-500 transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
@@ -195,7 +195,7 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
             <Store className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h2 className="text-xl font-extrabold text-surface-900 leading-tight">
+            <h2 className="text-lg md:text-xl font-extrabold text-surface-900 leading-tight">
               {isUpgrade ? 'Activa tu Espacio Premium' : 'Elige tu espacio de venta'}
             </h2>
             <p className="text-sm text-surface-500">
@@ -210,7 +210,7 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
           {!isUpgrade && (
             <button
               onClick={() => onSelect?.({ type: 'free' })}
-              className="p-5 rounded-2xl border border-surface-200 hover:border-brand-300 hover:bg-surface-50 text-left transition-all group"
+              className="p-4 rounded-2xl border border-surface-200 hover:border-brand-300 hover:bg-surface-50 text-left transition-all group"
             >
               <div className="w-10 h-10 rounded-xl bg-surface-100 text-surface-600 flex items-center justify-center mb-3 group-hover:bg-brand-100 group-hover:text-brand-600 transition-colors">
                 <ShoppingBag className="w-5 h-5" />

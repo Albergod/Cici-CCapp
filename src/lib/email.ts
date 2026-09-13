@@ -21,24 +21,31 @@ export async function sendResetLink(email: string): Promise<string> {
   const provider = process.env.EMAIL_PROVIDER?.toLowerCase();
 
   if (provider === "resend" && process.env.RESEND_API_KEY) {
-    await fetch("https://api.resend.io/v1/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: process.env.EMAIL_FROM || "noreply@ccplatform.com",
-        to: email,
-        subject: "Reinicia tu contraseña en CC Platform",
-        html: `
-          <p>Has solicitado reiniciar tu contraseña.</p>
-          <p><a href="${resetLink}">Haz clic aquí para continuar</a> (o pega el link en tu navegador)</p>
-          <p>Este enlace caduca en 1 hora.</p>
-          <p>Si no solicitaste esto, ignora este correo.</p>
-        `,
-      }),
-    });
+    try {
+      const res = await fetch("https://api.resend.io/v1/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: process.env.EMAIL_FROM || "noreply@ccplatform.com",
+          to: email,
+          subject: "Reinicia tu contraseña en CC Platform",
+          html: `
+            <p>Has solicitado reiniciar tu contraseña.</p>
+            <p><a href="${resetLink}">Haz clic aquí para continuar</a> (o pega el link en tu navegador)</p>
+            <p>Este enlace caduca en 1 hora.</p>
+            <p>Si no solicitaste esto, ignora este correo.</p>
+          `,
+        }),
+      });
+      if (!res.ok) {
+        console.error("⚠️ Resend rechazó el envío:", res.status, await res.text().catch(() => ""));
+      }
+    } catch (err) {
+      console.error("⚠️ Error enviando correo con Resend:", err);
+    }
   }
 
   return resetLink;

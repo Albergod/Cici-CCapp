@@ -6,13 +6,15 @@ import { FollowedStoresSidebar } from '@/components/FollowedStoresSidebar';
 import { HomePage } from '@/pages/HomePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { RegisterPage } from '@/pages/RegisterPage';
+import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
+import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { StorePage } from '@/pages/StorePage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { ChatPage } from '@/pages/ChatPage';
 import { SearchPage } from '@/pages/SearchPage';
 import { AdminPage } from '@/pages/AdminPage';
 
-const AUTH_PAGES = ['/login', '/register'];
+const AUTH_PAGES = ['/login', '/register', '/forgot-password', '/reset-password'];
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -82,6 +84,22 @@ function App() {
         element={
           <AppLayout>
             <RegisterPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/forgot-password"
+        element={
+          <AppLayout>
+            <ForgotPasswordPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/reset-password/:token"
+        element={
+          <AppLayout>
+            <ResetPasswordPage />
           </AppLayout>
         }
       />
