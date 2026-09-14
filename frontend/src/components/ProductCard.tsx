@@ -1,6 +1,7 @@
 import { Product } from '@/types';
 import { MessageSquare, Package } from 'lucide-react';
 import { attributesToTitledList, BusinessType } from '@/lib/categoryFields';
+import { formatCOP } from '@/lib/format';
 
 interface ProductCardProps {
   product: Product;
@@ -55,9 +56,7 @@ export function ProductCard({ product, onContact, businessType }: ProductCardPro
 
         <div className="flex items-center justify-between mt-3">
           <span className="text-lg font-extrabold text-surface-900">
-            ${typeof product.price === 'number'
-              ? product.price.toFixed(2)
-              : Number(product.price).toFixed(2)}
+            {formatCOP(product.price)}
           </span>
           {product.available && onContact && (
             <button

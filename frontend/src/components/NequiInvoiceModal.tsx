@@ -1,6 +1,7 @@
 import { X, Wallet, Check, Smartphone, ShieldCheck, QrCode } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { PLAN_PRICES_COP } from '@/lib/plan-config';
+import { formatCOP } from '@/lib/format';
 
 export type PlanCycle = 'MONTHLY' | 'BI_MONTHLY';
 
@@ -105,7 +106,7 @@ export function NequiInvoiceModal({
           <p className="text-xs font-semibold uppercase tracking-wider opacity-80">
             Total a pagar
           </p>
-          <p className="text-4xl font-extrabold mt-1">${data.price}</p>
+          <p className="text-4xl font-extrabold mt-1">{formatCOP(Number(data.price))}</p>
           <span className="inline-flex items-center gap-1 mt-2 px-3 py-1 bg-white/20 rounded-full text-xs font-bold">
             {data.badge} · {data.perMonth}
           </span>
@@ -123,7 +124,7 @@ export function NequiInvoiceModal({
           </div>
           <p className="mt-2 text-xs font-bold text-surface-700 flex items-center gap-1">
             <QrCode className="w-3.5 h-3.5 text-brand-500" />
-            Escanea para pagar ${data.price} a {APP_BRAND}
+            Escanea para pagar {formatCOP(Number(data.price))} a {APP_BRAND}
           </p>
         </div>
 
@@ -145,7 +146,7 @@ export function NequiInvoiceModal({
           </div>
           <div className="flex justify-between py-2 border-b border-surface-100">
             <span className="text-surface-500">Monto</span>
-            <span className="font-semibold text-surface-900">${data.price}</span>
+            <span className="font-semibold text-surface-900">{formatCOP(Number(data.price))}</span>
           </div>
           {data.savings && (
             <div className="flex justify-between py-2">
@@ -161,7 +162,7 @@ export function NequiInvoiceModal({
             <Smartphone className="w-4 h-4 mt-0.5 shrink-0" />
             <span>
               <strong>Paso a paso:</strong> abre Nequi → selecciona pagar con código QR →
-              escanea este código → confirma el pago de <strong>${data.price}</strong>.
+              escanea este código → confirma el pago de <strong>{formatCOP(Number(data.price))}</strong>.
             </span>
           </p>
         </div>

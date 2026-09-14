@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Product } from '@/types';
 import { attributesToTitledList } from '@/lib/categoryFields';
+import { formatCOP } from '@/lib/format';
 import { ChevronLeft, ChevronRight, Package } from 'lucide-react';
 
 interface ProductCarouselProps {
@@ -105,9 +106,7 @@ export function ProductCarousel({ products, loading = false }: ProductCarouselPr
                     {product.name}
                   </h3>
                   <p className="text-lg font-extrabold text-surface-900 mt-1">
-                    ${typeof product.price === 'number'
-                      ? product.price.toFixed(2)
-                      : Number(product.price).toFixed(2)}
+                    {formatCOP(product.price)}
                   </p>
                   {attributesToTitledList(product.store?.businessType, product.attributes).length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1.5">

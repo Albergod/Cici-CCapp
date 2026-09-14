@@ -127,7 +127,7 @@ type StoreInfo = {
 
 // ── Fallback determinístico ────────────────────────────────────────────
 function formatPrice(p: number): string {
-  return Number(p).toFixed(2);
+  return "$" + new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 }).format(Number(p));
 }
 
 // Detecta si una respuesta de la IA es una factura (pedido confirmado).

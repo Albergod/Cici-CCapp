@@ -12,6 +12,7 @@ import { SalesDashboard } from '@/components/SalesDashboard';
 import { PrestigeCard } from '@/components/PrestigeCard';
 import { ShareStoreCard } from '@/components/ShareStoreCard';
 import { fieldsFor, attributesToTitledList } from '@/lib/categoryFields';
+import { formatCOP } from '@/lib/format';
 import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp } from 'lucide-react';
 
 // Datos de la tienda por crear, guardados mientras se paga. Sobreviven al
@@ -660,7 +661,7 @@ export function DashboardPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-surface-700 mb-1.5">
-                        Precio (USD)
+                        Precio (COP)
                       </label>
                       <input
                         type="number"
@@ -670,7 +671,7 @@ export function DashboardPage() {
                         onChange={(e) => setProductPrice(e.target.value)}
                         required
                         className="input"
-                        placeholder="19.99"
+                        placeholder="29.900"
                       />
                     </div>
                     <div>
@@ -860,9 +861,7 @@ export function DashboardPage() {
                         <div className="min-w-0">
                           <p className="font-bold text-surface-900 text-sm truncate">{product.name}</p>
                           <p className="text-sm text-surface-500 font-semibold">
-                            ${typeof product.price === 'number'
-                              ? product.price.toFixed(2)
-                              : Number(product.price).toFixed(2)}
+{formatCOP(product.price)}
                           </p>
                           {attributesToTitledList(store.businessType, product.attributes).length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">

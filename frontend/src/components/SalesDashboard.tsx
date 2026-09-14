@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { SaleStats, Store } from '@/types';
 import { api } from '@/services/api';
+import { formatCOP } from '@/lib/format';
 
 function PremiumLock({
   title,
@@ -47,11 +48,7 @@ function PremiumLock({
 }
 
 function fmt(n: number): string {
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(n);
+  return formatCOP(n);
 }
 
 function fmtPct(n: number): string {
