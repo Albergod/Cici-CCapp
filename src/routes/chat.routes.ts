@@ -4,6 +4,13 @@ import { db } from "../db/client";
 import { conversations, stores, messages, users, products } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { getStoreGreeting, getIAStoreReply, buildInvoiceVersions } from "../lib/ai";
+import {
+  storeOperational,
+  refreshStoreStatus,
+  detectOffPlatform,
+  recordOffPlatformFlag,
+  OFF_PLATFORM_BURST_LIMIT,
+} from "../lib/moderation";
 
 const router = Router();
 
@@ -123,6 +130,17 @@ router.post("/stores/:storeId/conversation", requireAuth, async (req: AuthReques
   const [store] = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
   if (!store) return res.status(404).json({ error: "Tienda no encontrada" });
 
+  // Anti-fraude: no se abre chat con tiendas suspendidas o baneadas.
+  await refreshStoreStatus(store);
+  if (!storeOperational(store)) {
+    return res.status(403).json({
+      error:
+        store.status === "BANNED"
+          ? "Esta tienda ya no está operando en la plataforma."
+          : "Esta tienda está temporalmente suspendida y no puede recibir mensajes.",
+    });
+  }
+
   const [existing] = await db
     .select()
     .from(conversations)
@@ -174,12 +192,15 @@ router.get("/conversations", requireAuth, async (req: AuthRequest, res) => {
     with: {
       store: {
         columns: {
+          id: true,
           name: true,
           slug: true,
           logoUrl: true,
           whatsapp: true,
           plan: true,
           businessType: true,
+          status: true,
+          suspensionEndsAt: true,
         },
       },
     },
@@ -280,6 +301,12 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
   const isStoreOwner = conversation.store.ownerId === req.userId;
   if (!isCustomer && !isStoreOwner) return res.status(403).json({ error: "No autorizado" });
 
+  // Anti-fraude: la tienda suspendida o baneada no puede operar su chat.
+  await refreshStoreStatus(conversation.store);
+  if (!storeOperational(conversation.store)) {
+    return res.status(403).json({ error: "El chat de esta tienda está suspendido temporalmente." });
+  }
+
   const { content } = (req.body ?? {}) as { content?: string };
   const textToSend = content?.trim();
   if (!textToSend) return res.status(400).json({ error: "El mensaje no puede estar vacío" });
@@ -293,6 +320,24 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
       content: textToSend,
     })
     .returning();
+
+  // ── Anti-fraude: detección de "pago/contacto fuera de la plataforma" ──
+  let moderationWarning: string | null = null;
+  let storeSuspended: { until: Date } | null = null;
+  const detection = detectOffPlatform(textToSend);
+  if (detection) {
+    const flagged = await recordOffPlatformFlag({
+      storeId: conversation.store.id,
+      senderId: req.userId!,
+      content: textToSend,
+      reason: `Detectado en el chat: ${detection}. Se insiste en pagar o contactar por fuera del centro comercial.`,
+      conversationId: conversation.id,
+    });
+    moderationWarning = flagged.suspended
+      ? "Por repetir intentos de pagar o compartir contactos fuera de la plataforma, este chat quedó suspendido temporalmente."
+      : `Aviso del centro comercial: evitar comunicar teléfonos, WhatsApp o coordinar pagos fuera de la plataforma (${OFF_PLATFORM_BURST_LIMIT - flagged.flags} avisos restantes).`;
+    if (flagged.suspended) storeSuspended = { until: flagged.until! };
+  }
 
   // La IA actúa si el chat tiene contexto (un producto asociado).
   let aiReply: string | null = null;
@@ -361,10 +406,15 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
       })
       .returning();
 
-    return res.json({ message: savedMsg, aiReply: aiMsg });
+    return res.json({
+      message: savedMsg,
+      aiReply: aiMsg,
+      moderationWarning,
+      storeSuspended,
+    });
   }
 
-  res.json({ message: savedMsg, aiReply: null });
+  res.json({ message: savedMsg, aiReply: null, moderationWarning, storeSuspended });
 });
 
 export default router;

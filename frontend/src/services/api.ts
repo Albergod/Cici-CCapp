@@ -115,6 +115,17 @@ export const api = {
       request<{ following: boolean }>(`/stores/${id}/follow`, {
         method: 'POST',
       }),
+    report: (id: string, reason: string) =>
+      request<{
+        ok: boolean;
+        action: 'none' | 'suspended' | 'banned';
+        suspendedUntil: string | null;
+        message: string;
+      }>(`/stores/${id}/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      }),
     following: () => request<Store[]>('/stores/following'),
     update: (id: string, data: {
       name?: string;
@@ -287,4 +298,86 @@ export const adminApi = {
       limit: number;
       totalPages: number;
     }>(`/stores/admin/payments?page=${page}`),
+
+  violations: (opts: { status?: string; type?: string; page?: number } = {}) =>
+    adminRequest<{
+      rows: Array<{
+        id: string;
+        type: string;
+        severity: string;
+        status: string;
+        reason: string;
+        metadata: Record<string, unknown> | null;
+        actionTaken: string | null;
+        resolvedNote: string | null;
+        createdAt: string;
+        resolvedAt: string | null;
+        store: { name: string; slug: string; storeStatus: string } | null;
+        reporter: { name: string; email: string } | null;
+      }>;
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+    }>(
+      `/admin/violations?${new URLSearchParams({
+        ...(opts.status ? { status: opts.status } : {}),
+        ...(opts.type ? { type: opts.type } : {}),
+        page: String(opts.page ?? 1),
+      })}`,
+    ),
+
+  resolveViolation: (id: string, body: { status: string; note?: string }) =>
+    adminRequest<Record<string, unknown>>(`/admin/violations/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  adminStores: (opts: { status?: string; page?: number } = {}) =>
+    adminRequest<{
+      rows: Array<{
+        id: string;
+        name: string;
+        slug: string;
+        plan: string;
+        status: string;
+        suspensionEndsAt: string | null;
+        sanctionsCount: number;
+        banReason: string | null;
+        createdAt: string;
+        openViolations: number;
+        owner: { name: string; email: string } | null;
+      }>;
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+    }>(
+      `/admin/stores?${new URLSearchParams({
+        ...(opts.status ? { status: opts.status } : {}),
+        page: String(opts.page ?? 1),
+      })}`,
+    ),
+
+  suspendStore: (id: string, body: { days?: number; hours?: number; reason: string }) =>
+    adminRequest<{ ok: true; until: string }>(`/admin/stores/${id}/suspend`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  banStore: (id: string, body: { reason: string }) =>
+    adminRequest<{ ok: true }>(`/admin/stores/${id}/ban`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  unbanStore: (id: string, body: { reason?: string }) =>
+    adminRequest<{ ok: true }>(`/admin/stores/${id}/unban`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
 };

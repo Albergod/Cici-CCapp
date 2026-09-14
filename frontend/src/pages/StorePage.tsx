@@ -5,7 +5,7 @@ import { api } from '@/services/api';
 import { useAuth } from '@/stores/authStore';
 import { useFollowsVersion } from '@/stores/followsStore';
 import { ProductCard } from '@/components/ProductCard';
-import { Loader2, Users, Package, MessageSquare, ArrowLeft, UserCheck, BadgeCheck, Share2, Check, Sparkles } from 'lucide-react';
+import { Loader2, Users, Package, MessageSquare, ArrowLeft, UserCheck, BadgeCheck, Share2, Check, Sparkles, Flag } from 'lucide-react';
 
 export function StorePage() {
   const { slug } = useParams<{ slug: string }>();
@@ -85,6 +85,25 @@ export function StorePage() {
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const [reportMsg, setReportMsg] = useState<string | null>(null);
+
+  const handleReport = async () => {
+    if (!isAuthenticated || !store) {
+      navigate('/login');
+      return;
+    }
+    const reason = window.prompt('¿Qué pasó? Cuéntanos brevemente para revisar la tienda:', '');
+    if (!reason || reason.trim().length < 5) return;
+    try {
+      const result = await api.stores.report(store.id, reason.trim());
+      setReportMsg(result.message);
+      setTimeout(() => setReportMsg(null), 6000);
+    } catch (err) {
+      setReportMsg(err instanceof Error ? err.message : 'No se pudo enviar el reporte.');
+      setTimeout(() => setReportMsg(null), 6000);
+    }
   };
 
   if (loading) {
@@ -232,6 +251,23 @@ export function StorePage() {
                 )}
               </button>
             </div>
+          </div>
+
+          {reportMsg && (
+            <div className="mb-6 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-700">
+              {reportMsg}
+            </div>
+          )}
+
+          <div className="flex justify-end -mt-6 mb-6">
+            <button
+              onClick={handleReport}
+              className="inline-flex items-center gap-1.5 text-xs text-surface-400 hover:text-red-500 transition-colors"
+              title="Reportar esta tienda al equipo de moderación"
+            >
+              <Flag className="w-3.5 h-3.5" />
+              Reportar tienda
+            </button>
           </div>
         </div>
 

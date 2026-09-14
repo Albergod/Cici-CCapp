@@ -1,18 +1,31 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq, and, sql, desc, count, isNull, lt, ne, isNotNull } from "drizzle-orm";
+import { eq, and, sql, desc, count, isNull, lt, ne, isNotNull, inArray, gte } from "drizzle-orm";
 import { db } from "../db/client";
-import { stores, follows, users, products, mpPayments } from "../db/schema";
+import { stores, follows, users, products, mpPayments, violations } from "../db/schema";
 import { requireAuth, optionalAuth, AuthRequest } from "../middleware/auth";
 import { getContactEligibility } from "../lib/subscription";
 import { imageUrl } from "../lib/validators";
 import {
   PRESTIGE_PER_REFERRAL,
   getProductLimit,
-  computePrestigeStatus,
   VERIFIED_THRESHOLD,
 } from "../lib/prestige";
 import { activatePaidPlan } from "../lib/plans";
+import {
+  getTrackedSalesCounts,
+  isStoreVerified,
+  reauthorizeExpiredSuspensions,
+  storeOperational,
+  refreshStoreStatus,
+  insertViolation,
+  applySuspension,
+  banStore,
+  REFERRAL_BURST_LIMIT,
+  SUSPENSION_REPORT_FLAGS,
+  BAN_REPORT_FLAGS,
+  SUSPENSION_REPORTS_DAYS,
+} from "../lib/moderation";
 
 const router = Router();
 
@@ -106,7 +119,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   // Si el creador llegó con un código de referido, asociar la tienda al
   // referidor (este gana prestigio solo si tiene un plan de pago activo).
   const [creator] = await db
-    .select({ refCode: users.refCode })
+    .select({ refCode: users.refCode, signupIp: users.signupIp })
     .from(users)
     .where(eq(users.id, req.userId!))
     .limit(1);
@@ -119,11 +132,44 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       .where(eq(stores.referralCode, creator.refCode))
       .limit(1);
     if (referrer.length > 0 && referrer[0].plan !== "FREE") {
-      referredByStoreId = referrer[0].id;
-      await db
-        .update(stores)
-        .set({ prestigePoints: sql`${stores.prestigePoints} + ${PRESTIGE_PER_REFERRAL}` })
-        .where(eq(stores.id, referredByStoreId));
+      // Anti-fraude: granja de referidos. Si desde UNA misma IP se abrieron más
+      // de REFERRAL_BURST_LIMIT tiendas con este código en 24h, no se premia:
+      // se registra la violación para que el admin la revise. El check verificado
+      // ahora exige antigüedad + venta real, así que el prestigio farmeado
+      // ya no sirve para evadir la verificación.
+      let farmed = false;
+      const ip = creator.signupIp;
+      if (ip) {
+        const [burst] = await db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(stores)
+          .innerJoin(users, eq(stores.ownerId, users.id))
+          .where(
+            and(
+              eq(users.refCode, creator.refCode),
+              eq(users.signupIp, ip),
+              gte(stores.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1000)),
+            ),
+          );
+        if (Number(burst?.n ?? 0) + 1 > REFERRAL_BURST_LIMIT) {
+          farmed = true;
+          await insertViolation({
+            type: "referral_farm",
+            severity: "warning",
+            storeId: referrer[0].id,
+            userId: req.userId!,
+            reason: `Posible granja de referidos: ${Number(burst?.n ?? 0) + 1} tiendas creadas con tu código desde la IP ${ip} en 24h`,
+            metadata: { ip, burstCount: Number(burst?.n ?? 0) + 1 },
+          });
+        }
+      }
+      if (!farmed) {
+        referredByStoreId = referrer[0].id;
+        await db
+          .update(stores)
+          .set({ prestigePoints: sql`${stores.prestigePoints} + ${PRESTIGE_PER_REFERRAL}` })
+          .where(eq(stores.id, referredByStoreId));
+      }
     }
   }
 
@@ -174,9 +220,14 @@ router.get("/", async (req, res) => {
   const take = Math.min(Number(req.query.take) || 20, 50);
   const skip = Number(req.query.skip) || 0;
 
+  // Reactivar tiendas suspendidas cuya sanción ya expiró (revisión lazy).
+  await reauthorizeExpiredSuspensions();
+
   const results = await db.query.stores.findMany({
     limit: take,
     offset: skip,
+    // Solo tiendas activas: las suspendidas/banneadas no aparecen en el mall.
+    where: (s, { eq: eqOp }) => eqOp(s.status, "ACTIVE"),
     // Orden de prioridad en el centro comercial: los locales con plan de pago
     // (BUSINESS y PRO) se muestran primero; luego los FREE. Dentro del mismo
     // nivel, los más recientes primero.
@@ -186,6 +237,9 @@ router.get("/", async (req, res) => {
     ],
     with: { followers: true, products: true },
   });
+
+  // Ventas reales (medios rastreables) de la página completa en una query.
+  const trackedSales = await getTrackedSalesCounts(results.map((r) => r.id));
 
   const withCounts = results.map(({ followers, products, referralCode: _rc, referredByStoreId: _rbid, ...store }) => {
     const elig = getContactEligibility(
@@ -202,8 +256,12 @@ router.get("/", async (req, res) => {
       subscriptionStatus: elig.status,
       prestigePoints: prestige,
       prestigeActive,
-      verified:
-        prestigeActive && computePrestigeStatus(prestige) === "verified",
+      verified: isStoreVerified({
+        prestigeActive,
+        prestigePoints: prestige,
+        createdAt: store.createdAt,
+        trackedSales: trackedSales.get(store.id) ?? 0,
+      }),
     };
   });
 
@@ -220,6 +278,7 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
       referralCode: stores.referralCode,
       prestigePoints: stores.prestigePoints,
       plan: stores.plan,
+      createdAt: stores.createdAt,
     })
     .from(stores)
     .where(eq(stores.ownerId, req.userId!))
@@ -241,13 +300,19 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
     });
   }
 
+  const trackedMap = await getTrackedSalesCounts([store.id]);
   res.json({
     active: true,
     referralCode: store.referralCode,
     referralLink: `${req.protocol}://${req.get("host")}/register?ref=${store.referralCode}`,
     prestigePoints: prestige,
     required: VERIFIED_THRESHOLD,
-    verified: computePrestigeStatus(prestige) === "verified",
+    verified: isStoreVerified({
+      prestigeActive,
+      prestigePoints: prestige,
+      createdAt: store.createdAt,
+      trackedSales: trackedMap.get(store.id) ?? 0,
+    }),
     productLimit: getProductLimit(store.plan),
   });
 });
@@ -354,9 +419,18 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
   });
   if (!store) return res.status(404).json({ error: "Tienda no encontrada" });
 
+  // Anti-fraude: una tienda suspendida/banneada no se muestra al público.
+  // El dueño sí puede entrar para ver su estado y el motivo de la sanción.
+  const isOwner = req.userId ? store.ownerId === req.userId : false;
+  if (!isOwner) {
+    await refreshStoreStatus(store);
+    if (!storeOperational(store)) {
+      return res.status(404).json({ error: "Tienda no encontrada" });
+    }
+  }
+
   // Si el visitante es el dueño, le mostramos el stock de cada producto
   // (para su panel); el público nunca ve el stock.
-  const isOwner = req.userId ? store.ownerId === req.userId : false;
   const visibleProducts = isOwner
     ? await db.query.products.findMany({
         where: eq(products.storeId, store.id),
@@ -377,6 +451,7 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
   );
   const prestige = Number(store.prestigePoints) || 0;
   const prestigeActive = store.plan !== "FREE";
+  const detailTracked = await getTrackedSalesCounts([store.id]);
   res.json({
     ...rest,
     products: visibleProducts,
@@ -386,8 +461,12 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
     trialEndsAt: elig.trialEndsAt,
     prestigePoints: prestige,
     prestigeActive,
-    verified:
-      prestigeActive && computePrestigeStatus(prestige) === "verified",
+    verified: isStoreVerified({
+      prestigeActive,
+      prestigePoints: prestige,
+      createdAt: store.createdAt,
+      trackedSales: detailTracked.get(store.id) ?? 0,
+    }),
     following: req.userId
       ? followers.some((f) => f.userId === req.userId)
       : false,
@@ -434,6 +513,94 @@ router.post("/:id/follow", requireAuth, async (req: AuthRequest, res) => {
 
   await db.insert(follows).values({ userId: req.userId!, storeId });
   res.json({ following: true });
+});
+
+// ── Anti-fraude: reporte de un comprador ────────────────────────────────────
+// Los clientes pueden reportar prácticas abusivas de una tienda (fraude,
+// cobro sin entrega, pedido de pagos por fuera, etc.). Los reportes se
+// acumulan y activan sanciones escalonadas automáticas:
+//   >= 3 reportes  → suspensión de 14 días
+//   >= 5 reportes  → veto permanente (lo revierte solo el admin)
+const reportSchema = z.object({
+  reason: z.string().min(5).max(500),
+});
+
+router.post("/:id/report", requireAuth, async (req: AuthRequest, res) => {
+  const parsed = reportSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Cuéntanos brevemente qué pasó (mínimo 5 caracteres)." });
+
+  const [store] = await db.select().from(stores).where(eq(stores.id, req.params.id)).limit(1);
+  if (!store) return res.status(404).json({ error: "Tienda no encontrada." });
+  if (store.ownerId === req.userId) {
+    return res.status(400).json({ error: "No puedes reportar tu propia tienda." });
+  }
+
+  // Anti-spam: un mismo comprador no puede reportar a la misma tienda 2 veces
+  // seguidas (24h) si su primer reporte sigue abierto.
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [recent] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(violations)
+    .where(
+      and(
+        eq(violations.storeId, store.id),
+        eq(violations.reporterId, req.userId!),
+        gte(violations.createdAt, dayAgo),
+      ),
+    );
+  if (Number(recent?.n ?? 0) > 0) {
+    return res.status(429).json({ error: "Ya enviaste un reporte para esta tienda. Espera un momento." });
+  }
+
+  const reason = parsed.data.reason;
+
+  // Anotar la violación y revisar si se alcanzó el umbral.
+  await insertViolation({
+    type: "buyer_report",
+    severity: "warning",
+    storeId: store.id,
+    reporterId: req.userId!,
+    reason: `Comprador reportó la tienda: ${reason}`,
+  });
+
+  const [openReports] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(violations)
+    .where(
+      and(
+        eq(violations.storeId, store.id),
+        eq(violations.type, "buyer_report"),
+        eq(violations.status, "OPEN"),
+      ),
+    );
+  const flags = Number(openReports?.n ?? 0);
+
+  let action: "none" | "suspended" | "banned" = "none";
+  let suspendedUntil: Date | null = null;
+  if (flags >= BAN_REPORT_FLAGS) {
+    await banStore(store.id, `${flags} reportes de compradores abiertos (último: ${reason})`);
+    action = "banned";
+  } else if (flags >= SUSPENSION_REPORT_FLAGS) {
+    const applied = await applySuspension(store.id, {
+      days: SUSPENSION_REPORTS_DAYS,
+      reason: `${flags} reportes de compradores abiertos. Suspendida automáticamente mientras el admin revisa.`,
+      actionTaken: `auto_suspend_${SUSPENSION_REPORTS_DAYS}d_by_reports`,
+    });
+    suspendedUntil = applied.until;
+    action = "suspended";
+  }
+
+  res.status(201).json({
+    ok: true,
+    action,
+    suspendedUntil,
+    message:
+      action === "banned"
+        ? "Gracias por avisarnos. Esta tienda fue retirada de la plataforma."
+        : action === "suspended"
+          ? "Gracias por avisarnos. La tienda quedó suspendida mientras revisamos el caso."
+          : "Gracias por tu reporte. Nuestro equipo lo revisará.",
+  });
 });
 
 // ── Admin: Stats del panel ─────────────────────────────────────────────

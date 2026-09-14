@@ -8,11 +8,22 @@ import {
   timestamp,
   uniqueIndex,
   jsonb,
+  integer,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 export const planEnum = pgEnum("plan_type", ["FREE", "PRO", "BUSINESS"]);
 export const cycleEnum = pgEnum("subscription_cycle", ["MONTHLY", "BI_MONTHLY"]);
+// Estado de sanción de una tienda:
+//   ACTIVE    - operativa en el centro comercial
+//   SUSPENDED - penalizada temporalmente (suspension_ends_at). Se oculta del
+//               catálogo y se bloquea chat/ventas hasta que expire.
+//   BANNED    - expulsada de la plataforma (solo la revisa el admin).
+export const storeStatusEnum = pgEnum("store_status", [
+  "ACTIVE",
+  "SUSPENDED",
+  "BANNED",
+]);
 // Tipo de negocio: define si los productos de la tienda requieren talla
 // (Ropa y Calzado sí; el resto, no).
 export const businessTypeEnum = pgEnum("business_type", [
@@ -32,6 +43,7 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   avatarUrl: text("avatar_url"),
   refCode: text("ref_code"), // código de referido que trajo a este usuario
+  signupIp: text("signup_ip"), // IP del registro (detección de cuentas granja)
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -55,6 +67,12 @@ export const stores = pgTable("stores", {
   prestigePoints: numeric("prestige_points", { precision: 10, scale: 0 }).default("0").notNull(),
   referralCode: text("referral_code").unique(),
   referredByStoreId: uuid("referred_by_store_id"),
+  // Sanciones (anti-fraude). Status público = ACTIVE; SUSPENDED/BANNED se
+  // ocultan del catálogo y bloquean chat/ventas hasta resolverse.
+  status: storeStatusEnum("status").default("ACTIVE").notNull(),
+  suspensionEndsAt: timestamp("suspension_ends_at"),
+  sanctionsCount: integer("sanctions_count").default(0).notNull(),
+  banReason: text("ban_reason"),
 });
 
 export const categories = pgTable(
@@ -171,6 +189,31 @@ export const sales = pgTable("sales", {
     .notNull()
     .references(() => stores.id),
   customerId: uuid("customer_id").references(() => users.id),
+  // Método con el que el cliente pagó. Solo las ventas pagadas por un medio
+  // rastreable (MP/WOMPI/CARD) son "ventas reales" para el check verificado;
+  // las de efectivo/transferencia por fuera no inflan reputación.
+  paymentMethod: text("payment_method"),
+});
+
+// Registro de faltas y sanciones (anti-fraude). El panel de super admin las
+// revisa y resuelve; los flujos automáticos (chat, referidos, reportes)
+// insertan violaciones y aplican sanciones escalonadas sobre la tienda.
+export const violations = pgTable("violations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  // referral_farm | buyer_report | off_platform_chat | inflated_sale | admin_action
+  type: text("type").notNull(),
+  // info | warning | suspension | ban
+  severity: text("severity").notNull().default("info"),
+  status: text("status").notNull().default("OPEN"), // OPEN | RESOLVED
+  storeId: uuid("store_id").references(() => stores.id),
+  userId: uuid("user_id").references(() => users.id),
+  reporterId: uuid("reporter_id").references(() => users.id),
+  reason: text("reason").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  actionTaken: text("action_taken"),
+  resolvedNote: text("resolved_note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  resolvedAt: timestamp("resolved_at"),
 });
 
 export const saleItems = pgTable("sale_items", {
@@ -238,6 +281,7 @@ export const storesRelations = relations(stores, ({ one, many }) => ({
   sales: many(sales),
   paymentReports: many(paymentReports),
   mpPayments: many(mpPayments),
+  violations: many(violations),
 }));
 
 export const categoriesRelations = relations(categories, ({ one, many }) => ({
@@ -278,6 +322,12 @@ export const salesRelations = relations(sales, ({ one, many }) => ({
   store: one(stores, { fields: [sales.storeId], references: [stores.id] }),
   customer: one(users, { fields: [sales.customerId], references: [users.id] }),
   items: many(saleItems),
+}));
+
+export const violationsRelations = relations(violations, ({ one }) => ({
+  store: one(stores, { fields: [violations.storeId], references: [stores.id] }),
+  user: one(users, { fields: [violations.userId], references: [users.id] }),
+  reporter: one(users, { fields: [violations.reporterId], references: [users.id] }),
 }));
 
 export const saleItemsRelations = relations(saleItems, ({ one }) => ({

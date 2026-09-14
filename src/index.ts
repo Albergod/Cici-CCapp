@@ -13,6 +13,7 @@ import storeRoutes from "./routes/store.routes";
 import productRoutes from "./routes/product.routes";
 import chatRoutes from "./routes/chat.routes";
 import saleRoutes from "./routes/sale.routes";
+import adminRoutes from "./routes/admin.routes";
 import uploadRoutes from "./routes/upload.routes";
 import paymentRoutes from "./routes/payments.routes";
 import wompiRoutes from "./routes/wompi.routes";
@@ -62,6 +63,7 @@ export function createApp() {
   app.use("/api", productRoutes);
   app.use("/api", chatRoutes);
   app.use("/api", saleRoutes);
+  app.use("/api/admin", adminRoutes);
   app.use("/api/upload", uploadRoutes);
   app.use("/api/payments", paymentRoutes);
   app.use("/api/payments/wompi", wompiRoutes);

@@ -6,6 +6,7 @@ import { db } from "../db/client";
 import { users } from "../db/schema";
 import { signToken } from "../middleware/auth";
 import { authLimiter, registerLimiter } from "../middleware/rate-limit";
+import { clientIp } from "../lib/moderation";
 
 const router = Router();
 
@@ -31,7 +32,7 @@ router.post("/register", registerLimiter, async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
   const [user] = await db
     .insert(users)
-    .values({ email, passwordHash, name, refCode: refCode ?? null })
+    .values({ email, passwordHash, name, refCode: refCode ?? null, signupIp: clientIp(req) })
     .returning();
 
   const token = signToken(user.id);

@@ -1,9 +1,16 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and, gte } from "drizzle-orm";
 import { db } from "../db/client";
 import { stores, products, sales, saleItems } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
+import {
+  storeOperational,
+  refreshStoreStatus,
+  insertViolation,
+  TRACKED_PAYMENT_METHODS,
+  INFLATED_SALE_DAY_BURST,
+} from "../lib/moderation";
 
 const router = Router();
 
@@ -27,16 +34,35 @@ const registerSaleSchema = z.object({
     .min(1),
   note: z.string().optional(),
   customerId: z.string().optional(),
+  paymentMethod: z.enum(["EFECTIVO", "TRANSFERENCIA", "CARD", "MP", "WOMPI"]).optional(),
 });
 
 router.post("/sales", requireAuth, async (req: AuthRequest, res) => {
-  const storeId = await getOwnStore(req.userId!);
-  if (!storeId) return res.status(403).json({ error: "No tienes una tienda propia." });
+  const [store] = await db
+    .select()
+    .from(stores)
+    .where(eq(stores.ownerId, req.userId!))
+    .limit(1);
+  if (!store) return res.status(403).json({ error: "No tienes una tienda propia." });
+
+  // Anti-fraude: una tienda suspendida o baneada no puede registrar ventas
+  // (evita que inflen su reputación mientras están sancionadas).
+  await refreshStoreStatus(store);
+  if (!storeOperational(store)) {
+    return res.status(403).json({
+      error:
+        store.status === "BANNED"
+          ? "Tu tienda fue vetada de la plataforma."
+          : "Tu tienda está suspendida temporalmente; no puedes registrar ventas hasta que termine la sanción.",
+    });
+  }
 
   const parsed = registerSaleSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
+
+  const storeId = store.id;
 
   // Verificar que todos los productos pertenezcan a esta tienda
   const productsDb = await db.query.products.findMany({
@@ -58,6 +84,8 @@ router.post("/sales", requireAuth, async (req: AuthRequest, res) => {
     0,
   );
 
+  const paymentMethod = parsed.data.paymentMethod ?? null;
+
   const [sale] = await db
     .insert(sales)
     .values({
@@ -65,8 +93,33 @@ router.post("/sales", requireAuth, async (req: AuthRequest, res) => {
       total: String(total.toFixed(2)),
       note: parsed.data.note,
       customerId: parsed.data.customerId,
+      paymentMethod,
     })
     .returning();
+
+  // ── Anti-fraude: venta inflada ──────────────────────────────────────────
+  // Un volumen alto de ventas autoregistradas SIN un método de pago
+  // rastreable en 24h huele a inflación de reputación (el check verificado
+  // solo cuenta ventas pagadas por MP/WOMPI/CARD). Se registra la violación
+  // para que el admin decida; no bloquea la operación de la tienda.
+  let antiFraudFlagged = false;
+  if (!paymentMethod || !TRACKED_PAYMENT_METHODS.includes(paymentMethod)) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [burst] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(sales)
+      .where(and(eq(sales.storeId, storeId), gte(sales.soldAt, since)));
+    if (Number(burst?.n ?? 0) >= INFLATED_SALE_DAY_BURST) {
+      antiFraudFlagged = true;
+      await insertViolation({
+        type: "inflated_sale",
+        severity: "warning",
+        storeId,
+        reason: `${Number(burst?.n ?? 0)} ventas autoregistradas en 24h sin método de pago rastreable (posible inflación de reputación).`,
+        metadata: { salesIn24h: Number(burst?.n ?? 0), paymentMethod: paymentMethod ?? "ninguno" },
+      });
+    }
+  }
 
   for (const item of parsed.data.items) {
     await db.insert(saleItems).values({
@@ -98,7 +151,7 @@ router.post("/sales", requireAuth, async (req: AuthRequest, res) => {
     }
   }
 
-  res.status(201).json({ ...sale, total: Number(sale.total) });
+  res.status(201).json({ ...sale, total: Number(sale.total), antiFraudFlagged });
 });
 
 // Estadísticas del negocio + ventas recientes

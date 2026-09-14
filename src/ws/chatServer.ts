@@ -6,6 +6,13 @@ import { db } from "../db/client";
 import { conversations, messages, stores, products } from "../db/schema";
 import { JWT_SECRET } from "../middleware/auth";
 import { getIAStoreReply, buildInvoiceVersions } from "../lib/ai";
+import {
+  storeOperational,
+  refreshStoreStatus,
+  detectOffPlatform,
+  recordOffPlatformFlag,
+  OFF_PLATFORM_BURST_LIMIT,
+} from "../lib/moderation";
 
 interface ClientInfo {
   ws: WebSocket;
@@ -72,6 +79,12 @@ export function attachChatWebSocket(server: Server) {
       return;
     }
 
+    // Anti-fraude: no se abre el canal de chat de una tienda suspendida/banneada.
+    if (!storeOperational(conversation.store)) {
+      ws.close(4006, "Tienda temporalmente no disponible");
+      return;
+    }
+
     // El cliente solo puede conectarse si la tienda tiene el contacto activo
     // (prueba gratis vigente o suscripción de espacio). El dueño siempre accede.
     if (isCustomer) {
@@ -95,6 +108,24 @@ export function attachChatWebSocket(server: Server) {
         const { content } = JSON.parse(raw.toString());
         if (!content || typeof content !== "string" || !content.trim()) return;
 
+        // Re-chequear el estado de la tienda (una sanción pudo activarse en
+        // medio de la conversación) antes de guardar el mensaje.
+        const [freshStore] = await db
+          .select({ id: stores.id, status: stores.status, suspensionEndsAt: stores.suspensionEndsAt })
+          .from(stores)
+          .where(eq(stores.id, conversation.storeId))
+          .limit(1);
+        if (freshStore) {
+          await refreshStoreStatus(freshStore);
+          if (!storeOperational(freshStore)) {
+            ws.send(JSON.stringify({
+              type: "chat_suspended",
+              message: "El chat de esta tienda está suspendido temporalmente. No se envió el mensaje.",
+            }));
+            return;
+          }
+        }
+
         // Insertar el mensaje del cliente
         const [message] = await db
           .insert(messages)
@@ -102,6 +133,26 @@ export function attachChatWebSocket(server: Server) {
           .returning();
 
         broadcast(conversationId, { type: "message", message });
+
+        // ── Anti-fraude: pago/contacto fuera de la plataforma ──────────────
+        const detection = freshStore ? detectOffPlatform(content) : null;
+        if (detection) {
+          const flagged = await recordOffPlatformFlag({
+            storeId: conversation.storeId,
+            senderId: userId,
+            content: content.trim(),
+            reason: `Detectado en el chat: ${detection}. Intento de pagar o contactar por fuera del centro comercial.`,
+            conversationId,
+          });
+          const warning = flagged.suspended
+            ? "Por repetir intentos de pagar o compartir contactos fuera de la plataforma, este chat quedó suspendido temporalmente."
+            : `Aviso del centro comercial: evitar comunicar teléfonos, WhatsApp o coordinar pagos fuera de la plataforma (${OFF_PLATFORM_BURST_LIMIT - flagged.flags} avisos restantes).`;
+          broadcast(conversationId, {
+            type: flagged.suspended ? "chat_suspended" : "moderation",
+            text: warning,
+            until: flagged.until ?? null,
+          });
+        }
 
         // La IA solo actúa si el cliente llegó por una productCard (hay producto
         // asociado a la conversación). Si usó el botón "Contactar" general de la

@@ -7,6 +7,7 @@ import { requireAuth, AuthRequest } from "../middleware/auth";
 import { getProductLimit } from "../lib/prestige";
 import { imageUrl } from "../lib/validators";
 import { sanitizeAttributes, BusinessType } from "../lib/categoryFields";
+import { storeOperational, refreshStoreStatus } from "../lib/moderation";
 
 const router = Router();
 
@@ -26,6 +27,18 @@ async function assertStoreOwner(storeId: string, userId: string) {
   const [store] = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
   if (!store) return { ok: false as const, status: 404, msg: "Tienda no encontrada" };
   if (store.ownerId !== userId) return { ok: false as const, status: 403, msg: "No eres dueño de esta tienda" };
+  // Anti-fraude: una tienda suspendida/banneada no puede publicar productos.
+  await refreshStoreStatus(store);
+  if (!storeOperational(store)) {
+    return {
+      ok: false as const,
+      status: 403,
+      msg:
+        store.status === "BANNED"
+          ? "Tu tienda fue vetada de la plataforma."
+          : "Tu tienda está suspendida temporalmente. No puedes publicar productos por ahora.",
+    };
+  }
   return { ok: true as const, plan: store.plan, businessType: store.businessType as BusinessType };
 }
 
@@ -109,7 +122,12 @@ router.get("/products", async (req, res) => {
   const take = Math.min(Number(req.query.take) || 20, 50);
 
   const results = await db.query.products.findMany({
-    where: and(eq(products.available, true), ilike(products.name, `%${q}%`)),
+    where: and(
+      eq(products.available, true),
+      ilike(products.name, `%${q}%`),
+      // Solo productos de tiendas activas (las suspendidas/banneadas se ocultan)
+      sql`EXISTS (SELECT 1 FROM stores s WHERE s.id = ${products.storeId} AND s.status = 'ACTIVE')`,
+    ),
     limit: take,
     orderBy: [desc(products.createdAt)],
     columns: {
