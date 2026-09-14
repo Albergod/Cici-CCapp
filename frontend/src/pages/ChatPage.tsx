@@ -8,11 +8,11 @@ import { Loader2, Send, ArrowLeft, MessageSquare, Bot, MessageCircle, Receipt } 
 const isInvoice = (content: string) =>
   content.includes('Pedido Confirmado') || content.includes('✅ *Pedido*');
 
-// Altura del contenedor: viewport menos el navbar (120px en móvil por la fila
-// de búsqueda, 64px en md+). Usa dvh cuando el navegador lo soporta para que
-// el teclado y las barras del móvil no rompan el input anclado.
+// Altura del contenedor: viewport menos la altura REAL del navbar (--nav-h,
+// medida en vivo). Usa dvh cuando el navegador lo soporta para que el teclado
+// y las barras del móvil no rompan el input anclado.
 const CHAT_HEIGHT =
-  'h-[calc(100vh-7.5rem)] supports-[height:100dvh]:h-[calc(100dvh-7.5rem)] md:h-[calc(100vh-4rem)] md:supports-[height:100dvh]:h-[calc(100dvh-4rem)]';
+  'h-[calc(100vh-var(--nav-h))] supports-[height:100dvh]:h-[calc(100dvh-var(--nav-h))]';
 
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches;
 
@@ -28,6 +28,21 @@ export function ChatPage() {
   const [sending, setSending] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [navHeight, setNavHeight] = useState(64);
+
+  // Mide en vivo la altura real del navbar para que el chat quepa justo debajo
+  // (sin bajar de la vista ni dejar hueco sobrante, pase lo que pase con fuentes).
+  useEffect(() => {
+    const nav = document.querySelector('nav');
+    const measure = () => setNavHeight(nav?.getBoundingClientRect().height ?? 64);
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('orientationchange', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('orientationchange', measure);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -181,16 +196,38 @@ export function ChatPage() {
     return name.charAt(0).toUpperCase() || '?';
   };
 
+  // En el hilo, "con quién hablas" depende de quién lo ve:
+  // - un cliente habla con la TIENDA (nombre + logo de la tienda)
+  // - el comerciante habla con el CLIENTE (nombre + avatar del cliente)
+  const isCustomerViewer = (conv: Conversation) => user?.id === conv.customerId;
+
+  const getThreadTitle = (conv: Conversation) =>
+    isCustomerViewer(conv)
+      ? conv.store?.name || conv.customer?.name || 'Conversación'
+      : conv.customer?.name || conv.store?.name || 'Conversación';
+
+  const getThreadAvatar = (conv: Conversation) =>
+    isCustomerViewer(conv) ? conv.store?.logoUrl || null : conv.customer?.avatarUrl || null;
+
+  const getThreadSubtitle = (conv: Conversation) =>
+    isCustomerViewer(conv) ? 'Tienda' : 'Cliente';
+
   if (loading) {
     return (
-      <div className={`${CHAT_HEIGHT} flex items-center justify-center`}>
+      <div
+        className={`${CHAT_HEIGHT} flex items-center justify-center`}
+        style={{ ['--nav-h' as string]: `${navHeight}px` }}
+      >
         <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className={`${CHAT_HEIGHT} flex overflow-hidden`}>
+    <div
+      className={`${CHAT_HEIGHT} flex overflow-hidden`}
+      style={{ ['--nav-h' as string]: `${navHeight}px` }}
+    >
       {/* Lista de conversaciones: única vista en móvil cuando no hay hilo abierto */}
       <div
         className={`${
@@ -259,19 +296,58 @@ export function ChatPage() {
       >
         {activeConversation ? (
           <>
-            <div className="h-16 px-4 flex items-center gap-4 border-b border-surface-200 bg-white shrink-0">
+            {/* Header móvil: barra de mensajería con a quién le hablas */}
+            <div className="md:hidden flex items-center gap-2 px-2 py-2.5 bg-gradient-to-r from-brand-600 to-accent-500 text-white shrink-0">
               <button
                 onClick={() => navigate('/chat')}
-                className="md:hidden -ml-1 p-2 -mr-1 hover:bg-surface-100 rounded-lg transition-colors text-surface-600"
+                className="p-1.5 -ml-1 hover:bg-white/10 rounded-lg transition-colors"
                 aria-label="Volver a la lista"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
+              <div className="w-9 h-9 rounded-full bg-white/90 flex items-center justify-center overflow-hidden ring-2 ring-white/40 shrink-0">
+                {getThreadAvatar(activeConversation) ? (
+                  <img
+                    src={getThreadAvatar(activeConversation)!}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-sm font-bold text-brand-600">
+                    {getConversationInitial(activeConversation)}
+                  </span>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm truncate">
+                  {getThreadTitle(activeConversation)}
+                </p>
+                <p className="text-[11px] text-white/80 truncate">
+                  {getThreadSubtitle(activeConversation)}
+                </p>
+              </div>
+              {activeConversation?.store?.whatsapp && isCustomerViewer(activeConversation) && (
+                <a
+                  href={`https://wa.me/${activeConversation.store.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(
+                    `Hola ${activeConversation.store.name}! Me interesa continuar esta conversación en el chat de la tienda.`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Continuar por WhatsApp"
+                  className="p-2 rounded-full bg-white text-green-600 hover:bg-green-50 transition-colors shrink-0"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                </a>
+              )}
+            </div>
+
+            {/* Header desktop */}
+            <div className="hidden md:flex h-16 px-4 items-center gap-4 border-b border-surface-200 bg-white shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center overflow-hidden shrink-0">
-                  {getConversationAvatar(activeConversation) ? (
+                  {getThreadAvatar(activeConversation) ? (
                     <img
-                      src={getConversationAvatar(activeConversation)!}
+                      src={getThreadAvatar(activeConversation)!}
                       alt=""
                       className="w-full h-full object-cover"
                     />
@@ -281,11 +357,16 @@ export function ChatPage() {
                     </span>
                   )}
                 </div>
-                <span className="font-bold text-surface-900 truncate">
-                  {getConversationTitle(activeConversation)}
-                </span>
+                <div className="min-w-0">
+                  <p className="font-bold text-surface-900 truncate">
+                    {getThreadTitle(activeConversation)}
+                  </p>
+                  <p className="text-xs text-surface-400 truncate">
+                    {getThreadSubtitle(activeConversation)}
+                  </p>
+                </div>
               </div>
-              {activeConversation?.store?.whatsapp && user?.id === activeConversation.customerId && (
+              {activeConversation?.store?.whatsapp && isCustomerViewer(activeConversation) && (
                 <a
                   href={`https://wa.me/${activeConversation.store.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(
                     `Hola ${activeConversation.store.name}! Me interesa continuar esta conversación en el chat de la tienda.`
@@ -357,7 +438,7 @@ export function ChatPage() {
 
             <form
               onSubmit={handleSendMessage}
-              className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-surface-200 bg-white shrink-0"
+              className="px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-surface-200 bg-white shrink-0"
             >
               <div className="flex gap-2">
                 <input
