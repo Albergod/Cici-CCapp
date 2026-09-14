@@ -1,0 +1,77 @@
+════════════════════════════════════════════════════════════════
+  CICI — CHEATSHEET DE LANZAMIENTO EN PRODUCCIÓN
+════════════════════════════════════════════════════════════════
+
+1) ENV VARS QUE TIENEN QUE ESTAR EN RENDER (Environment)
+   Úsalas EXACTAMENTE con estos nombres.
+
+   ── PRECIOS / EARLY ACCESS ──────────────────────────────
+   LAS DOS VAN EL MISMO VALOR. Es una FECHA, no un texto.
+   Genera el valor con:  node scripts/early-access-date.mjs
+   (te imprime algo así: 2026-11-13T23:59:59-05:00)
+
+   EARLY_ACCESS_ENDS_AT      = <fecha>   → la usa el BACKEND (runtime).
+                                          Controla QUÉ precio COBRA.
+   VITE_EARLY_ACCESS_ENDS_AT = <fecha>   → la usa el FRONTEND (build).
+                                          Controla el TEXTO/countdown.
+   Si este valor NO se define, se usa el respaldo 2026-11-13 (hoy+60d).
+
+   ── IMPRESCINDIBLES (ya deben estar en Render) ──────────
+   DATABASE_URL      → BD de Neon. NO la cambies.
+   JWT_SECRET        → secreto largo y aleatorio.
+   TRUST_PROXY       → 1 (para rate-limit y URLs reales).
+   PUBLIC_BASE_URL   → https://tu-dominio-o-URL-de-render
+
+   ── PAGOS (Wompi/Nequi) ─────────────────────────────────
+   WOMPI_SANDBOX        → true en pruebas / false en producción.
+   WOMPI_PUBLIC_KEY
+   WOMPI_PRIVATE_KEY
+   WOMPI_INTEGRITY_KEY
+   WOMPI_EVENTS_KEY     → para webhooks (en el panel de Wompi).
+
+   ── IA DEL CHAT (opcional) ──────────────────────────────
+   GROQ_API_KEY · OPENAI_API_KEY · AI_BASE_URL · AI_MODEL
+
+   ── IMÁGENES (Cloudinary) ───────────────────────────────
+   CLOUDINARY_CLOUD_NAME · CLOUDINARY_API_KEY · CLOUDINARY_API_SECRET
+   (vacías → se guarda local, solo desarrollo)
+
+   ── GOOGLE LOGIN (hoy DESACTIVADO) ──────────────────────
+   GOOGLE_CLIENT_ID → vacío = login oculto. Para activarlo ver
+   el origen autorizado en Google Cloud Console (URL final).
+
+   CÓMO SE VE EN RENDER (ejemplo real):
+   EARLY_ACCESS_ENDS_AT  →  2026-11-13T23:59:59-05:00
+   VITE_EARLY_ACCESS_ENDS_AT  →  2026-11-13T23:59:59-05:00
+
+   Después de tocar env vars en Render → "Manual Deploy".
+   La VITE_ se usa en el BUILD: si la cambias, hay que redesplegar.
+
+────────────────────────────────────────────────────────────────
+2) RESETEAR LA BASE DE DATOS (el día del lanzamiento)
+   Vacía TODA la BD de Neon. IRREVERSIBLE. Verifica el nombre:
+   el valor debe ser igual al host de la BD en Neon (cc_platform).
+
+   DATABASE_URL="postgresql://TU-DATO:TU-PASS@ep-xxxx-pooler.c-5.us-east-2.aws.neon.tech/cc_platform?sslmode=require&channel_binding=require" \
+     npm run db:reset -- --yes --db-check=cc_platform
+
+   (sin --db-check no toca nada; sin --yes aborta. Doble seguro.)
+
+────────────────────────────────────────────────────────────────
+3) (OPCIONAL) SEMBRAR EL DEMO (6 tiendas + precios COP)
+   Solo si quieres que la app arranque mostrando tiendas de ejemplo.
+
+   DATABASE_URL="postgresql://TU-DATO:TU-PASS@ep-xxxx-pooler.c-5.us-east-2.aws.neon.tech/cc_platform?sslmode=require&channel_binding=require" \
+     npx tsx seed_demo.mjs
+
+   Si NO lo corres: producción arranca 100% limpia (solo tú creas
+   tu tienda al registrarte).
+
+────────────────────────────────────────────────────────────────
+4) SECUENCIA RECOMENDADA EN EL DÍA DEL LANZAMIENTO
+   1. node scripts/early-access-date.mjs  → copia la fecha.
+   2. En Render → Environment: pega EARLY_ACCESS_ENDS_AT y
+      VITE_EARLY_ACCESS_ENDS_AT con esa fecha → Manual Deploy.
+   3. Resetea la BD (paso 2) — YA DESPLEGADO.
+   4. (¿demo?) → seed_demo.mjs.
+   5. Prueba: registra una tienda, abre un chat, haz un pago de prueba.
