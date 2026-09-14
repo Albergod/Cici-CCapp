@@ -26,9 +26,17 @@ const register = async (email, password, name) => {
 };
 const login = (email, password) => j('POST', '/auth/login', { email, password });
 
+// Demo con estructura real: 1 usuario = 1 tienda. owner@demo.test es la
+// cuenta "principal" (tiene Moda Cielo); el resto cada tienda tiene su dueño.
+const ownerOf = (slug, storeName) =>
+  slug === 'moda-cielo'
+    ? { email: 'owner@demo.test', name: 'Carolina Dueñas' }
+    : { email: `${slug}@demo.test`, name: `Dueño de ${storeName}` };
+
 const stores = [
   {
     name: 'Moda Cielo',
+    slug: 'moda-cielo',
     description: 'Ropa femenina con estilo y comodidad. Envíos a todo el país.',
     businessType: 'ROPA',
     banner: 'photo-1441986300917-64674bd600d8',
@@ -40,6 +48,7 @@ const stores = [
   },
   {
     name: 'Paso Urbano',
+    slug: 'paso-urbano',
     description: 'Calzado deportivo y casual de las mejores marcas.',
     businessType: 'CALZADO',
     banner: 'photo-1449505278894-297fdb3edbc1',
@@ -50,6 +59,7 @@ const stores = [
   },
   {
     name: 'Destellos',
+    slug: 'destellos',
     description: 'Joyería, relojes y bijouterie fina.',
     businessType: 'ACCESORIOS',
     banner: 'photo-1522312346375-d1a52e2b99b3',
@@ -60,6 +70,7 @@ const stores = [
   },
   {
     name: 'Renta del Norte',
+    slug: 'renta-del-norte',
     description: 'Apartamentos y studios en arriendo, amoblados o vacíos.',
     businessType: 'HOGAR',
     banner: 'photo-1522708323590-d24dbb6b0267',
@@ -70,6 +81,7 @@ const stores = [
   },
   {
     name: 'Horno de la Abuela',
+    slug: 'horno-de-la-abuela',
     description: 'Pan artesanal y repostería fresca todos los días.',
     businessType: 'ALIMENTOS',
     banner: 'photo-1509440159596-0249088772ff',
@@ -80,6 +92,7 @@ const stores = [
   },
   {
     name: 'Glow Studio',
+    slug: 'glow-studio',
     description: 'Salón de belleza: cortes, peinados y cuidados faciales.',
     businessType: 'SERVICIOS',
     banner: 'photo-1560066984-138dadb4c035',
@@ -90,20 +103,24 @@ const stores = [
 ];
 
 (async () => {
-  const owner = await register('owner@demo.test', 'Demo1234', 'Carolina Dueñas');
-  const shopper = await register('shopper@demo.test', 'Demo1234', 'Ana Martínez');
-  const session = await login('owner@demo.test', 'Demo1234');
-  const token = session.token;
+  await register('shopper@demo.test', 'Demo1234', 'Ana Martínez');
 
   let totalProducts = 0;
   for (const s of stores) {
+    const o = ownerOf(s.slug, s.name);
+    try {
+      await register(o.email, 'Demo1234', o.name);
+    } catch {
+      // usuario demo ya existe (seed re-corrido)
+    }
+    const session = await login(o.email, 'Demo1234');
     const st = await j('POST', '/stores', {
       name: s.name,
       description: s.description,
       businessType: s.businessType,
       logoUrl: img(s.banner, 400, 400),
       bannerUrl: img(s.banner, 1200, 420),
-    }, token);
+    }, session.token);
     for (const p of s.products) {
       await j('POST', `/stores/${st.id}/products`, {
         name: p.name,
@@ -112,11 +129,16 @@ const stores = [
         stock: 25,
         imageUrl: img(p.image),
         attributes: p.attrs,
-      }, token);
+      }, session.token);
       totalProducts++;
     }
-    console.log(`ok ${s.businessType.padEnd(11)} ${st.slug}  id=${st.id}  productos=${s.products.length}`);
+    console.log(`ok ${s.businessType.padEnd(11)} ${st.slug}  dueño=${o.email}  productos=${s.products.length}`);
   }
-  console.log(`\nUsuarios: owner@demo.test / shopper@demo.test  (Demo1234)`);
-  console.log(`Tiendas: ${stores.length}   Productos: ${totalProducts}`);
+  console.log(`\nDemo (contraseña Demo1234 para todos):`);
+  for (const s of stores) {
+    const o = ownerOf(s.slug, s.name);
+    console.log(`  ${o.email.padEnd(28)} → ${s.name}`);
+  }
+  console.log(`  shopper@demo.test        → comprador`);
+  console.log(`\nTiendas: ${stores.length}   Productos: ${totalProducts}`);
 })().catch((e) => { console.error(e); process.exit(1); });
