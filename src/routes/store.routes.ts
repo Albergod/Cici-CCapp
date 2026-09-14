@@ -83,6 +83,16 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const parsed = createStoreSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+  // Un usuario = una tienda. Si ya tiene una, se rechaza la creación.
+  const [existingStore] = await db
+    .select({ id: stores.id })
+    .from(stores)
+    .where(eq(stores.ownerId, req.userId!))
+    .limit(1);
+  if (existingStore) {
+    return res.status(409).json({ error: "Ya tienes una tienda. Cada usuario solo puede tener una." });
+  }
+
   const baseSlug = slugify(parsed.data.name);
   let slug = baseSlug;
   let i = 1;
