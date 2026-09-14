@@ -44,13 +44,15 @@ export function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingPayments, setLoadingPayments] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
 
   const handleLogin = async () => {
-    const token = localStorage.getItem('adminToken');
+    const token = (tokenInput.trim() || localStorage.getItem('adminToken') || '').trim();
     if (!token) {
-      setError('Primero guarda el token en localStorage. Abre la consola y ejecuta: localStorage.setItem("adminToken", "e9b08717ff8745d04f5ba064da2100bc2a694eb0")');
+      setError('Escribe tu token de administrador (es el valor de ADMIN_TOKEN en el entorno del servidor).');
       return;
     }
+    localStorage.setItem('adminToken', token);
     setLoading(true);
     setError(null);
     try {
@@ -115,15 +117,15 @@ export function AdminPage() {
           </div>
           <h2 className="text-xl font-extrabold text-surface-900 mt-4">Panel de Administración</h2>
           <p className="text-sm text-surface-600 mt-2">
-            Para acceder, primero debes guardar el token de administrador en localStorage.
+            Escribe el token de administrador (valor de <code className="text-xs font-mono">ADMIN_TOKEN</code> en el entorno del servidor).
           </p>
-          <div className="mt-4 p-3 bg-surface-50 rounded-xl text-left text-xs font-mono text-surface-700">
-            <p className="mb-1">1. En la consola del navegador (F12 → Console), ejecuta:</p>
-            <code className="block p-2 bg-surface-100 rounded mt-1">
-              localStorage.setItem("adminToken", "e9b08717ff8745d04f5ba064da2100bc2a694eb0")
-            </code>
-            <p className="mt-2 mb-1">2. Luego presiona "Conectar"</p>
-          </div>
+          <input
+            type="password"
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            placeholder="ADMIN_TOKEN"
+            className="mt-4 w-full p-3 bg-surface-50 rounded-xl text-sm font-mono border border-surface-100 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
           {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
           <button onClick={handleLogin} disabled={loading} className="btn-primary w-full mt-4">
             {loading ? 'Cargando...' : 'Conectar al panel'}

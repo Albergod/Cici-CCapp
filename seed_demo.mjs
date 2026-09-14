@@ -1,4 +1,4 @@
-const base = 'http://localhost:3000/api';
+const base = process.env.API_BASE || 'http://localhost:3000/api';
 const img = (id, w = 600, h = 600) =>
   `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&h=${h}&q=60`;
 
