@@ -215,7 +215,7 @@ export function ChatPage() {
   if (loading) {
     return (
       <div
-        className={`${CHAT_HEIGHT} flex items-center justify-center`}
+        className={`mt-[var(--nav-h)] ${CHAT_HEIGHT} flex items-center justify-center`}
         style={{ ['--nav-h' as string]: `${navHeight}px` }}
       >
         <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
@@ -225,7 +225,7 @@ export function ChatPage() {
 
   return (
     <div
-      className={`${CHAT_HEIGHT} flex overflow-hidden`}
+      className={`mt-[var(--nav-h)] ${CHAT_HEIGHT} flex overflow-hidden`}
       style={{ ['--nav-h' as string]: `${navHeight}px` }}
     >
       {/* Lista de conversaciones: única vista en móvil cuando no hay hilo abierto */}
