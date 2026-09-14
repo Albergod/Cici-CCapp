@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:reset": "node scripts/reset-db.mjs",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
