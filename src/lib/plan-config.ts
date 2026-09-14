@@ -2,12 +2,26 @@
 // del espacio de pago (PREMIUM = PRO, pero el monto depende del ciclo).
 // Todos los componentes/backend importan desde aquí → DRY y sin inconsistencias.
 
-// Early Access: 60 días desde el lanzamiento con precios promocionales.
-// El cambio a precios regulares ($30.000/mes y $55.000/bimensual) es por
-// TIEMPO y automático: al pasar EARLY_ACCESS_ENDS_AT, getActivePrices()
-// devuelve los precios regulares solos (backend y frontend usan el mismo
-// cálculo, así que cobro y display nunca se descuadran).
-export const EARLY_ACCESS_ENDS_AT = new Date("2026-11-13T23:59:59-05:00").getTime();
+// Early Access: precios promocionales por TIEMPO (no manual). Al pasar
+// EARLY_ACCESS_ENDS_AT, getActivePrices() devuelve los precios regulares solos
+// (backend y frontend usan el mismo cálculo → cobro y display nunca descuadran).
+//
+// La fecha se lee de la variable de entorno EARLY_ACCESS_ENDS_AT (ISO 8601).
+// Si no está configurada, usa el respaldo (13-nov-2026). Tip: defínela en
+// Render el DÍA del lanzamiento con "fecha de lanzamiento + 60 días" para que
+// el contador se ancle ahí y no dependa de cuándo se hizo el deploy.
+const DEFAULT_EARLY_ACCESS_ENDS_AT = new Date("2026-11-13T23:59:59-05:00").getTime();
+
+function parseEndsAt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? t : fallback;
+}
+
+export const EARLY_ACCESS_ENDS_AT = parseEndsAt(
+  process.env.EARLY_ACCESS_ENDS_AT,
+  DEFAULT_EARLY_ACCESS_ENDS_AT,
+);
 
 export const PLAN_PRICES_COP: Record<
   "MONTHLY" | "BI_MONTHLY",

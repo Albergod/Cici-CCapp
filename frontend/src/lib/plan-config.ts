@@ -2,7 +2,22 @@
 // Mantener ambos en mismos valores para consistencia visual.
 
 // Fin del Early Access (precios promocionales). Must match backend.
-export const EARLY_ACCESS_ENDS_AT = new Date("2026-11-13T23:59:59-05:00").getTime();
+// Se puede sobreescribir por entorno (VITE_EARLY_ACCESS_ENDS_AT, ISO 8601);
+// si no está, usa el respaldo (13-nov-2026). Define VITE_EARLY_ACCESS_ENDS_AT
+// el día del lanzamiento (fecha de lanzamiento + 60 días) para que el
+// countdown se ancle ahí.
+const DEFAULT_EARLY_ACCESS_ENDS_AT = new Date("2026-11-13T23:59:59-05:00").getTime();
+
+function parseEndsAt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? t : fallback;
+}
+
+export const EARLY_ACCESS_ENDS_AT = parseEndsAt(
+  import.meta.env.VITE_EARLY_ACCESS_ENDS_AT as string | undefined,
+  DEFAULT_EARLY_ACCESS_ENDS_AT,
+);
 
 export const PLAN_PRICES_COP: Record<
   "MONTHLY" | "BI_MONTHLY",
