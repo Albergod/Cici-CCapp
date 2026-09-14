@@ -20,6 +20,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const path = window.location.pathname;
   const showSidebar = !AUTH_PAGES.some((p) => path.startsWith(p));
+  const isChat = path.startsWith('/chat');
 
   return (
     <div className="text-surface-900">
@@ -29,7 +30,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         <main className="flex-1 min-w-0">{children}</main>
       </div>
 
-      {showSidebar && (
+      {showSidebar && !isChat && (
         <>
           <button
             onClick={() => setDrawerOpen(true)}

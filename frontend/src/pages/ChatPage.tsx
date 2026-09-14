@@ -8,6 +8,14 @@ import { Loader2, Send, ArrowLeft, MessageSquare, Bot, MessageCircle, Receipt } 
 const isInvoice = (content: string) =>
   content.includes('Pedido Confirmado') || content.includes('✅ *Pedido*');
 
+// Altura del contenedor: viewport menos el navbar (120px en móvil por la fila
+// de búsqueda, 64px en md+). Usa dvh cuando el navegador lo soporta para que
+// el teclado y las barras del móvil no rompan el input anclado.
+const CHAT_HEIGHT =
+  'h-[calc(100vh-7.5rem)] supports-[height:100dvh]:h-[calc(100dvh-7.5rem)] md:h-[calc(100vh-4rem)] md:supports-[height:100dvh]:h-[calc(100dvh-4rem)]';
+
+const isDesktop = () => window.matchMedia('(min-width: 768px)').matches;
+
 export function ChatPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
   const navigate = useNavigate();
@@ -49,7 +57,9 @@ export function ChatPage() {
     try {
       const data = await api.chat.listConversations();
       setConversations(data);
-      if (!conversationId && data.length > 0 && user) {
+      // En escritorio se muestra lista + hilo, así que abrir el primer chat.
+      // En móvil se ve UNA vista a la vez; el usuario elige en la lista.
+      if (!conversationId && data.length > 0 && user && isDesktop()) {
         navigate(`/chat/${data[0].id}`, { replace: true });
       }
     } catch (err) {
@@ -156,7 +166,8 @@ export function ChatPage() {
   };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesEndRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
 
   const getConversationTitle = (conv: Conversation) =>
@@ -172,15 +183,20 @@ export function ChatPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen pt-[7.5rem] md:pt-16 flex items-center justify-center">
+      <div className={`${CHAT_HEIGHT} flex items-center justify-center`}>
         <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen pt-[7.5rem] md:pt-16 flex">
-      <div className="w-full sm:w-80 bg-white border-r border-surface-200 flex flex-col shrink-0">
+    <div className={`${CHAT_HEIGHT} flex overflow-hidden`}>
+      {/* Lista de conversaciones: única vista en móvil cuando no hay hilo abierto */}
+      <div
+        className={`${
+          conversationId ? 'hidden md:flex' : 'flex'
+        } w-full md:w-80 bg-white border-r border-surface-200 flex-col shrink-0`}
+      >
         <div className="p-4 border-b border-surface-200">
           <h2 className="font-extrabold text-surface-900 flex items-center gap-2">
             <MessageSquare className="w-5 h-5 text-brand-500" />
@@ -235,18 +251,24 @@ export function ChatPage() {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Hilo: única vista en móvil cuando hay una conversación abierta */}
+      <div
+        className={`${
+          conversationId ? 'flex' : 'hidden md:flex'
+        } flex-1 flex-col min-w-0`}
+      >
         {activeConversation ? (
           <>
-            <div className="h-16 px-4 flex items-center gap-4 border-b border-surface-200 bg-white">
+            <div className="h-16 px-4 flex items-center gap-4 border-b border-surface-200 bg-white shrink-0">
               <button
                 onClick={() => navigate('/chat')}
-                className="sm:hidden p-2 hover:bg-surface-100 rounded-lg transition-colors text-surface-600"
+                className="md:hidden -ml-1 p-2 -mr-1 hover:bg-surface-100 rounded-lg transition-colors text-surface-600"
+                aria-label="Volver a la lista"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center overflow-hidden">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center overflow-hidden shrink-0">
                   {getConversationAvatar(activeConversation) ? (
                     <img
                       src={getConversationAvatar(activeConversation)!}
@@ -259,7 +281,7 @@ export function ChatPage() {
                     </span>
                   )}
                 </div>
-                <span className="font-bold text-surface-900">
+                <span className="font-bold text-surface-900 truncate">
                   {getConversationTitle(activeConversation)}
                 </span>
               </div>
@@ -271,7 +293,7 @@ export function ChatPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Continuar por WhatsApp"
-                  className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-50 text-green-600 border border-green-200 text-xs font-bold hover:bg-green-100 transition-colors"
+                  className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-50 text-green-600 border border-green-200 text-xs font-bold hover:bg-green-100 transition-colors whitespace-nowrap"
                 >
                   <MessageCircle className="w-4 h-4" />
                   WhatsApp
@@ -279,7 +301,7 @@ export function ChatPage() {
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-50/50">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-50/50" ref={messagesEndRef}>
               {messages.map((msg) => (
                 <div
                   key={msg.id}
@@ -288,7 +310,7 @@ export function ChatPage() {
                   }`}
                 >
                   <div
-                    className={`max-w-xs lg:max-w-md px-4 py-2.5 rounded-2xl shadow-soft ${
+                    className={`max-w-[85%] lg:max-w-md px-4 py-2.5 rounded-2xl shadow-soft ${
                       msg.senderId === user?.id
                         ? 'bg-gradient-to-r from-brand-600 to-accent-500 text-white'
                         : 'bg-white text-surface-900'
@@ -331,10 +353,12 @@ export function ChatPage() {
                   </div>
                 </div>
               ))}
-              <div ref={messagesEndRef} />
             </div>
 
-            <form onSubmit={handleSendMessage} className="p-4 border-t border-surface-200 bg-white">
+            <form
+              onSubmit={handleSendMessage}
+              className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-surface-200 bg-white shrink-0"
+            >
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -342,7 +366,7 @@ export function ChatPage() {
                   onChange={(e) => setNewMessage(e.target.value)}
                   placeholder="Escribe un mensaje..."
                   disabled={sending}
-                  className="input !rounded-full"
+                  className="input !rounded-full flex-1 min-w-0"
                 />
                 <button
                   type="submit"
@@ -354,9 +378,13 @@ export function ChatPage() {
               </div>
             </form>
           </>
+        ) : conversationId ? (
+          <div className="flex-1 flex items-center justify-center bg-surface-50/50">
+            <Loader2 className="w-6 h-6 text-brand-500 animate-spin" />
+          </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-surface-400 bg-surface-50/50">
-            <div className="text-center">
+            <div className="text-center px-4">
               <div className="w-16 h-16 rounded-2xl bg-white shadow-soft flex items-center justify-center mx-auto mb-3">
                 <MessageSquare className="w-8 h-8 text-brand-400" />
               </div>
