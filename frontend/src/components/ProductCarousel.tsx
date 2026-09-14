@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Product } from '@/types';
+import { attributesToTitledList } from '@/lib/categoryFields';
 import { ChevronLeft, ChevronRight, Package } from 'lucide-react';
 
 interface ProductCarouselProps {
@@ -108,6 +109,18 @@ export function ProductCarousel({ products, loading = false }: ProductCarouselPr
                       ? product.price.toFixed(2)
                       : Number(product.price).toFixed(2)}
                   </p>
+                  {attributesToTitledList(product.store?.businessType, product.attributes).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {attributesToTitledList(product.store?.businessType, product.attributes).map((c) => (
+                        <span
+                          key={c.key}
+                          className="px-1.5 py-0.5 text-[10px] font-semibold bg-brand-50 text-brand-700 border border-brand-100 rounded-md"
+                        >
+                          {c.label}: {c.value}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </Link>

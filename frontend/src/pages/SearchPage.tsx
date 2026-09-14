@@ -61,7 +61,7 @@ export function SearchPage() {
                 to={product.store ? `/store/${product.store.slug}` : `#`}
                 className="block"
               >
-                <ProductCard product={product} />
+                <ProductCard product={product} businessType={product.store?.businessType} />
               </Link>
             ))}
           </div>

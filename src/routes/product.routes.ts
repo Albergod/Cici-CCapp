@@ -123,9 +123,11 @@ router.get("/products", async (req, res) => {
       createdAt: true,
       storeId: true,
       categoryId: true,
+      stock: true,
+      attributes: true,
     },
     with: {
-      store: { columns: { name: true, slug: true, logoUrl: true } },
+      store: { columns: { name: true, slug: true, logoUrl: true, businessType: true } },
     },
   });
 

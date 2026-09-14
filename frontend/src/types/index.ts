@@ -50,7 +50,7 @@ export interface Product {
   categoryId: string | null;
   createdAt: string;
   attributes?: Record<string, string | number | boolean>;
-  store?: Pick<Store, 'name' | 'slug' | 'logoUrl'>;
+  store?: Pick<Store, 'name' | 'slug' | 'logoUrl' | 'businessType'>;
 }
 
 export interface Category {

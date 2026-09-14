@@ -1,5 +1,6 @@
 import "./lib/boot-env";
 import express from "express";
+import type { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import morgan from "morgan";
 import http from "http";
@@ -75,8 +76,23 @@ export function createApp() {
     console.log(`📦 Sirviendo frontend desde ${frontendDist}`);
   }
 
+  // ── Error middleware: un fallo en cualquier ruta responde 500 (y no mata el server).
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    console.error("❌ error en ruta:", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  });
+
   return app;
 }
+
+// Seguro de vida: un "unhandled rejection" (p. ej. un FK de una sesión vieja)
+// loguea pero NO tira abajo el servidor.
+process.on("unhandledRejection", (reason) => {
+  console.error("⚠️ unhandledRejection (no fatal):", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("⚠️ uncaughtException (no fatal):", err);
+});
 
 export const app = createApp();
 

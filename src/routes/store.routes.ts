@@ -335,6 +335,7 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
           createdAt: true,
           storeId: true,
           categoryId: true,
+          attributes: true,
         },
       },
       categories: true,
