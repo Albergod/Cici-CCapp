@@ -6,13 +6,7 @@ import { db } from "../db/client";
 import { conversations, messages, stores, products } from "../db/schema";
 import { JWT_SECRET } from "../middleware/auth";
 import { getIAStoreReply, buildInvoiceVersions } from "../lib/ai";
-import {
-  storeOperational,
-  refreshStoreStatus,
-  detectOffPlatform,
-  recordOffPlatformFlag,
-  OFF_PLATFORM_BURST_LIMIT,
-} from "../lib/moderation";
+import { storeOperational, refreshStoreStatus } from "../lib/moderation";
 
 interface ClientInfo {
   ws: WebSocket;
@@ -134,25 +128,9 @@ export function attachChatWebSocket(server: Server) {
 
         broadcast(conversationId, { type: "message", message });
 
-        // ── Anti-fraude: pago/contacto fuera de la plataforma ──────────────
-        const detection = freshStore ? detectOffPlatform(content) : null;
-        if (detection) {
-          const flagged = await recordOffPlatformFlag({
-            storeId: conversation.storeId,
-            senderId: userId,
-            content: content.trim(),
-            reason: `Detectado en el chat: ${detection}. Intento de pagar o contactar por fuera del centro comercial.`,
-            conversationId,
-          });
-          const warning = flagged.suspended
-            ? "Por repetir intentos de pagar o compartir contactos fuera de la plataforma, este chat quedó suspendido temporalmente."
-            : `Aviso del centro comercial: evitar comunicar teléfonos, WhatsApp o coordinar pagos fuera de la plataforma (${OFF_PLATFORM_BURST_LIMIT - flagged.flags} avisos restantes).`;
-          broadcast(conversationId, {
-            type: flagged.suspended ? "chat_suspended" : "moderation",
-            text: warning,
-            until: flagged.until ?? null,
-          });
-        }
+        // Modelo de ventas A: el cierre se hace por el WhatsApp del comerciante
+        // (flujo normal). No se sanciona mencionarlo; solo se bloquea si la
+        // tienda está suspendida/baneada por reportes o ventas infladas.
 
         // La IA solo actúa si el cliente llegó por una productCard (hay producto
         // asociado a la conversación). Si usó el botón "Contactar" general de la

@@ -375,23 +375,30 @@ fecha fin) o **BANNED** (expulsión que solo revierte el admin). Toda falta se
 registra en `violations` (tipo, severidad, tienda, motivo, metadata) para que el
 panel de moderación la revise.
 
-### Las 5 reglas con sus umbrales
+### Las 4 reglas activas (Modelo de ventas A)
+
+> **Modelo A (venta por contacto):** la compra se cierra por el canal propio del
+> comerciante (su WhatsApp), que es el flujo *esperado*. Por eso mencionar
+> WhatsApp/teléfono en el chat **no es falta** y no se castiga. El control de
+> fraude se concentra en reputación, evidencia para disputas y reportes del
+> comprador.
 
 | # | Regla | Umbral | Consecuencia |
 |---|---|---|---|
 | 1 | **Granja de referidos** | >3 tiendas creadas **desde la misma IP** con el mismo código en 24 h | no se otorga el premio de prestigio + violación `referral_farm` para el admin |
-| 2 | **Pago/contacto fuera de la plataforma** | 3 "flags" de patrones en el chat en 7 días | **auto-suspensión de 24 h**; antes de eso, avisos al usuario con los restantes |
-| 3 | **Verificado "duro"** | plan ≠ FREE **y** prestigio ≥ 100 **y** antigüedad ≥ 7 días **y** ≥ 1 venta pagada por MP/WOMPI/CARD | sin esas 4 condiciones no hay check verificado |
-| 4 | **Venta inflada** | ≥ 5 ventas autoregistradas en 24 h **sin** método rastreable | violación `inflated_sale` (el admin decide; no bloquea la tienda) |
-| 5 | **Reportes de compradores** | 3 reportes abiertos → suspensión 14 días; 5 → **ban** | auto-suspensión / expulsión automática + anti-spam (1 reporte cada 24 h por comprador-tienda) |
+| 2 | **Verificado "duro"** | plan ≠ FREE **y** prestigio ≥ 100 **y** antigüedad ≥ 7 días **y** ≥ 1 venta pagada por MP/WOMPI/CARD | sin esas 4 condiciones no hay check verificado |
+| 3 | **Venta inflada** | ≥ 5 ventas autoregistradas en 24 h **sin** método rastreable | violación `inflated_sale` (el admin decide; no bloquea la tienda) |
+| 4 | **Reportes de compradores** | 3 reportes abiertos → suspensión 14 días; 5 → **ban** | auto-suspensión / expulsión automática + anti-spam (1 reporte cada 24 h por comprador-tienda) |
 
-### Detección de "pago por fuera" (regla 2)
-`src/lib/moderation.ts` (`detectOffPlatform`) busca patrones en **cada mensaje**
-del chat: menciones a WhatsApp/wsp, teléfonos o correos, canales externos
-(Telegram, IG, TikTok), o frases tipo "hablame por / pagar por fuera / fuera de
-la plataforma". Al detener el primer flag se avisa al cliente ("evitar comunicar
-teléfonos… X avisos restantes") y al llegar a 3 en 7 días **la tienda se suspende
-sola 24 h** (se avisa con `chat_suspended`).
+### Modelo A: por qué no se sanciona el cierre por WhatsApp
+Inicialmente había una "regla 2" que castigaba mencionar WhatsApp/teléfono en el
+chat (auto-suspensión 24 h a los 3 "flags" en 7 días). Eso **contradecía el
+flujo real**: la propia app recomienda el WhatsApp del comerciante para cerrar la
+venta y genera la factura para enviársela. En el Modelo A ese cierre es el
+objetivo, así que la detección se eliminó (moderation.ts, chat.routes.ts y
+chatServer.ts ya no la usan). La evidencia para resolver una disputa sigue
+disponible: el admin puede ver la transcripción real del chat en la tabla
+`messages`.
 
 ### Dónde se hace cumplir cada sanción
 El estado se aplica en **todos** los puntos de operación:
@@ -437,8 +444,12 @@ Los huecos encontrados en las pruebas y sus correcciones, en orden:
 2. **La granja de referidos no se detectaba.** Se podían crear decenas de tiendas
    con el mismo código desde la misma IP. → Detección por `signup_ip` + burst
    `>3 en 24 h` anula el premio y registra `referral_farm`.
-3. **El pago por fuera del mall se hacía por chat sin castigo.** → Detección de
-   patrones + avisos progresivos + auto-suspensión de 24 h a los 3 flags en 7 días.
+3. **El primer diseño castigaba el cierre por WhatsApp.** Se detectaban patrones
+   de "pago por fuera" en el chat y a los 3 flags se auto-suspendía 24 h… pero el
+   flujo oficial es cerrar la venta por el WhatsApp del comerciante. → **Modelo
+   A**: se eliminó esa regla; el cierre por WhatsApp es la operación normal y el
+   control de fraude se apoya en las reglas 1-4 (reputación, evidencia en el
+   chat y reportes del comprador).
 4. **El dueño podía inflar su reputación con ventas "de caja".** → Solo cuentan
    para el check las ventas por medio rastreable; un volumen raro sin método
    (≥5/24 h) dispara `inflated_sale` para que el admin decida (sin bloquear).

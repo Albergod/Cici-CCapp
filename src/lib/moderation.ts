@@ -7,7 +7,7 @@
 // Cada falta registra una fila en "violations" para que el panel de admin las
 // revise y resuelva.
 
-import { and, eq, gte, lt, inArray, sql } from "drizzle-orm";
+import { and, eq, lt, inArray, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { stores, violations, sales } from "../db/schema";
 
@@ -16,8 +16,11 @@ export const VERIFIED_MIN_AGE_DAYS = 7; // la tienda debe tener +1 semana de vid
 export const VERIFIED_MIN_SALES = 1; // al menos una venta real pagada
 export const TRACKED_PAYMENT_METHODS = ["MP", "WOMPI", "CARD"]; // métodos rastreables
 export const REFERRAL_BURST_LIMIT = 3; // máx. referidos desde una misma IP en 24h
-export const OFF_PLATFORM_BURST_LIMIT = 3; // flags de "pago por fuera" en 7 días
-export const OFF_PLATFORM_SUSPENSION_HOURS = 24;
+// Modelo de ventas A (contacto): la venta se cierra por el canal propio del
+// comerciante (su WhatsApp), que es el flujo normal y esperado. Por eso NO se
+// sanciona mencionar WhatsApp/teléfono en el chat. El control de fraude se
+// apoya en: verificación con venta real rastreable, reportes de compradores,
+// detección de ventas infladas y revisión manual del admin.
 export const SUSPENSION_REPORTS_DAYS = 14; // auto-suspensión tras N reportes
 export const SUSPENSION_REPORT_FLAGS = 3;
 export const BAN_REPORT_FLAGS = 5;
@@ -174,90 +177,6 @@ export async function banStore(storeId: string, reason: string): Promise<void> {
     reason,
     actionTaken: "ban",
   });
-}
-
-// ── Detección de "pago/comunicación por fuera de la plataforma" ──────────────
-const OFF_PLATFORM_PATTERNS: { re: RegExp; label: string }[] = [
-  { re: /\b(whatsapp|wsp|watsap|waapp?)\b/i, label: "se menciona WhatsApp" },
-  {
-    re: /\b(telefono|celular|cel|tel\.|telegram|instagram|insta|facebook|fb|tik\s?tok|tiktok|youtube|correo|email|e-?mail)\b/i,
-    label: "se comparte un contacto/canal externo",
-  },
-  {
-    re: /\b(pagar\s?por\s?fuera|hablemos\s?por|hablame\s?por|escribeme\s?por|escribe\s?me\s?por|contactame\s?por|fuera\s?de\s?la\s?plataforma|por\s?fuera\s?de\s?aqui)\b/i,
-    label: "se intenta derivar la venta fuera de la plataforma",
-  },
-  {
-    re: /(\+?[0-9]{2}[\s.-]?)?[3-9][0-9]{2}[\s.-]?[0-9]{3}[\s.-]?[0-9]{4}/,
-    label: "se compartió un número de teléfono",
-  },
-];
-
-export function detectOffPlatform(text: string): string | null {
-  for (const p of OFF_PLATFORM_PATTERNS) {
-    if (p.re.test(text)) return p.label;
-  }
-  return null;
-}
-
-/** Registra un flag de pago/contacto por fuera. Al acumularse dispara auto-suspensión. */
-export async function recordOffPlatformFlag(opts: {
-  storeId: string;
-  senderId: string;
-  content: string;
-  reason: string;
-  conversationId?: string;
-}): Promise<{ flags: number; suspended: boolean; until: Date | null }> {
-  await insertViolation({
-    type: "off_platform_chat",
-    severity: "warning",
-    storeId: opts.storeId,
-    userId: opts.senderId,
-    reason: opts.reason,
-    metadata: { content: opts.content.slice(0, 300), conversationId: opts.conversationId ?? null },
-  });
-
-  const since = new Date(Date.now() - 7 * 86_400_000);
-  const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(violations)
-    .where(
-      and(
-        eq(violations.storeId, opts.storeId),
-        eq(violations.type, "off_platform_chat"),
-        gte(violations.createdAt, since),
-      ),
-    );
-  const flags = Number(row?.n ?? 0);
-
-  if (flags >= OFF_PLATFORM_BURST_LIMIT) {
-    const until = new Date(Date.now() + OFF_PLATFORM_SUSPENSION_HOURS * 3_600_000);
-    await db
-      .update(stores)
-      .set({
-        status: "SUSPENDED",
-        suspensionEndsAt: until,
-        sanctionsCount: sql`${stores.sanctionsCount} + 1`,
-      })
-      .where(eq(stores.id, opts.storeId));
-    await db
-      .update(violations)
-      .set({
-        status: "RESOLVED",
-        resolvedAt: new Date(),
-        resolvedNote: `Auto-suspensión de ${OFF_PLATFORM_SUSPENSION_HOURS}h por repetir intentos de pago/contacto fuera de la plataforma`,
-      })
-      .where(
-        and(
-          eq(violations.storeId, opts.storeId),
-          eq(violations.type, "off_platform_chat"),
-          eq(violations.status, "OPEN"),
-        ),
-      );
-    return { flags, suspended: true, until };
-  }
-
-  return { flags, suspended: false, until: null };
 }
 
 // ── IP del cliente (se usa el mismo trust proxy que Express) ────────────────

@@ -1,4 +1,4 @@
-// Batería de verificación del sistema anti-fraude (5 reglas + enforcement).
+// Batería de verificación del sistema anti-fraude (4 reglas + enforcement, Modelo A).
 // Se ejecuta contra una DB/API descartables ya sembradas (API_BASE y PG_URL via env).
 import pg from "pg";
 import WebSocket from "ws";
@@ -75,8 +75,8 @@ for (let n = 1; n <= 5; n++) {
 const glowPub = await j("GET", `/stores/glow-studio`);
 check("glow-studio baneada no se ve en público (404)", glowPub.status === 404);
 
-// ── B. Auto-suspensión por pago/contacto fuera (3 flags → 24h) ─────────
-console.log("\nB. Chat: 3 flags de 'pago por fuera' → auto-suspensión 24h");
+// ── B. Modelo A: mencionar WhatsApp en el chat NO suspende ni castiga ──
+console.log("\nB. Modelo A: cerrar por WhatsApp en el chat no es falta");
 const shopperTok = await login("shopper@demo.test", "Demo1234", "192.168.4.10");
 const conv = await j("POST", `/stores/${paso}/conversation`, {}, shopperTok, "192.168.4.10");
 check("shopper abre conversación con paso-urbano", conv.status === 200, `status=${conv.status}`);
@@ -89,24 +89,14 @@ for (let i = 1; i <= 3; i++) {
     shopperTok,
     "192.168.4.10",
   );
-  const warned = !!r.data?.moderationWarning;
-  const suspended = !!r.data?.storeSuspended;
-  check(
-    `mensaje #${i} con teléfono → aviso + ${i === 3 ? "suspensión" : "sin suspensión"}`,
-    r.status === 200 && warned && (i === 3 ? suspended : !suspended),
-    `warn=${warned} susp=${suspended} status=${r.status}`,
-  );
+  check(`mensaje #${i} con teléfono se envía sin castigo`, r.status === 200, `status=${r.status}`);
 }
-let st = (await q(`SELECT status, suspension_ends_at FROM stores WHERE id=$1`, [paso]))[0];
-const hoursLeft = st.suspension_ends_at
-  ? Math.round((new Date(st.suspension_ends_at) - Date.now()) / 3_600_000)
-  : -1;
-check("paso-urbano SUSPENDED (~24h)", st.status === "SUSPENDED" && hoursLeft >= 22 && hoursLeft <= 30, `status=${st.status} h=${hoursLeft}`);
+let st = (await q(`SELECT status FROM stores WHERE id=$1`, [paso]))[0];
+check("paso-urbano sigue ACTIVE tras mencionar WhatsApp", st.status === "ACTIVE", `status=${st.status}`);
 
-const blockedMsg = await j("POST", `/conversations/${cid}/messages`, { content: "todo bien?" }, shopperTok, "192.168.4.10");
-check("4º mensaje bloqueado (403 chat suspendido)", blockedMsg.status === 403);
-const newConv = await j("POST", `/stores/${paso}/conversation`, {}, shopperTok, "192.168.4.11");
-check("no se abre chat nuevo a tienda suspendida", newConv.status === 403);
+// Suspendemos paso-urbano vía admin para poder probar enforcement abajo.
+const suspPaso = await adminReq("POST", `/admin/stores/${paso}/suspend`, { hours: 2, reason: "prueba enforcement" });
+check("admin suspende paso-urbano para probar enforcement", suspPaso.status === 200, `status=${suspPaso.status}`);
 
 // ── F. WS rechaza tienda suspendida ────────────────────────────────────
 console.log("\nF. WebSocket: cierre al conectar a tienda suspendida");

@@ -4,13 +4,7 @@ import { db } from "../db/client";
 import { conversations, stores, messages, users, products } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { getStoreGreeting, getIAStoreReply, buildInvoiceVersions } from "../lib/ai";
-import {
-  storeOperational,
-  refreshStoreStatus,
-  detectOffPlatform,
-  recordOffPlatformFlag,
-  OFF_PLATFORM_BURST_LIMIT,
-} from "../lib/moderation";
+import { storeOperational, refreshStoreStatus } from "../lib/moderation";
 
 const router = Router();
 
@@ -321,23 +315,9 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
     })
     .returning();
 
-  // ── Anti-fraude: detección de "pago/contacto fuera de la plataforma" ──
-  let moderationWarning: string | null = null;
-  let storeSuspended: { until: Date } | null = null;
-  const detection = detectOffPlatform(textToSend);
-  if (detection) {
-    const flagged = await recordOffPlatformFlag({
-      storeId: conversation.store.id,
-      senderId: req.userId!,
-      content: textToSend,
-      reason: `Detectado en el chat: ${detection}. Se insiste en pagar o contactar por fuera del centro comercial.`,
-      conversationId: conversation.id,
-    });
-    moderationWarning = flagged.suspended
-      ? "Por repetir intentos de pagar o compartir contactos fuera de la plataforma, este chat quedó suspendido temporalmente."
-      : `Aviso del centro comercial: evitar comunicar teléfonos, WhatsApp o coordinar pagos fuera de la plataforma (${OFF_PLATFORM_BURST_LIMIT - flagged.flags} avisos restantes).`;
-    if (flagged.suspended) storeSuspended = { until: flagged.until! };
-  }
+  // Modelo de ventas A: el cierre se hace por el WhatsApp del comerciante
+  // (flujo normal). No se sanciona mencionarlo; la moderación se apoya en
+  // reportes de compradores, ventas infladas y revisión manual del admin.
 
   // La IA actúa si el chat tiene contexto (un producto asociado).
   let aiReply: string | null = null;
@@ -406,15 +386,10 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
       })
       .returning();
 
-    return res.json({
-      message: savedMsg,
-      aiReply: aiMsg,
-      moderationWarning,
-      storeSuspended,
-    });
+    return res.json({ message: savedMsg, aiReply: aiMsg });
   }
 
-  res.json({ message: savedMsg, aiReply: null, moderationWarning, storeSuspended });
+  res.json({ message: savedMsg, aiReply: null });
 });
 
 export default router;
