@@ -67,7 +67,7 @@ export function ProductCarousel({ products, loading = false }: ProductCarouselPr
       <div
         ref={scrollerRef}
         onScroll={handleScroll}
-        className="flex gap-5 overflow-x-auto scroll-smooth pb-2 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex items-start gap-5 overflow-x-auto scroll-smooth pb-1 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {products.map((product) => {
           const label = product.store?.name || 'Tienda';
