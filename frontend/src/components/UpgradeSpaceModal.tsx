@@ -10,6 +10,8 @@ import {
 import { SpacePlanModal, UpgradeSelection } from '@/components/SpacePlanModal';
 import { PaymentResultState } from '@/components/PaymentResultModal';
 import { api } from '@/services/api';
+import { getActivePrices } from '@/lib/plan-config';
+import { formatCOP } from '@/lib/format';
 
 type UpgradeStep = 'plan' | 'method' | 'nequi' | 'nequi-pending' | 'checkout' | 'error';
 
@@ -167,7 +169,7 @@ export function UpgradeSpaceModal({ open, storeId, onClose, onPaymentResult }: U
           <p className="text-sm text-surface-600 mt-2">
             Enviamos una solicitud de pago al número <strong>{phone}</strong>.
             Abre Nequi y aprueba el pago de{' '}
-            <strong>${sel ? selCyclePrice(sel) : ''}</strong>. Esta ventana se
+            <strong>{sel ? selCyclePrice(sel) : ''}</strong>. Esta ventana se
             actualiza sola cuando se confirme.
           </p>
           <div className="mt-5 flex flex-col gap-2.5">
@@ -193,7 +195,7 @@ export function UpgradeSpaceModal({ open, storeId, onClose, onPaymentResult }: U
           <h2 className="text-xl font-extrabold text-surface-900 mt-3">
             ¿Cómo quieres pagar? <span className="text-brand-600">{sel.plan}</span>
           </h2>
-          <p className="text-sm text-surface-500 mt-1">Monto a pagar: ${selCyclePrice(sel)}. Elige tu medio:</p>
+          <p className="text-sm text-surface-500 mt-1">Monto a pagar: {selCyclePrice(sel)}. Elige tu medio:</p>
 
           <div className="mt-5 grid gap-3">
             <button
@@ -284,5 +286,5 @@ export function UpgradeSpaceModal({ open, storeId, onClose, onPaymentResult }: U
 }
 
 function selCyclePrice(sel: UpgradeSelection): string {
-  return (sel.cycle === 'MONTHLY' ? '$20.000' : '$30.000');
+  return formatCOP(getActivePrices()[sel.cycle].amount);
 }

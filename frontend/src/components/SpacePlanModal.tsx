@@ -6,8 +6,16 @@ import {
   Star,
   ShoppingBag,
   ChevronRight,
+  Timer,
 } from 'lucide-react';
-import { PLAN_PRICES_COP } from '@/lib/plan-config';
+import {
+  getActivePrices,
+  isEarlyAccess,
+  PLAN_PRICES_REGULAR,
+  EARLY_ACCESS_ENDS_AT,
+} from '@/lib/plan-config';
+import { formatCOP } from '@/lib/format';
+import { useCountdown, Countdown } from '@/lib/useCountdown';
 
 export type SpaceSelection =
   | { type: 'free' }
@@ -16,11 +24,6 @@ export type SpaceSelection =
 export type UpgradeSelection = {
   plan: 'PRO' | 'BUSINESS';
   cycle: 'MONTHLY' | 'BI_MONTHLY';
-};
-
-const PLAN_PRICES: Record<'MONTHLY' | 'BI_MONTHLY', { price: string; perMonth: string; badge: string | null }> = {
-  MONTHLY: { price: String(PLAN_PRICES_COP.MONTHLY.amount), perMonth: '/mes', badge: PLAN_PRICES_COP.MONTHLY.savings },
-  BI_MONTHLY: { price: String(PLAN_PRICES_COP.BI_MONTHLY.amount), perMonth: '/2 meses', badge: PLAN_PRICES_COP.BI_MONTHLY.savings },
 };
 
 interface SpacePlanModalProps {
@@ -42,6 +45,8 @@ function PaidPlanCard({
   features,
   buttonLabel,
   onUpgrade,
+  promoActive,
+  countdown,
 }: {
   plan: 'PRO' | 'BUSINESS';
   title: string;
@@ -53,9 +58,22 @@ function PaidPlanCard({
   features: { text: string; included: boolean }[];
   buttonLabel: string;
   onUpgrade: (sel: UpgradeSelection) => void;
+  promoActive: boolean;
+  countdown: Countdown;
 }) {
   const [cycle, setCycle] = useState<'MONTHLY' | 'BI_MONTHLY'>('MONTHLY');
-  const price = PLAN_PRICES[cycle];
+  const prices = getActivePrices();
+  const price = prices[cycle];
+  const perMonth = cycle === 'MONTHLY' ? '/mes' : '/2 meses';
+  const regularAmount = PLAN_PRICES_REGULAR[cycle].amount;
+
+  const cd = countdown.ended ? null : (
+    <span>
+      {countdown.days > 0 && `${countdown.days}d `}
+      {String(countdown.hours).padStart(2, '0')}:{String(countdown.minutes).padStart(2, '0')}:
+      {String(countdown.seconds).padStart(2, '0')}
+    </span>
+  );
 
   return (
     <div
@@ -128,18 +146,30 @@ function PaidPlanCard({
             Precio del espacio
           </p>
           <p className="text-2xl md:text-3xl font-extrabold text-surface-900 leading-none mt-1">
-            {price.price}
+            {formatCOP(price.amount)}
             <span className="text-sm font-semibold text-surface-500">
-              {price.perMonth}
+              {perMonth}
             </span>
           </p>
+          {promoActive && (
+            <p className="text-xs font-semibold text-surface-400 line-through mt-1">
+              {formatCOP(regularAmount)}/mes regular
+            </p>
+          )}
         </div>
-        {price.badge && (
+        {price.savings && (
           <span className="px-2.5 py-1 text-xs font-extrabold bg-emerald-100 text-emerald-700 rounded-full">
-            {price.badge}
+            {price.savings}
           </span>
         )}
       </div>
+
+      {promoActive && cd && (
+        <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-brand-700 bg-brand-50 border border-brand-200 rounded-full">
+          <Timer className="w-3.5 h-3.5" />
+          Promo por lanzamiento · termina en {cd}
+        </div>
+      )}
 
       <div className="mt-3 text-sm text-surface-700">
         {cycle === 'MONTHLY' ? (
@@ -171,6 +201,9 @@ function PaidPlanCard({
 }
 
 export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'create' }: SpacePlanModalProps) {
+  const promoActive = isEarlyAccess();
+  const countdown = useCountdown(EARLY_ACCESS_ENDS_AT);
+
   if (!open) return null;
 
   const isUpgrade = mode === 'upgrade';
@@ -260,6 +293,8 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
             ]}
             buttonLabel="Elegir este espacio"
             onUpgrade={(sel) => (isUpgrade ? onUpgrade?.(sel) : onSelect?.({ type: 'paid', plan: sel.plan, cycle: sel.cycle }))}
+            promoActive={promoActive}
+            countdown={countdown}
           />
         </div>
 

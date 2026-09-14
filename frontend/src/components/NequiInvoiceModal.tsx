@@ -1,6 +1,6 @@
 import { X, Wallet, Check, Smartphone, ShieldCheck, QrCode } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { PLAN_PRICES_COP } from '@/lib/plan-config';
+import { getActivePrices } from '@/lib/plan-config';
 import { formatCOP } from '@/lib/format';
 
 export type PlanCycle = 'MONTHLY' | 'BI_MONTHLY';
@@ -23,35 +23,23 @@ function buildPaymentData(cycle: PlanCycle): string {
   // Usa el QR con monto específico del ciclo; si no está configurado aún,
   // genera un marcador con el plan y monto para no romper la factura.
   const url = NEQUI_URLS[cycle];
+  const price = String(getActivePrices()[cycle].amount);
   if (url) return url;
-  const isMonthly = cycle === 'MONTHLY';
-  const price = isMonthly
-    ? String(PLAN_PRICES_COP.MONTHLY.amount)
-    : String(PLAN_PRICES_COP.BI_MONTHLY.amount);
-  return isMonthly
+  return cycle === 'MONTHLY'
     ? `CC Platform · Espacio Mensual · ${price}`
     : `CC Platform · Espacio Bimensual · ${price}`;
 }
 
-const INVOICE_DATA: Record<
-  PlanCycle,
-  { price: string; perMonth: string; period: string; savings: string | null; badge: string }
-> = {
-  MONTHLY: {
-    price: String(PLAN_PRICES_COP.MONTHLY.amount),
-    perMonth: '/mes',
-    period: '1 mes de espacio',
-    savings: PLAN_PRICES_COP.MONTHLY.savings,
-    badge: 'Mensual',
-  },
-  BI_MONTHLY: {
-    price: String(PLAN_PRICES_COP.BI_MONTHLY.amount),
-    perMonth: '/2 meses',
-    period: '2 meses de espacio',
-    savings: PLAN_PRICES_COP.BI_MONTHLY.savings,
-    badge: 'Bimensual',
-  },
-};
+function buildInvoiceData(cycle: PlanCycle) {
+  const price = getActivePrices()[cycle];
+  return {
+    price: String(price.amount),
+    perMonth: cycle === 'MONTHLY' ? '/mes' : '/2 meses',
+    period: cycle === 'MONTHLY' ? '1 mes de espacio' : '2 meses de espacio',
+    savings: price.savings,
+    badge: cycle === 'MONTHLY' ? 'Mensual' : 'Bimensual',
+  };
+}
 
 interface NequiInvoiceModalProps {
   open: boolean;
@@ -72,7 +60,7 @@ export function NequiInvoiceModal({
 }: NequiInvoiceModalProps) {
   if (!open) return null;
 
-  const data = INVOICE_DATA[cycle];
+  const data = buildInvoiceData(cycle);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto">

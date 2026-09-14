@@ -2,11 +2,12 @@
 // del espacio de pago (PREMIUM = PRO, pero el monto depende del ciclo).
 // Todos los componentes/backend importan desde aquí → DRY y sin inconsistencias.
 
-// Early Access: 30 días con precios promocionales.
-// Después de esta ventana, cambiar estos valores a precios regulares
-// ($30.000/mes y $55.000/bimensual).
-export const EARLY_ACCESS = true;
-export const EARLY_ACCESS_DAYS = 30;
+// Early Access: 60 días desde el lanzamiento con precios promocionales.
+// El cambio a precios regulares ($30.000/mes y $55.000/bimensual) es por
+// TIEMPO y automático: al pasar EARLY_ACCESS_ENDS_AT, getActivePrices()
+// devuelve los precios regulares solos (backend y frontend usan el mismo
+// cálculo, así que cobro y display nunca se descuadran).
+export const EARLY_ACCESS_ENDS_AT = new Date("2026-11-13T23:59:59-05:00").getTime();
 
 export const PLAN_PRICES_COP: Record<
   "MONTHLY" | "BI_MONTHLY",
@@ -42,7 +43,12 @@ export const PLAN_FEATURES: Record<
   ],
 };
 
-// Obtiene el precio vigente (early access o regular).
-export function getActivePrices() {
-  return EARLY_ACCESS ? PLAN_PRICES_COP : PLAN_PRICES_REGULAR;
+/** true mientras el Early Access esté vigente (hoy < fecha de fin). */
+export function isEarlyAccess(now: number = Date.now()): boolean {
+  return now < EARLY_ACCESS_ENDS_AT;
+}
+
+// Obtiene el precio vigente (promo durante el Early Access, regular después).
+export function getActivePrices(now?: number) {
+  return isEarlyAccess(now ?? Date.now()) ? PLAN_PRICES_COP : PLAN_PRICES_REGULAR;
 }
