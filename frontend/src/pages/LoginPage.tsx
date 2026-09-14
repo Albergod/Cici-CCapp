@@ -30,7 +30,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen pt-16 flex items-center justify-center px-4 py-10">
+    <div className="min-h-screen pt-[7.5rem] md:pt-16 flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-md">
         <div className="card p-8">
           <div className="text-center mb-8">

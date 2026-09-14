@@ -134,6 +134,21 @@ export function Navbar() {
           )}
         </div>
       </div>
+
+      <div className="md:hidden max-w-7xl mx-auto px-4 pb-3">
+        <form onSubmit={handleSearch}>
+          <div className="relative w-full">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" />
+            <input
+              type="text"
+              placeholder="Buscar productos..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-surface-50 border border-surface-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-400 transition-all"
+            />
+          </div>
+        </form>
+      </div>
     </nav>
   );
 }

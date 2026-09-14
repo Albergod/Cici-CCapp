@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Store, Product } from '@/types';
 import { api } from '@/services/api';
-import { StoreCard } from '@/components/StoreCard';
+import { StorePager } from '@/components/StorePager';
 import { ProductCarousel } from '@/components/ProductCarousel';
-import { Loader2, StoreIcon, Sparkles, ShoppingBag, MessageSquare } from 'lucide-react';
+import { Loader2, StoreIcon, Sparkles, ShoppingBag, MessageSquare, ChevronRight } from 'lucide-react';
 
 export function HomePage() {
   const [stores, setStores] = useState<Store[]>([]);
@@ -20,7 +20,7 @@ export function HomePage() {
   const loadStores = async () => {
     try {
       setLoading(true);
-      const data = await api.stores.list(0, 20);
+      const data = await api.stores.list(0, 50);
       setStores(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar tiendas');
@@ -48,7 +48,7 @@ export function HomePage() {
   ];
 
   return (
-    <div className="min-h-screen pt-16">
+    <div className="min-h-screen pt-[7.5rem] md:pt-16">
       <div className="max-w-7xl mx-auto px-4 py-10">
         <div className="rounded-3xl bg-gradient-to-br from-brand-700 via-brand-500 to-accent-500 text-white p-10 md:p-14 text-center shadow-[0_20px_60px_-20px_rgba(147,51,234,0.5)] mb-12 relative overflow-hidden">
           <div className="absolute -top-16 -right-16 w-64 h-64 bg-white/10 rounded-full blur-2xl" />
@@ -96,6 +96,10 @@ export function HomePage() {
         <div className="flex items-center justify-between mb-6">
           <h2 className="font-display text-xl md:text-2xl font-bold text-surface-900 tracking-tight">Tiendas destacadas</h2>
           <span className="text-sm text-surface-400 hidden sm:block">Explora lo nuevo</span>
+          <span className="text-xs text-surface-400 sm:hidden flex items-center gap-1">
+            Desliza para ver más
+            <ChevronRight className="w-3.5 h-3.5" />
+          </span>
         </div>
 
         {loading ? (
@@ -118,11 +122,7 @@ export function HomePage() {
             <p className="text-surface-500 mt-1">Sé el primero en crear tu tienda digital</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {stores.map((store) => (
-              <StoreCard key={store.id} store={store} />
-            ))}
-          </div>
+          <StorePager stores={stores} loading={loading} />
         )}
       </div>
     </div>

@@ -388,14 +388,14 @@ export function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen pt-16 flex items-center justify-center">
+      <div className="min-h-screen pt-[7.5rem] md:pt-16 flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen pt-16">
+    <div className="min-h-screen pt-[7.5rem] md:pt-16">
       <div className="max-w-5xl mx-auto px-4 py-10">
         <div className="flex items-center gap-3 mb-8">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-brand-600 to-accent-500 flex items-center justify-center shadow-soft">

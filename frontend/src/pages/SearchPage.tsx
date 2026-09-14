@@ -30,7 +30,7 @@ export function SearchPage() {
   };
 
   return (
-    <div className="min-h-screen pt-16">
+    <div className="min-h-screen pt-[7.5rem] md:pt-16">
       <div className="max-w-5xl mx-auto px-4 py-10">
         <div className="mb-8">
           <h1 className="text-2xl font-extrabold text-surface-900 leading-tight">

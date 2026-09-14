@@ -108,7 +108,7 @@ export function StorePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen pt-16 flex items-center justify-center">
+      <div className="min-h-screen pt-[7.5rem] md:pt-16 flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
       </div>
     );
@@ -116,7 +116,7 @@ export function StorePage() {
 
   if (error || !store) {
     return (
-      <div className="min-h-screen pt-16 flex items-center justify-center">
+      <div className="min-h-screen pt-[7.5rem] md:pt-16 flex items-center justify-center">
         <div className="text-center card p-10">
           <p className="text-accent-500 font-medium">{error || 'Tienda no encontrada'}</p>
           <button onClick={() => navigate('/')} className="btn-primary mt-4">
@@ -128,7 +128,7 @@ export function StorePage() {
   }
 
   return (
-    <div className="min-h-screen pt-16">
+    <div className="min-h-screen pt-[7.5rem] md:pt-16">
       {/* ── Portada ─────────────────────────────────────────── */}
       <div className="relative h-56 md:h-72 overflow-hidden bg-gradient-to-br from-brand-700 via-brand-500 to-accent-500">
         {store.bannerUrl ? (
@@ -259,7 +259,7 @@ export function StorePage() {
             </div>
           )}
 
-          <div className="flex justify-end -mt-6 mb-6">
+          <div className="flex justify-end mt-2 mb-6 md:mt-0 md:-mt-6">
             <button
               onClick={handleReport}
               className="inline-flex items-center gap-1.5 text-xs text-surface-400 hover:text-red-500 transition-colors"
