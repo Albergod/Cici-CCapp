@@ -1,5 +1,14 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { MessageSquare, LogOut, User, Search, Store, LayoutDashboard } from 'lucide-react';
+import {
+  MessageSquare,
+  LogOut,
+  User,
+  Search,
+  Store,
+  LayoutDashboard,
+  Settings,
+  ChevronDown,
+} from 'lucide-react';
 import { useAuth } from '@/stores/authStore';
 import { api } from '@/services/api';
 import { useEffect, useState } from 'react';
@@ -10,7 +19,13 @@ export function Navbar() {
   const { pathname } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [unread, setUnread] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
   const isChat = pathname.startsWith('/chat');
+
+  // Cierra el menú cuando se cambia de ruta.
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -99,23 +114,82 @@ export function Navbar() {
                   </span>
                 )}
               </Link>
-              <button
-                onClick={handleLogout}
-                className="p-2.5 hover:bg-surface-100 rounded-xl transition-colors text-surface-500 hover:text-accent-500"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
-              <div className="flex items-center gap-2 pl-2">
-                <div className="w-8 h-8 rounded-full bg-instagram flex items-center justify-center overflow-hidden ring-2 ring-white shadow-sm">
-                  {user?.avatarUrl ? (
-                    <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <User className="w-4 h-4 text-white" />
-                  )}
-                </div>
-                <span className="text-sm font-semibold hidden sm:block text-surface-800">
-                  {user?.name}
-                </span>
+
+              <div className="relative">
+                <button
+                  onClick={() => setMenuOpen((o) => !o)}
+                  className={`flex items-center gap-2 pl-2 pr-1 py-1 rounded-xl transition-colors ${
+                    menuOpen ? 'bg-surface-100' : 'hover:bg-surface-100'
+                  }`}
+                  aria-label="Menú de usuario"
+                >
+                  <div className="w-8 h-8 rounded-full bg-instagram flex items-center justify-center overflow-hidden ring-2 ring-white shadow-sm">
+                    {user?.avatarUrl ? (
+                      <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <User className="w-4 h-4 text-white" />
+                    )}
+                  </div>
+                  <span className="text-sm font-semibold hidden sm:block text-surface-800 max-w-[120px] truncate">
+                    {user?.name}
+                  </span>
+                  <ChevronDown
+                    className={`w-4 h-4 text-surface-400 hidden sm:block transition-transform ${
+                      menuOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+
+                {menuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setMenuOpen(false)}
+                      aria-hidden
+                    />
+                    <div className="absolute right-0 top-full mt-2 w-64 card overflow-hidden z-50">
+                      <div className="flex items-center gap-3 p-4 border-b border-surface-100 bg-surface-50/60">
+                        <div className="w-10 h-10 rounded-full bg-instagram flex items-center justify-center overflow-hidden ring-2 ring-white shadow-sm shrink-0">
+                          {user?.avatarUrl ? (
+                            <img
+                              src={user.avatarUrl}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <User className="w-5 h-5 text-white" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm text-surface-900 truncate">
+                            {user?.name}
+                          </p>
+                          <p className="text-xs text-surface-400 truncate">{user?.email}</p>
+                        </div>
+                      </div>
+                      <div className="p-1.5">
+                        <button
+                          disabled
+                          title="Próximamente"
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-surface-500 cursor-not-allowed opacity-70"
+                        >
+                          <Settings className="w-4 h-4" />
+                          Ajustes
+                          <span className="ml-auto text-[10px] font-bold uppercase tracking-wide text-surface-300 bg-surface-100 rounded-full px-2 py-0.5">
+                            Pronto
+                          </span>
+                        </button>
+                        <button
+                          onClick={handleLogout}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-accent-600 hover:bg-accent-50 transition-colors"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          Cerrar sesión
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </>
           ) : (
