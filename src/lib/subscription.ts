@@ -33,6 +33,7 @@ export interface ContactEligibility {
 export function getContactEligibility(
   trialStartedAt: Date | string | null | undefined,
   subscriptionExpiresAt: Date | string | null | undefined,
+  plan?: string | null,
 ): ContactEligibility {
   const now = Date.now();
 
@@ -43,7 +44,12 @@ export function getContactEligibility(
   const subExpiry = subscriptionExpiresAt
     ? new Date(subscriptionExpiresAt).getTime()
     : null;
-  const subscribed = subExpiry !== null && subExpiry > now;
+
+  // Un plan de pago sin fecha de expiración (NULL) se trata como suscripción
+  // vigente: el comerciante pagó y no vence (caso de espacios administrados).
+  const subscribed = plan && plan !== "FREE"
+    ? subExpiry === null || subExpiry > now
+    : subExpiry !== null && subExpiry > now;
 
   const status: SubscriptionStatus = subscribed
     ? "active"

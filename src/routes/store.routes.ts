@@ -264,6 +264,7 @@ router.get("/", async (req, res) => {
     const elig = getContactEligibility(
       store.trialStartedAt,
       store.subscriptionExpiresAt,
+      store.plan,
     );
     const prestige = Number(store.prestigePoints) || 0;
     const prestigeActive = store.plan !== "FREE";
@@ -482,6 +483,7 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
   const elig = getContactEligibility(
     store.trialStartedAt,
     store.subscriptionExpiresAt,
+    store.plan,
   );
   const prestige = Number(store.prestigePoints) || 0;
   const prestigeActive = store.plan !== "FREE";
