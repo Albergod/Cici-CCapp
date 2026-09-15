@@ -24,7 +24,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="text-surface-900">
-      <Navbar />
+      {showSidebar && <Navbar />}
       <div className="flex">
         {showSidebar && <FollowedStoresSidebar />}
         <main className="flex-1 min-w-0">{children}</main>
