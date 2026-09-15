@@ -209,12 +209,12 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
   const isUpgrade = mode === 'upgrade';
 
   return (
-    <div className="fixed inset-0 z-[100] flex overflow-y-auto">
+    <div className="fixed inset-0 z-[100] flex overflow-y-auto p-4">
       <div
         className="fixed inset-0 bg-surface-900/50 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="card p-4 md:p-8 w-full max-w-2xl relative shadow-lift m-auto my-4 md:my-8">
+      <div className="card p-4 md:p-8 w-full max-w-2xl relative shadow-lift m-auto">
         <button
           onClick={onClose}
           aria-label="Cerrar"

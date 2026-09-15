@@ -3,7 +3,8 @@ import { Store, Product } from '@/types';
 import { api } from '@/services/api';
 import { StorePager } from '@/components/StorePager';
 import { ProductCarousel } from '@/components/ProductCarousel';
-import { Loader2, StoreIcon, Sparkles, ShoppingBag, MessageSquare, ChevronRight } from 'lucide-react';
+import { TutorialModal } from '@/components/TutorialModal';
+import { Loader2, StoreIcon, Sparkles, ShoppingBag, MessageSquare, ChevronRight, CircleHelp } from 'lucide-react';
 
 export function HomePage() {
   const [stores, setStores] = useState<Store[]>([]);
@@ -11,6 +12,7 @@ export function HomePage() {
   const [loading, setLoading] = useState(true);
   const [productsLoading, setProductsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
 
   useEffect(() => {
     loadStores();
@@ -48,6 +50,7 @@ export function HomePage() {
   ];
 
   return (
+    <>
     <div className="min-h-screen pt-[7.5rem] md:pt-16">
       <div className="max-w-7xl mx-auto px-4 py-10">
         <div className="rounded-3xl bg-gradient-to-br from-brand-700 via-brand-500 to-accent-500 text-white p-10 md:p-14 text-center shadow-[0_20px_60px_-20px_rgba(147,51,234,0.5)] mb-12 relative overflow-hidden">
@@ -67,6 +70,13 @@ export function HomePage() {
               ¿Tienes algo para vender? Abre tu propia tienda gratis hoy.
             </p>
           </div>
+          <button
+            onClick={() => setTutorialOpen(true)}
+            className="absolute bottom-3 left-4 sm:bottom-4 sm:left-5 inline-flex items-center gap-1.5 text-xs font-semibold text-white/70 hover:text-white transition-colors"
+          >
+            <CircleHelp className="w-4 h-4" />
+            ¿No sabes qué hacer? Toca aquí
+          </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
@@ -126,5 +136,7 @@ export function HomePage() {
         )}
       </div>
     </div>
+    <TutorialModal open={tutorialOpen} onClose={() => setTutorialOpen(false)} />
+    </>
   );
 }
