@@ -3,7 +3,7 @@ import request from "supertest";
 import type { Express } from "express";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../src/db/client";
-import { users, stores, storeServices, appointments } from "../src/db/schema";
+import { users, stores, storeServices, appointments, conversations } from "../src/db/schema";
 import "dotenv/config";
 
 let app: Express;
@@ -189,5 +189,168 @@ describe("Agenda de citas (BELLEZA)", () => {
       .send({ storeId, serviceId: "00000000-0000-0000-0000-000000000000", date: dateStr, startTime: "10:00" });
     expect(again.status).toBe(409); // servicio eliminado
     expect(again.body.code).toBe("service_not_found");
+  });
+});
+
+describe("Regresión: estados, moderación y contexto (BELLEZA)", () => {
+  const reg = `reg-${ts}`;
+  const ownerEmail = `belleza-reg-owner-${reg}@example.com`;
+  const clientEmail = `belleza-reg-client-${reg}@example.com`;
+  const bannedEmail = `belleza-reg-banned-${reg}@example.com`;
+  const owner2Email = `belleza-reg-owner2-${reg}@example.com`;
+  const storeName = `Belleza Reg ${reg}`;
+  const store2Name = `Belleza Reg2 ${reg}`;
+  const dateStr = futureWorkday(3);
+  let storeId = "";
+  let tokenM = "";
+  let tokenC = "";
+  let tokenB = "";
+  let serviceId = "";
+
+  beforeAll(async () => {
+    const mod = await import("../src/index");
+    app = (mod as unknown as { default: Express }).default || (mod as unknown as Express);
+
+    tokenM = await registerUser(ownerEmail);
+    tokenC = await registerUser(clientEmail);
+    tokenB = await registerUser(bannedEmail);
+    await registerUser(owner2Email);
+
+    const store = await request(app)
+      .post("/api/stores")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ name: storeName, businessType: "BELLEZA" });
+    expect(store.status).toBe(201);
+    storeId = store.body.id;
+
+    const svc = await request(app)
+      .post("/api/services")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ name: "Corte reg", price: 40000, durationMinutes: 45 });
+    expect(svc.status).toBe(201);
+    serviceId = svc.body.id;
+  });
+
+  afterAll(async () => {
+    const names = [storeName, store2Name];
+    const rows = await db.select({ id: stores.id }).from(stores).where(inArray(stores.name, names));
+    const svcRows = await db
+      .select({ id: storeServices.id })
+      .from(storeServices)
+      .where(inArray(storeServices.storeId, rows.map((r) => r.id)));
+    await db
+      .delete(conversations)
+      .where(inArray(conversations.assertedServiceId, svcRows.map((s) => s.id)));
+    for (const s of rows) {
+      await db.delete(appointments).where(eq(appointments.storeId, s.id));
+      await db.delete(storeServices).where(eq(storeServices.storeId, s.id));
+    }
+    await db.delete(stores).where(inArray(stores.name, names));
+    await db.delete(users).where(
+      inArray(users.email, [ownerEmail, clientEmail, bannedEmail, owner2Email]),
+    );
+  });
+
+  it("no cancela una cita ya completada ni completa una cancelada", async () => {
+    const book = await request(app)
+      .post("/api/appointments")
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({ storeId, serviceId, date: dateStr, startTime: "10:00" });
+    expect(book.status).toBe(201);
+    const apptId = book.body.appointment.id;
+
+    const complete = await request(app)
+      .patch(`/api/appointments/${apptId}/complete`)
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(complete.status).toBe(200);
+
+    const cancelAfterComplete = await request(app)
+      .patch(`/api/appointments/${apptId}/cancel`)
+      .set("Authorization", `Bearer ${tokenC}`);
+    expect(cancelAfterComplete.status).toBe(409);
+    expect(cancelAfterComplete.body.error).toMatch(/atendida/i);
+
+    // Una cita cancelada no se puede "resucitar" completándola.
+    const book2 = await request(app)
+      .post("/api/appointments")
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({ storeId, serviceId, date: dateStr, startTime: "11:00" });
+    const appt2 = book2.body.appointment.id;
+    const cancel = await request(app)
+      .patch(`/api/appointments/${appt2}/cancel`)
+      .set("Authorization", `Bearer ${tokenC}`);
+    expect(cancel.status).toBe(200);
+    const completeCancelled = await request(app)
+      .patch(`/api/appointments/${appt2}/complete`)
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(completeCancelled.status).toBe(409);
+  });
+
+  it("rechaza UUID inválido en cancel/complete (petición no cuelga)", async () => {
+    const cancel = await request(app)
+      .patch("/api/appointments/not-a-uuid/cancel")
+      .set("Authorization", `Bearer ${tokenC}`);
+    expect(cancel.status).toBe(400);
+    const complete = await request(app)
+      .patch("/api/appointments/not-a-uuid/complete")
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(complete.status).toBe(400);
+    const del = await request(app)
+      .delete("/api/services/not-a-uuid")
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(del.status).toBe(400);
+  });
+
+  it("un usuario baneado NO reserva por la API directa", async () => {
+    await db
+      .update(users)
+      .set({ moderationStatus: "BANNED", moderationUntil: null })
+      .where(eq(users.email, bannedEmail));
+
+    const book = await request(app)
+      .post("/api/appointments")
+      .set("Authorization", `Bearer ${tokenB}`)
+      .send({ storeId, serviceId, date: dateStr, startTime: "13:00" });
+    expect(book.status).toBe(403);
+    expect(book.body.accountStatus).toBe("BANNED");
+
+    await db
+      .update(users)
+      .set({ moderationStatus: "ACTIVE", moderationUntil: null })
+      .where(eq(users.email, bannedEmail));
+  });
+
+  it("no abre conversación con servicio o producto ajeno a la tienda", async () => {
+    // Segunda tienda con su propio servicio.
+    const owner2Token = await (async () => {
+      const login = await request(app)
+        .post("/api/auth/login")
+        .send({ email: owner2Email, password: "demo123456" });
+      return login.body.token;
+    })();
+    const store2 = await request(app)
+      .post("/api/stores")
+      .set("Authorization", `Bearer ${owner2Token}`)
+      .send({ name: store2Name, businessType: "BELLEZA" });
+    expect(store2.status).toBe(201);
+    const svc2 = await request(app)
+      .post("/api/services")
+      .set("Authorization", `Bearer ${owner2Token}`)
+      .send({ name: "Otro corte", price: 50000, durationMinutes: 30 });
+    expect(svc2.status).toBe(201);
+
+    const foreign = await request(app)
+      .post(`/api/stores/${storeId}/conversation`)
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({ serviceId: svc2.body.id });
+    expect(foreign.status).toBe(400);
+    expect(foreign.body.error).toMatch(/no pertenece/i);
+
+    const own = await request(app)
+      .post(`/api/stores/${storeId}/conversation`)
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({ serviceId });
+    expect(own.status).toBe(200);
+    expect(own.body.assertedServiceId).toBe(serviceId);
   });
 });

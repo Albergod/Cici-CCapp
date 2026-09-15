@@ -148,6 +148,28 @@ router.post("/stores/:storeId/conversation", requireAuth, async (req: AuthReques
     });
   }
 
+  // El contexto (producto/servicio) debe pertenecer a ESTA tienda: se rechaza
+  // cualquier id ajeno o inventado para no mezclar datos de otros locales.
+  const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (serviceId !== undefined) {
+    if (!UUID_RX.test(serviceId)) return res.status(400).json({ error: "serviceId inválido" });
+    const [svc] = await db
+      .select({ id: storeServices.id })
+      .from(storeServices)
+      .where(and(eq(storeServices.id, serviceId), eq(storeServices.storeId, storeId)))
+      .limit(1);
+    if (!svc) return res.status(400).json({ error: "El servicio no pertenece a esta tienda." });
+  }
+  if (productId !== undefined) {
+    if (!UUID_RX.test(productId)) return res.status(400).json({ error: "productId inválido" });
+    const [prod] = await db
+      .select({ id: products.id })
+      .from(products)
+      .where(and(eq(products.id, productId), eq(products.storeId, storeId)))
+      .limit(1);
+    if (!prod) return res.status(400).json({ error: "El producto no pertenece a esta tienda." });
+  }
+
   // Moderación: expulsado/sancionado no puede abrir conversaciones.
   const [opener] = await db
     .select({ id: users.id, moderationStatus: users.moderationStatus, moderationUntil: users.moderationUntil })

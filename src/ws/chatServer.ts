@@ -3,9 +3,10 @@ import { Server } from "http";
 import jwt from "jsonwebtoken";
 import { eq, asc } from "drizzle-orm";
 import { db } from "../db/client";
-import { conversations, messages, stores, users, storeServices } from "../db/schema";
+import { conversations, messages, stores, users, storeServices, appointments } from "../db/schema";
 import { JWT_SECRET } from "../middleware/auth";
 import { generateAssistantReply } from "../lib/assistant";
+import { dateFromDb } from "../lib/booking";
 import {
   storeOperational,
   refreshStoreStatus,
@@ -247,9 +248,19 @@ export function attachChatWebSocket(server: Server) {
 
           broadcast(conversationId, { type: "message", message: aiMsg });
           if (result.appointmentId) {
+            const [booked] = await db
+              .select({
+                appointmentDate: appointments.appointmentDate,
+                startTime: appointments.startTime,
+              })
+              .from(appointments)
+              .where(eq(appointments.id, result.appointmentId))
+              .limit(1);
             broadcast(conversationId, {
               type: "appointment_created",
               appointmentId: result.appointmentId,
+              date: booked ? dateFromDb(String(booked.appointmentDate)) : undefined,
+              startTime: booked?.startTime ?? undefined,
             });
           }
         }

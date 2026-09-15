@@ -1,4 +1,8 @@
 import "./lib/boot-env";
+// Express 4 no captura rechazos de handlers async (solo next(err)). Al importar
+// este módulo se parchea el dispatch para que un error en cualquier ruta llegue
+// al middleware de error (500) en vez de dejar la petición colgada.
+import "express-async-errors";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import cors from "cors";

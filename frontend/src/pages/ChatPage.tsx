@@ -31,8 +31,10 @@ export function ChatPage() {
   const [navHeight, setNavHeight] = useState(64);
   const [modBanner, setModBanner] = useState<string | null>(null);
   const [bannerMuted, setBannerMuted] = useState(false);
+  const [bookingNotice, setBookingNotice] = useState<string | null>(null);
   const [retractedIds, setRetractedIds] = useState<Set<string>>(new Set());
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bookingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Estado de moderación de MI cuenta: no puedo escribir si estoy con sanción
   // vigente (silenciado/suspendido/expulsado). Expira automáticamente.
@@ -69,6 +71,12 @@ export function ChatPage() {
       setModBanner(null);
       setBannerMuted(false);
     }, 6000);
+  };
+
+  const showBookingNotice = (text: string) => {
+    setBookingNotice(text);
+    if (bookingTimer.current) clearTimeout(bookingTimer.current);
+    bookingTimer.current = setTimeout(() => setBookingNotice(null), 8000);
   };
 
   // Mide en vivo la altura real del navbar para que el chat quepa justo debajo
@@ -186,6 +194,12 @@ export function ChatPage() {
       } else if (data.type === 'message_retracted') {
         setRetractedIds((prev) => new Set(prev).add(data.messageId));
         showModBanner('Un mensaje fue retirado por moderación para mantener un trato respetuoso.');
+      } else if (data.type === 'appointment_created') {
+        showBookingNotice(
+          data.date && data.startTime
+            ? `Cita reservada para el ${data.date} a las ${data.startTime}.`
+            : 'Tu cita fue reservada. El local confirmará cuando estés por allá.',
+        );
       } else if (data.type === 'chat_suspended') {
         showModBanner(data.message || 'El chat de esta tienda está suspendido temporalmente.', true);
       }
@@ -528,6 +542,11 @@ export function ChatPage() {
                   }`}
                 >
                   {myBlock ? myBlock.text : modBanner}
+                </div>
+              )}
+              {bookingNotice && (
+                <div className="mb-3 rounded-xl p-3 text-sm border bg-emerald-50 border-emerald-300 text-emerald-800">
+                  {bookingNotice}
                 </div>
               )}
               <div className="flex gap-2">

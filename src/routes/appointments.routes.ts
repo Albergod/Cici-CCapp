@@ -9,10 +9,12 @@ import { appointments, stores, storeServices, users } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { createBooking } from "../lib/appointments";
 import { nowInTimezone, dateFromDb, DEFAULT_SCHEDULE } from "../lib/booking";
+import { userBlockState, refreshUserModeration } from "../lib/moderation";
 
 const router = Router();
 
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
+const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function daysFrom(base: string, days: number): string {
   const [y, m, d] = base.split("-").map(Number);
@@ -95,6 +97,26 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const parsed = bookSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+  // Moderación de conducta: un usuario baneado/suspendido también está vetado de
+  // RESERVAR citas por la API directa (no solo por el chat), para que no pueda
+  // bloquear la agenda de un local.
+  await refreshUserModeration(req.userId!);
+  const [booker] = await db
+    .select({ id: users.id, moderationStatus: users.moderationStatus, moderationUntil: users.moderationUntil })
+    .from(users)
+    .where(eq(users.id, req.userId!))
+    .limit(1);
+  const gate = userBlockState(booker ?? { id: req.userId! });
+  if (gate.blocked) {
+    return res.status(403).json({
+      error:
+        gate.status === "BANNED"
+          ? "Tu cuenta fue expulsada por violar las normas de conducta de la comunidad."
+          : "Tu cuenta tiene una sanción activa que impide reservar citas.",
+      accountStatus: gate.status,
+    });
+  }
+
   const result = await createBooking({
     storeId: parsed.data.storeId,
     serviceId: parsed.data.serviceId,
@@ -110,10 +132,12 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   res.status(201).json({ ok: true, appointment: result.appointment });
 });
 
-// Cancelar una cita (el cliente dueño de la cita o el comerciante).
+// Cancelar una cita (el cliente dueño de la cita o el comerciante). Solo citas
+// a futuro sin completar: una cita ya atendida no se puede "deshacer".
 router.patch("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
+  if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
   const [appt] = await db
-    .select({ id: appointments.id, storeId: appointments.storeId, customerId: appointments.customerId })
+    .select({ id: appointments.id, storeId: appointments.storeId, customerId: appointments.customerId, status: appointments.status })
     .from(appointments)
     .where(eq(appointments.id, req.params.id))
     .limit(1);
@@ -128,6 +152,13 @@ router.patch("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
   const isCustomer = appt.customerId === req.userId;
   if (!isMerchant && !isCustomer) return res.status(403).json({ error: "No autorizado." });
 
+  if (appt.status === "completed") {
+    return res.status(409).json({ error: "La cita ya fue atendida y no se puede cancelar." });
+  }
+  if (appt.status === "cancelled") {
+    return res.status(409).json({ error: "La cita ya está cancelada." });
+  }
+
   await db
     .update(appointments)
     .set({ status: "cancelled" })
@@ -135,10 +166,12 @@ router.patch("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
   res.json({ ok: true });
 });
 
-// Completar una cita (solo el comerciante: el servicio se prestó).
+// Completar una cita (solo el comerciante: el servicio se prestó). Solo desde
+// "confirmed": una cita cancelada no se puede completar.
 router.patch("/:id/complete", requireAuth, async (req: AuthRequest, res) => {
+  if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
   const [appt] = await db
-    .select({ id: appointments.id, storeId: appointments.storeId })
+    .select({ id: appointments.id, storeId: appointments.storeId, status: appointments.status })
     .from(appointments)
     .where(eq(appointments.id, req.params.id))
     .limit(1);
@@ -151,7 +184,14 @@ router.patch("/:id/complete", requireAuth, async (req: AuthRequest, res) => {
     .limit(1);
   if (store?.ownerId !== req.userId) return res.status(403).json({ error: "No autorizado." });
 
-  await db.update(appointments).set({ status: "completed" }).where(eq(appointments.id, appt.id));
+  if (appt.status === "cancelled") {
+    return res.status(409).json({ error: "La cita fue cancelada y no se puede completar." });
+  }
+
+  await db
+    .update(appointments)
+    .set({ status: "completed" })
+    .where(eq(appointments.id, appt.id));
   res.json({ ok: true });
 });
 

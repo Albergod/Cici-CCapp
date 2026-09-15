@@ -12,6 +12,8 @@ import { minutesToTime, nowInTimezone, DEFAULT_SCHEDULE } from "../lib/booking";
 
 const router = Router();
 
+const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function requireOwnBeautyStore(userId: string) {
   const [store] = await db
     .select({ id: stores.id, businessType: stores.businessType })
@@ -86,6 +88,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
 
 // Editar servicio
 router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
+  if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
   const store = await requireOwnBeautyStore(req.userId!);
   if (!store) return res.status(404).json({ error: "No tienes una tienda." });
 
@@ -115,6 +118,7 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
 
 // Eliminar servicio (bloqueado si tiene citas futuras confirmadas)
 router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
+  if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
   const store = await requireOwnBeautyStore(req.userId!);
   if (!store) return res.status(404).json({ error: "No tienes una tienda." });
 
