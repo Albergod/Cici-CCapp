@@ -110,14 +110,14 @@ export function ProductCard({
           </div>
         )}
 
-        <div className="flex items-center justify-between mt-3">
-          <span className="text-lg font-extrabold text-surface-900">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 mt-3">
+          <span className="text-lg font-extrabold text-surface-900 min-w-0 truncate">
             {formatCOP(product.price)}
           </span>
           {product.available && onContact && (
             <button
               onClick={() => onContact(product.id)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 transition-all active:scale-95"
+              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 transition-all active:scale-95"
             >
               <MessageSquare className="w-3.5 h-3.5" />
               Contactar
