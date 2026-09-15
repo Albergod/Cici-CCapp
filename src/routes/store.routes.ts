@@ -7,7 +7,7 @@ import { requireAuth, optionalAuth, AuthRequest } from "../middleware/auth";
 import { getContactEligibility } from "../lib/subscription";
 import { imageUrl } from "../lib/validators";
 import {
-  PRESTIGE_PER_REFERRAL,
+  awardReferralPrestige,
   getProductLimit,
   VERIFIED_THRESHOLD,
 } from "../lib/prestige";
@@ -134,9 +134,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     if (referrer.length > 0 && referrer[0].plan !== "FREE") {
       // Anti-fraude: granja de referidos. Si desde UNA misma IP se abrieron más
       // de REFERRAL_BURST_LIMIT tiendas con este código en 24h, no se premia:
-      // se registra la violación para que el admin la revise. El check verificado
-      // ahora exige antigüedad + venta real, así que el prestigio farmeado
-      // ya no sirve para evadir la verificación.
+      // se registra la violación para que el admin la revise.
       let farmed = false;
       const ip = creator.signupIp;
       if (ip) {
@@ -164,11 +162,11 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
         }
       }
       if (!farmed) {
+        // La referencia queda guardada, pero el prestigio NO se otorga acá:
+        // solo cuando la tienda del referido activa un plan de pago
+        // (awardReferralPrestige). Un referido que crea su tienda FREE no
+        // genera puntos.
         referredByStoreId = referrer[0].id;
-        await db
-          .update(stores)
-          .set({ prestigePoints: sql`${stores.prestigePoints} + ${PRESTIGE_PER_REFERRAL}` })
-          .where(eq(stores.id, referredByStoreId));
       }
     }
   }
@@ -201,6 +199,8 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   if (paid) {
     try {
       await activatePaidPlan(store.id, paid.plan as "PRO" | "BUSINESS", paid.cycle as "MONTHLY" | "BI_MONTHLY");
+      // El referido pagó su plan → el referidor (si tiene plan activo) gana prestigio.
+      await awardReferralPrestige(store.id);
       await db
         .update(mpPayments)
         .set({ storeId: store.id })
@@ -241,6 +241,25 @@ router.get("/", async (req, res) => {
   // Ventas reales (medios rastreables) de la página completa en una query.
   const trackedSales = await getTrackedSalesCounts(results.map((r) => r.id));
 
+  // Concede el check "sticky" a las tiendas que ya cumplen y aún no lo tienen.
+  const eligible = results.filter(
+    (s) =>
+      s.verifiedAt === null &&
+      isStoreVerified({
+        prestigeActive: s.plan !== "FREE",
+        prestigePoints: s.prestigePoints,
+        prestigeGoal: s.prestigeGoal,
+        createdAt: s.createdAt,
+        trackedSales: trackedSales.get(s.id) ?? 0,
+      }),
+  );
+  if (eligible.length) {
+    await db
+      .update(stores)
+      .set({ verifiedAt: new Date() })
+      .where(and(inArray(stores.id, eligible.map((s) => s.id)), isNull(stores.verifiedAt)));
+  }
+
   const withCounts = results.map(({ followers, products, referralCode: _rc, referredByStoreId: _rbid, ...store }) => {
     const elig = getContactEligibility(
       store.trialStartedAt,
@@ -256,12 +275,8 @@ router.get("/", async (req, res) => {
       subscriptionStatus: elig.status,
       prestigePoints: prestige,
       prestigeActive,
-      verified: isStoreVerified({
-        prestigeActive,
-        prestigePoints: prestige,
-        createdAt: store.createdAt,
-        trackedSales: trackedSales.get(store.id) ?? 0,
-      }),
+      prestigeGoal: store.prestigeGoal,
+      verified: store.verifiedAt !== null,
     };
   });
 
@@ -277,6 +292,8 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
       slug: stores.slug,
       referralCode: stores.referralCode,
       prestigePoints: stores.prestigePoints,
+      prestigeGoal: stores.prestigeGoal,
+      verifiedAt: stores.verifiedAt,
       plan: stores.plan,
       createdAt: stores.createdAt,
     })
@@ -287,6 +304,7 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
 
   const prestige = Number(store.prestigePoints) || 0;
   const prestigeActive = store.plan !== "FREE";
+  const goal = Number(store.prestigeGoal) || VERIFIED_THRESHOLD;
 
   if (!prestigeActive) {
     return res.json({
@@ -294,25 +312,41 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
       message:
         "El sistema de prestigio se activa al elegir un plan de pago. Invita a otros emprendedores y gana el check verificado.",
       prestigePoints: 0,
-      required: VERIFIED_THRESHOLD,
+      required: goal,
       verified: false,
       productLimit: getProductLimit(store.plan),
     });
   }
 
   const trackedMap = await getTrackedSalesCounts([store.id]);
+
+  // Check "sticky": conceder la primera vez que cumple, no se pierde nunca.
+  let justGranted = false;
+  if (
+    store.verifiedAt === null &&
+    isStoreVerified({
+      prestigeActive,
+      prestigePoints: prestige,
+      prestigeGoal: goal,
+      createdAt: store.createdAt,
+      trackedSales: trackedMap.get(store.id) ?? 0,
+    })
+  ) {
+    justGranted = true;
+    await db
+      .update(stores)
+      .set({ verifiedAt: new Date() })
+      .where(and(eq(stores.id, store.id), isNull(stores.verifiedAt)));
+  }
+
   res.json({
     active: true,
     referralCode: store.referralCode,
     referralLink: `${req.protocol}://${req.get("host")}/register?ref=${store.referralCode}`,
     prestigePoints: prestige,
-    required: VERIFIED_THRESHOLD,
-    verified: isStoreVerified({
-      prestigeActive,
-      prestigePoints: prestige,
-      createdAt: store.createdAt,
-      trackedSales: trackedMap.get(store.id) ?? 0,
-    }),
+    prestigeGoal: goal,
+    required: goal,
+    verified: store.verifiedAt !== null || justGranted,
     productLimit: getProductLimit(store.plan),
   });
 });
@@ -452,6 +486,27 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
   const prestige = Number(store.prestigePoints) || 0;
   const prestigeActive = store.plan !== "FREE";
   const detailTracked = await getTrackedSalesCounts([store.id]);
+
+  // Check "sticky": se concede la primera vez que la tienda cumple y no se
+  // pierde nunca.
+  let justGranted = false;
+  if (
+    store.verifiedAt === null &&
+    isStoreVerified({
+      prestigeActive,
+      prestigePoints: prestige,
+      prestigeGoal: store.prestigeGoal,
+      createdAt: store.createdAt,
+      trackedSales: detailTracked.get(store.id) ?? 0,
+    })
+  ) {
+    justGranted = true;
+    await db
+      .update(stores)
+      .set({ verifiedAt: new Date() })
+      .where(and(eq(stores.id, store.id), isNull(stores.verifiedAt)));
+  }
+
   res.json({
     ...rest,
     products: visibleProducts,
@@ -461,12 +516,8 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
     trialEndsAt: elig.trialEndsAt,
     prestigePoints: prestige,
     prestigeActive,
-    verified: isStoreVerified({
-      prestigeActive,
-      prestigePoints: prestige,
-      createdAt: store.createdAt,
-      trackedSales: detailTracked.get(store.id) ?? 0,
-    }),
+    prestigeGoal: store.prestigeGoal,
+    verified: store.verifiedAt !== null || justGranted,
     following: req.userId
       ? followers.some((f) => f.userId === req.userId)
       : false,

@@ -35,6 +35,7 @@ export interface Store {
   subscriptionStatus?: SubscriptionStatus;
   trialEndsAt?: number;
   prestigePoints?: number;
+  prestigeGoal?: number;
   prestigeActive?: boolean;
   verified?: boolean;
   referralCode?: string;
@@ -140,6 +141,7 @@ export interface ReferralInfo {
   referralCode?: string;
   referralLink?: string;
   prestigePoints: number;
+  prestigeGoal?: number;
   required: number;
   verified: boolean;
   productLimit: number;

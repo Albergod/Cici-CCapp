@@ -36,6 +36,20 @@
       "when": 1789445938234,
       "tag": "0004_slimy_black_tom",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789455085346,
+      "tag": "0005_add_referral_rewarded",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789457645913,
+      "tag": "0006_prestige_goal_and_verified_at",
+      "breakpoints": true
     }
   ]
 }

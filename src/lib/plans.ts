@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { stores } from "../db/schema";
 import { getActivePrices } from "./plan-config";
+import { PRESTIGE_GOAL_STEP, PRESTIGE_GOAL_MAX, PRESTIGE_BASE_GOAL } from "./prestige";
 
 export { getActivePrices };
 
@@ -69,6 +70,12 @@ export async function activatePaidPlan(
         Math.max(Date.now(), store.subscriptionExpiresAt?.getTime() ?? 0) + CYCLE_MS[cycle],
       ),
       referralCode,
+      // Cada activación/renovación/mejora del propietario sube su META de
+      // prestigio (+100, tope 1000). No toca los puntos ya ganados.
+      prestigeGoal: sql`LEAST(
+        ${PRESTIGE_GOAL_MAX},
+        COALESCE(${stores.prestigeGoal}, ${PRESTIGE_BASE_GOAL}) + ${PRESTIGE_GOAL_STEP}
+      )`,
     })
     .where(eq(stores.id, storeId));
 

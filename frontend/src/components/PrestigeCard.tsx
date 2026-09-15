@@ -123,7 +123,7 @@ export function PrestigeCard({ onUpgrade }: PrestigeCardProps) {
             <span className="text-base font-semibold text-surface-400"> / {info.required}</span>
           </p>
           <p className="text-xs font-semibold text-surface-500">
-            puntos de prestigio
+            puntos de prestigio · meta para el check
           </p>
         </div>
         <div className="text-right">
@@ -146,7 +146,11 @@ export function PrestigeCard({ onUpgrade }: PrestigeCardProps) {
 
       <p className="text-xs text-surface-500 mt-3">
         Ganas <strong className="text-brand-600">25 pts</strong> por cada emprendedor que invite y
-        abra su tienda.
+        pague su plan. Un referido que crea su tienda FREE no suma.
+      </p>
+      <p className="text-xs text-surface-500 mt-1">
+        Tu meta sube <strong className="text-brand-600">100 pts</strong> cada vez que activas,
+        renuevas o mejoras tu plan (tope 1000 pts). Una vez consigas el check, no se pierde.
       </p>
 
       <div className="mt-5 p-4 bg-surface-50 rounded-2xl border border-surface-200 flex items-center gap-2">

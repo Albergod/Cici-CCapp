@@ -50,8 +50,10 @@ const STEPS: Step[] = [
       'El plan Gratis siempre está ahí: con él puedes empezar y probar tu tienda.',
       'Con Premium destacas más y no pagas comisión por tus ventas.',
       'Puedes pagar tu plan con Nequi o Mercado Pago, como más te guste.',
+      'Invita a otros emprendedores con tu enlace de referidos: por cada uno que pague su plan ganas 25 pts de prestigio hacia tu check verificado.',
+      'Y un bonus: cada referido que paga su plan te suma 3 días más a la vigencia del tuyo.',
     ],
-    tip: 'Sin comisiones por venta: solo pagas el plan que elijas.',
+    tip: 'Por cada referido que paga su plan: +25 pts de prestigio y +3 días de tu plan.',
   },
   {
     icon: CreditCard,

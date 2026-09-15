@@ -1,0 +1,1 @@
+ALTER TABLE "stores" ADD COLUMN "referral_rewarded" boolean DEFAULT false NOT NULL;

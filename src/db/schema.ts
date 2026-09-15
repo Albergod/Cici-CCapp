@@ -76,6 +76,17 @@ export const stores = pgTable("stores", {
   prestigePoints: numeric("prestige_points", { precision: 10, scale: 0 }).default("0").notNull(),
   referralCode: text("referral_code").unique(),
   referredByStoreId: uuid("referred_by_store_id"),
+  // Meta de prestigio del comerciante: base 100 y sube +100 cada vez que
+  // ACTIVA/RENUEVA/MEJORA SU propio plan (tope PRESTIGE_GOAL_MAX). No son
+  // puntos: es el objetivo que debe alcanzar para obtener el check.
+  prestigeGoal: integer("prestige_goal").default(100).notNull(),
+  // Check de verificado concedido: una vez alcanzado no se pierde nunca
+  // ("sticky"). Se otorga en el primer cálculo en el que cumple el criterio.
+  verifiedAt: timestamp("verified_at"),
+  // El premio de referido (PRESTIGE_PER_REFERRAL) se otorga UNA vez por
+  // referido: solo cuando su tienda activa un plan de pago (no al crearla
+  // FREE). Esta bandera evita doble premio si el plan se renueva o reactiva.
+  referralRewarded: boolean("referral_rewarded").default(false).notNull(),
   // Sanciones (anti-fraude). Status público = ACTIVE; SUSPENDED/BANNED se
   // ocultan del catálogo y bloquean chat/ventas hasta resolverse.
   status: storeStatusEnum("status").default("ACTIVE").notNull(),

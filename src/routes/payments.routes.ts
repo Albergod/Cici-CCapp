@@ -13,6 +13,7 @@ import {
 import { priceFor, activatePaidPlan, getActivePrices } from "../lib/plans";
 import { parseExternalRef } from "../lib/payment-ref";
 import { paymentLimiter } from "../middleware/rate-limit";
+import { awardReferralPrestige } from "../lib/prestige";
 
 const router = Router();
 
@@ -183,6 +184,8 @@ async function applyApprovedPayment(ref: string) {
   if (storeId) {
     try {
       await activatePaidPlan(storeId, plan, cycle);
+      // El referido pagó su plan → el referidor gana prestigio (si es premium).
+      await awardReferralPrestige(storeId);
     } catch (err) {
       console.error("activate plan error:", err);
       return { approved: false, detail: "activate_failed" };

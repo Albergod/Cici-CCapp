@@ -912,6 +912,29 @@ export function DashboardPage() {
                 </div>
               )}
             </div>
+
+            {store.plan !== 'FREE' && store.subscriptionExpiresAt && (() => {
+              const daysLeft = Math.max(
+                0,
+                Math.ceil((new Date(store.subscriptionExpiresAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+              );
+              if (daysLeft <= 0) return null;
+              return (
+                <div className="card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-t-4 border-brand-600">
+                  <div>
+                    <p className="font-display text-sm font-extrabold text-surface-900">
+                      {daysLeft === 1 ? 'Te queda 1 día' : `Te quedan ${daysLeft} días`} de tu plan {store.plan}
+                    </p>
+                    <p className="text-xs text-surface-500">
+                      Cada referido que paga su plan te suma 3 días más.
+                    </p>
+                  </div>
+                  <button onClick={openUpgrade} className="btn-primary text-sm shrink-0">
+                    Renovar
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         ) : null}
 

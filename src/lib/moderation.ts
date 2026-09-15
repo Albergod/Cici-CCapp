@@ -28,12 +28,15 @@ export const BAN_REPORT_FLAGS = 5;
 export const INFLATED_SALE_DAY_BURST = 5; // ventas autoregistradas sin método rastreable
 
 // ── Verificado "duro" ────────────────────────────────────────────────────────
-// Ya no basta con tener 100 de prestigio: la tienda debe tener antigüedad y al
-// menos UNA venta pagada por un medio rastreable. Esto hace inútil farmear
-// referidos para obtener el check: el prestigio solo es condición necesaria.
+// El check se CONCEDE una vez cumplidos los requisitos (plan activo, puntos >=
+// meta, antigüedad y al menos UNA venta rastreable) y luego es "sticky": nunca
+// se revoca (ver verified_at en stores). La meta (prestigeGoal) crece +100 por
+// cada activación/renovación del plan propio, hasta 1000: los puntos ganados
+// por referidos deben alcanzar la meta vigente para obtener el check.
 export interface VerifiedInput {
   prestigeActive: boolean;
   prestigePoints: number | string | null;
+  prestigeGoal: number | string | null;
   createdAt: Date | string | null;
   trackedSales: number;
   now?: number;
@@ -41,7 +44,8 @@ export interface VerifiedInput {
 
 export function isStoreVerified(i: VerifiedInput): boolean {
   if (!i.prestigeActive) return false;
-  if ((Number(i.prestigePoints) || 0) < 100) return false;
+  const goal = Number(i.prestigeGoal) || 100;
+  if ((Number(i.prestigePoints) || 0) < goal) return false;
   if (!i.createdAt) return false;
   const now = i.now ?? Date.now();
   const ageMs = now - new Date(i.createdAt).getTime();

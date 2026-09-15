@@ -119,6 +119,9 @@ if (isMainModule) {
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS moderation_until timestamp`);
     await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS removed_at timestamp`);
     await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS removed_reason text`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS referral_rewarded boolean NOT NULL DEFAULT false`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS prestige_goal integer NOT NULL DEFAULT 100`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS verified_at timestamp`);
   }
 
   async function runMigrations(): Promise<void> {
