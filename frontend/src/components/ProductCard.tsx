@@ -1,5 +1,7 @@
+import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Product } from '@/types';
-import { MessageSquare, Package } from 'lucide-react';
+import { Eye, MessageSquare, Package, X } from 'lucide-react';
 import { attributesToTitledList, BusinessType } from '@/lib/categoryFields';
 import { formatCOP } from '@/lib/format';
 
@@ -11,15 +13,56 @@ interface ProductCardProps {
 
 export function ProductCard({ product, onContact, businessType }: ProductCardProps) {
   const chips = attributesToTitledList(businessType, product.attributes);
+  const [armed, setArmed] = useState(false); // 1er toque: muestra el ojito
+  const [open, setOpen] = useState(false);   // 2º toque: abre la imagen ampliada
+
+  const hasImage = !!product.imageUrl;
+
+  const handleImageTap = () => {
+    if (!hasImage) return;
+    if (!armed) {
+      setArmed(true);
+      return;
+    }
+    setArmed(false);
+    setOpen(true);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleImageTap();
+    }
+  };
+
   return (
     <div className="group bg-white rounded-2xl overflow-hidden shadow-card hover:shadow-lift transition-all duration-300 hover:-translate-y-0.5 border border-surface-200/60 flex flex-col">
-      <div className="relative aspect-square bg-surface-100 overflow-hidden">
+      <div
+        className={[
+          'relative aspect-square bg-surface-100 overflow-hidden',
+          hasImage ? 'cursor-pointer' : '',
+        ].join(' ')}
+        role={hasImage ? 'button' : undefined}
+        aria-label={hasImage ? `Ampliar imagen de ${product.name}` : undefined}
+        onClick={handleImageTap}
+        onKeyDown={hasImage ? handleKeyDown : undefined}
+      >
         {product.imageUrl ? (
-          <img
-            src={product.imageUrl}
-            alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
+          <>
+            <img
+              src={product.imageUrl}
+              alt={product.name}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            />
+            {armed && (
+              <div className="absolute inset-0 bg-surface-900/25 flex items-center justify-center transition-opacity">
+                <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface-900/60 backdrop-blur-sm text-white text-xs font-semibold shadow-lg">
+                  <Eye className="w-4 h-4" />
+                  Ampliar
+                </span>
+              </div>
+            )}
+          </>
         ) : (
           <div className="w-full h-full flex items-center justify-center text-surface-300">
             <Package className="w-12 h-12" />
@@ -69,6 +112,36 @@ export function ProductCard({ product, onContact, businessType }: ProductCardPro
           )}
         </div>
       </div>
+
+      {/* Lightbox: se monta en el body para que ningún overflow/transform lo recorte. */}
+      {hasImage &&
+        open &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[110] flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Imagen ampliada de ${product.name}`}
+          >
+            <div
+              className="absolute inset-0 bg-surface-900/60 backdrop-blur-sm"
+              onClick={() => setOpen(false)}
+            />
+            <button
+              className="absolute top-4 right-4 z-[1] p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+              onClick={() => setOpen(false)}
+              aria-label="Cerrar imagen"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={product.imageUrl ?? undefined}
+              alt={product.name}
+              className="relative max-w-[90vw] max-h-[85vh] w-auto h-auto object-contain rounded-2xl shadow-2xl"
+            />
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
