@@ -292,7 +292,7 @@ async function main() {
         await client.query(
           `INSERT INTO products (name, description, price, image_url, available, store_id, attributes, stock, views)
            VALUES ($1,$2,$3,$4,true,$5,$6,$7,$8)`,
-          [p.name, p.desc, p.price, P(photos[i % photos.length]), storeId, JSON.stringify(p.attrs), 0, 0],
+          [p.name, p.desc, p.price, P(photos[i % photos.length]), storeId, JSON.stringify(p.attrs), 8, 0],
         );
         i++;
         productsCreated++;
