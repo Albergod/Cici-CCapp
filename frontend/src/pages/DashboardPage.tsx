@@ -68,6 +68,7 @@ export function DashboardPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [savingStore, setSavingStore] = useState(false);
+  const [showAllProducts, setShowAllProducts] = useState(false);
   const [editStoreName, setEditStoreName] = useState('');
   const [editStoreDescription, setEditStoreDescription] = useState('');
   const [editLogoUrl, setEditLogoUrl] = useState('');
@@ -386,6 +387,73 @@ export function DashboardPage() {
       setSavingStore(false);
     }
   };
+
+  const renderProductCard = (product: Product) => (
+    <div
+      key={product.id}
+      className="flex items-center justify-between p-3 bg-surface-50 rounded-xl border border-surface-200"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        {product.imageUrl ? (
+          <img
+            src={product.imageUrl}
+            alt=""
+            className="w-12 h-12 rounded-lg object-cover shrink-0"
+          />
+        ) : (
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-brand-100 to-accent-100 flex items-center justify-center shrink-0">
+            <Package className="w-5 h-5 text-brand-500" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="font-bold text-surface-900 text-sm truncate">{product.name}</p>
+          <p className="text-sm text-surface-500 font-semibold">{formatCOP(product.price)}</p>
+          {attributesToTitledList(store?.businessType ?? 'OTRO', product.attributes).length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {attributesToTitledList(store?.businessType ?? 'OTRO', product.attributes).map((a) => (
+                <span
+                  key={a.key}
+                  className="px-1.5 py-0.5 text-[10px] font-semibold bg-brand-50 text-brand-700 border border-brand-100 rounded-md"
+                >
+                  {a.label}: {a.value}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="shrink-0 flex items-center gap-2">
+        {typeof product.stock === 'number' && (
+          <span
+            className={`px-2.5 py-1 text-xs font-bold rounded-full ${
+              product.stock > 0
+                ? 'bg-surface-200 text-surface-700'
+                : 'bg-accent-100 text-accent-700'
+            }`}
+          >
+            {product.stock > 0 ? `${product.stock} en stock` : 'Agotado'}
+          </span>
+        )}
+        <span
+          className={`px-2.5 py-1 text-xs font-bold rounded-full ${
+            product.available
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-accent-100 text-accent-700'
+          }`}
+        >
+          {product.available ? 'Disponible' : 'No disponible'}
+        </span>
+        <button
+          type="button"
+          onClick={() => handleAdjustStock(product)}
+          title="Ajustar stock"
+          className="p-1.5 text-surface-500 hover:text-brand-600 transition-colors"
+        >
+          <Settings2 className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -840,76 +908,33 @@ export function DashboardPage() {
                   Aún no tienes productos. ¡Agrega tu primer producto!
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {store.products.map((product) => (
-                    <div
-                      key={product.id}
-                      className="flex items-center justify-between p-3 bg-surface-50 rounded-xl border border-surface-200"
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:hidden">
+                    {(showAllProducts ? store.products : store.products.slice(0, 5)).map(renderProductCard)}
+                  </div>
+                  <div className="hidden md:grid md:grid-cols-2 gap-3">
+                    {store.products.map(renderProductCard)}
+                  </div>
+                  {store.products.length > 5 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllProducts((v) => !v)}
+                      className="md:hidden mt-4 w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-bold text-brand-600 bg-brand-50 border border-brand-100 rounded-xl hover:bg-brand-100 transition-colors"
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        {product.imageUrl ? (
-                          <img
-                            src={product.imageUrl}
-                            alt=""
-                            className="w-12 h-12 rounded-lg object-cover shrink-0"
-                          />
-                        ) : (
-                          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-brand-100 to-accent-100 flex items-center justify-center shrink-0">
-                            <Package className="w-5 h-5 text-brand-500" />
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <p className="font-bold text-surface-900 text-sm truncate">{product.name}</p>
-                          <p className="text-sm text-surface-500 font-semibold">
-{formatCOP(product.price)}
-                          </p>
-                          {attributesToTitledList(store.businessType, product.attributes).length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {attributesToTitledList(store.businessType, product.attributes).map((a) => (
-                                <span
-                                  key={a.key}
-                                  className="px-1.5 py-0.5 text-[10px] font-semibold bg-brand-50 text-brand-700 border border-brand-100 rounded-md"
-                                >
-                                  {a.label}: {a.value}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="shrink-0 flex items-center gap-2">
-                        {typeof product.stock === 'number' && (
-                          <span
-                            className={`px-2.5 py-1 text-xs font-bold rounded-full ${
-                              product.stock > 0
-                                ? 'bg-surface-200 text-surface-700'
-                                : 'bg-accent-100 text-accent-700'
-                            }`}
-                          >
-                            {product.stock > 0 ? `${product.stock} en stock` : 'Agotado'}
-                          </span>
-                        )}
-                        <span
-                          className={`px-2.5 py-1 text-xs font-bold rounded-full ${
-                            product.available
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-accent-100 text-accent-700'
-                          }`}
-                        >
-                          {product.available ? 'Disponible' : 'No disponible'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleAdjustStock(product)}
-                          title="Ajustar stock"
-                          className="p-1.5 text-surface-500 hover:text-brand-600 transition-colors"
-                        >
-                          <Settings2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                      {showAllProducts ? (
+                        <>
+                          Ver menos
+                          <ChevronUp className="w-4 h-4" />
+                        </>
+                      ) : (
+                        <>
+                          Ver más ({store.products.length - 5} más)
+                          <ChevronDown className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+                  )}
+                </>
               )}
             </div>
 

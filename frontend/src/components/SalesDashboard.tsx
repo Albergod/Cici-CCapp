@@ -13,8 +13,10 @@ import {
   Eye,
   Percent,
   Lock,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
-import { SaleStats, Store } from '@/types';
+import { RecentSale, SaleStats, Store } from '@/types';
 import { api } from '@/services/api';
 import { formatCOP } from '@/lib/format';
 
@@ -60,6 +62,7 @@ export function SalesDashboard({ store, onUpgrade }: { store: Store; onUpgrade: 
   const [stats, setStats] = useState<SaleStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showAllSales, setShowAllSales] = useState(false);
   const [rows, setRows] = useState<{ productId: string; quantity: string }[]>([
     { productId: '', quantity: '1' },
   ]);
@@ -468,51 +471,92 @@ export function SalesDashboard({ store, onUpgrade }: { store: Store; onUpgrade: 
             Registra tu primera venta para verla aquí.
           </p>
         ) : (
-          <div className="overflow-x-auto -mx-6 px-6">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs font-bold text-surface-400 uppercase tracking-wide border-b border-surface-200">
-                  <th className="py-2 pr-4">Fecha</th>
-                  <th className="py-2 pr-4">Productos</th>
-                  <th className="py-2 pr-4">Nota</th>
-                  <th className="py-2 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.recentSales.map((s) => (
-                  <tr
-                    key={s.id}
-                    className="border-b border-surface-100 last:border-0"
-                  >
-                    <td className="py-3 pr-4 text-surface-600 whitespace-nowrap">
-                      {new Date(s.soldAt).toLocaleDateString('es-CO', {
-                        day: '2-digit',
-                        month: 'short',
-                      })}
-                    </td>
-                    <td className="py-3 pr-4">
-                      <div className="flex flex-wrap gap-1">
-                        {s.itemsSummary.map((it, i) => (
-                          <span
-                            key={i}
-                            className="px-2 py-0.5 bg-surface-100 text-surface-600 rounded-full text-xs font-medium"
-                          >
-                            {it.quantity} × {it.name}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="py-3 pr-4 text-surface-500">{s.note ?? '—'}</td>
-                    <td className="py-3 text-right font-bold text-surface-900 whitespace-nowrap">
-                      {fmt(s.total)}
-                    </td>
+          <>
+            <div className="overflow-x-auto -mx-6 px-6 md:hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs font-bold text-surface-400 uppercase tracking-wide border-b border-surface-200">
+                    <th className="py-2 pr-4">Fecha</th>
+                    <th className="py-2 pr-4">Productos</th>
+                    <th className="py-2 pr-4">Nota</th>
+                    <th className="py-2 text-right">Total</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {(showAllSales ? stats.recentSales : stats.recentSales.slice(0, 5)).map((s) => (
+                    <SalesRow key={s.id} s={s} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="overflow-x-auto -mx-6 px-6 hidden md:block">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs font-bold text-surface-400 uppercase tracking-wide border-b border-surface-200">
+                    <th className="py-2 pr-4">Fecha</th>
+                    <th className="py-2 pr-4">Productos</th>
+                    <th className="py-2 pr-4">Nota</th>
+                    <th className="py-2 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.recentSales.map((s) => (
+                    <SalesRow key={s.id} s={s} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {stats.recentSales.length > 5 && (
+              <button
+                type="button"
+                onClick={() => setShowAllSales((v) => !v)}
+                className="md:hidden mt-4 w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-bold text-brand-600 bg-brand-50 border border-brand-100 rounded-xl hover:bg-brand-100 transition-colors"
+              >
+                {showAllSales ? (
+                  <>
+                    Ver menos
+                    <ChevronUp className="w-4 h-4" />
+                  </>
+                ) : (
+                  <>
+                    Ver más ({stats.recentSales.length - 5} más)
+                    <ChevronDown className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>
+  );
+}
+
+function SalesRow({ s }: { s: RecentSale }) {
+  return (
+    <tr className="border-b border-surface-100 last:border-0">
+      <td className="py-3 pr-4 text-surface-600 whitespace-nowrap">
+        {new Date(s.soldAt).toLocaleDateString('es-CO', {
+          day: '2-digit',
+          month: 'short',
+        })}
+      </td>
+      <td className="py-3 pr-4">
+        <div className="flex flex-wrap gap-1">
+          {s.itemsSummary.map((it, i) => (
+            <span
+              key={i}
+              className="px-2 py-0.5 bg-surface-100 text-surface-600 rounded-full text-xs font-medium"
+            >
+              {it.quantity} × {it.name}
+            </span>
+          ))}
+        </div>
+      </td>
+      <td className="py-3 pr-4 text-surface-500">{s.note ?? '—'}</td>
+      <td className="py-3 text-right font-bold text-surface-900 whitespace-nowrap">
+        {fmt(s.total)}
+      </td>
+    </tr>
   );
 }
