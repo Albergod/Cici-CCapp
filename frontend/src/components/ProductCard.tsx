@@ -9,22 +9,35 @@ interface ProductCardProps {
   product: Product;
   onContact?: (productId: string) => void;
   businessType?: BusinessType;
+  /** Habilita el zoom por doble toque de la imagen (solo en la vista de tienda). */
+  imageZoom?: boolean;
+  /** Id del producto con el ojito activo. Uno solo a la vez: salta de producto en producto. */
+  armedId?: string | null;
+  onArm?: (productId: string | null) => void;
 }
 
-export function ProductCard({ product, onContact, businessType }: ProductCardProps) {
+export function ProductCard({
+  product,
+  onContact,
+  businessType,
+  imageZoom = false,
+  armedId = null,
+  onArm,
+}: ProductCardProps) {
   const chips = attributesToTitledList(businessType, product.attributes);
-  const [armed, setArmed] = useState(false); // 1er toque: muestra el ojito
-  const [open, setOpen] = useState(false);   // 2º toque: abre la imagen ampliada
+  const [open, setOpen] = useState(false); // imagen ampliada (2º toque)
 
   const hasImage = !!product.imageUrl;
+  const zoomEnabled = imageZoom && hasImage;
+  const armed = zoomEnabled && armedId === product.id;
 
   const handleImageTap = () => {
-    if (!hasImage) return;
+    if (!zoomEnabled) return;
     if (!armed) {
-      setArmed(true);
+      onArm?.(product.id);
       return;
     }
-    setArmed(false);
+    onArm?.(null);
     setOpen(true);
   };
 
@@ -40,12 +53,12 @@ export function ProductCard({ product, onContact, businessType }: ProductCardPro
       <div
         className={[
           'relative aspect-square bg-surface-100 overflow-hidden',
-          hasImage ? 'cursor-pointer' : '',
+          zoomEnabled ? 'cursor-pointer' : '',
         ].join(' ')}
-        role={hasImage ? 'button' : undefined}
-        aria-label={hasImage ? `Ampliar imagen de ${product.name}` : undefined}
-        onClick={handleImageTap}
-        onKeyDown={hasImage ? handleKeyDown : undefined}
+        role={zoomEnabled ? 'button' : undefined}
+        aria-label={zoomEnabled ? `Ampliar imagen de ${product.name}` : undefined}
+        onClick={zoomEnabled ? handleImageTap : undefined}
+        onKeyDown={zoomEnabled ? handleKeyDown : undefined}
       >
         {product.imageUrl ? (
           <>
@@ -55,7 +68,7 @@ export function ProductCard({ product, onContact, businessType }: ProductCardPro
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
             {armed && (
-              <div className="absolute inset-0 bg-surface-900/25 flex items-center justify-center transition-opacity">
+              <div className="absolute inset-0 bg-surface-900/25 flex items-center justify-center">
                 <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface-900/60 backdrop-blur-sm text-white text-xs font-semibold shadow-lg">
                   <Eye className="w-4 h-4" />
                   Ampliar

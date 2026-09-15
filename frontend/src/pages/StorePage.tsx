@@ -18,6 +18,8 @@ export function StorePage() {
   const [following, setFollowing] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
   const [copied, setCopied] = useState(false);
+  // Id con el ojito "Ampliar" activo (uno solo a la vez, salta de producto en producto).
+  const [armedProductId, setArmedProductId] = useState<string | null>(null);
 
   useEffect(() => {
     if (slug) loadStore();
@@ -303,6 +305,9 @@ export function StorePage() {
                   product={product}
                   businessType={store.businessType}
                   onContact={handleContact}
+                  imageZoom
+                  armedId={armedProductId}
+                  onArm={setArmedProductId}
                 />
               ))}
             </div>
