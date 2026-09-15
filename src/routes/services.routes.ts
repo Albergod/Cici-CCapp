@@ -8,6 +8,7 @@ import { db } from "../db/client";
 import { appointments, storeServices, stores } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { sql } from "drizzle-orm";
+import { minutesToTime, nowInTimezone, DEFAULT_SCHEDULE } from "../lib/booking";
 
 const router = Router();
 
@@ -124,6 +125,12 @@ router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
     .limit(1);
   if (!service) return res.status(404).json({ error: "Servicio no encontrado." });
 
+  // Una cita bloquea el borrado si aún no terminó (en la zona horaria del
+  // esquema de la tienda, no el UTC del servidor): fecha de hoy con hora de
+  // fin aún en el futuro, o cualquier fecha posterior.
+  const now = nowInTimezone(DEFAULT_SCHEDULE.timezone);
+  const todayMidnight = `${now.date} 00:00:00`;
+  const nowClock = minutesToTime(now.minutes)!;
   const [{ n }] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(appointments)
@@ -131,7 +138,8 @@ router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
       and(
         eq(appointments.serviceId, service.id),
         eq(appointments.status, "confirmed"),
-        sql`${appointments.appointmentDate} >= now()`,
+        sql`${appointments.appointmentDate} >= ${todayMidnight}`,
+        sql`(${appointments.appointmentDate} > ${todayMidnight} OR ${appointments.endTime} > ${nowClock})`,
       ),
     );
   if (Number(n) > 0) {

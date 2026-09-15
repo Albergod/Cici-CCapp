@@ -1,7 +1,18 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { randomBytes } from "crypto";
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+// Seguridad: el secreto NUNCA debe ser un valor fijo conocido. Si el entorno no
+// define JWT_SECRET, se genera uno aleatorio en cada arranque del proceso: los
+// tokens forjados con el valor por defecto (o con un secreto anterior) quedan
+// inválidos de inmediato. Lo correcto es fijar JWT_SECRET en el entorno (Render/
+// Neon/Lambda) para que las sesiones sobrevivan a reinicios.
+if (!process.env.JWT_SECRET) {
+  console.warn(
+    "⚠️ JWT_SECRET no está definido en el entorno: se genera un secreto aleatorio por arranque. Las sesiones se reiniciarán en cada deploy/restart. Define JWT_SECRET en producción.",
+  );
+}
+const JWT_SECRET: string = process.env.JWT_SECRET || randomBytes(32).toString("hex");
 
 export interface AuthRequest extends Request {
   userId?: string;
