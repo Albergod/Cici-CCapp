@@ -22,6 +22,7 @@ import { globalLimiter } from "./middleware/rate-limit";
 import { expireStoresAndReturnCount } from "./routes/store.routes";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { db } from "./db/client";
+import { sql } from "drizzle-orm";
 
 export function createApp() {
   const app = express();
@@ -105,17 +106,41 @@ export const app = createApp();
 const isMainModule = process.argv[1] === __filename;
 if (isMainModule) {
   // ── Migraciones al arranque ───────────────────────────────────────────────
-  // Idempotente: aplica solo las pendientes (drizzle-migrator). Así el deploy
-  // en Render queda sincronizado con el esquema sin pasos manuales.
+  // Aplica el esquema nuevo de forma RESILIENTE, porque la DB de producción
+  // puede haber nacido por "db:push" (sin journal de migraciones) o por
+  // "drizzle-kit migrate" (con journal):
+  //   1. Si existe journal → aplica migraciones pendientes (p. ej. 0004) y listo.
+  //   2. Si no (o si el journal no aplica) → sincroniza el esquema esencial con
+  //      ALTER idempotentes (ADD COLUMN IF NOT EXISTS), sin tumbar el arranque.
+  // Así los deploys nunca revientan por esquema desincronizado.
+  async function syncEssentialSchema(): Promise<void> {
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at timestamp`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS moderation_status text NOT NULL DEFAULT 'ACTIVE'`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS moderation_until timestamp`);
+    await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS removed_at timestamp`);
+    await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS removed_reason text`);
+  }
+
   async function runMigrations(): Promise<void> {
     const migrationsDir = path.join(path.resolve(__dirname, ".."), "drizzle");
-    if (!fs.existsSync(migrationsDir)) {
-      console.warn("⚠️ No existe la carpeta drizzle/, omitiendo migraciones al arrancar.");
-      return;
+    if (fs.existsSync(migrationsDir)) {
+      try {
+        console.log("🧬 Aplicando migraciones de la base de datos…");
+        await migrate(db, { migrationsFolder: migrationsDir });
+        console.log("🧬 Migraciones aplicadas correctamente.");
+        return;
+      } catch (err) {
+        // Quien creó la DB con db:push no tiene journal → "migrate" no aplica.
+        // Se sigue con la sincronización idempotente (no es fatal).
+        console.warn(
+          "⚠️ Migración por journal no aplicable; sincronizando esquema esencial.",
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
-    console.log("🧬 Aplicando migraciones de la base de datos…");
-    await migrate(db, { migrationsFolder: migrationsDir });
-    console.log("🧬 Migraciones aplicadas correctamente.");
+    console.log("🧬 Sincronizando esquema esencial (idempotente)…");
+    await syncEssentialSchema();
+    console.log("🧬 Esquema sincronizado.");
   }
 
   const server = http.createServer(app);
