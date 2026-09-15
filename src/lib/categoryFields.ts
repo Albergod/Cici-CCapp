@@ -11,7 +11,7 @@
 // Si cambias algo aquí, mantenlo sincronizado.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type BusinessType = "ROPA" | "CALZADO" | "ACCESORIOS" | "HOGAR" | "ALIMENTOS" | "SERVICIOS" | "OTRO";
+export type BusinessType = "ROPA" | "CALZADO" | "ACCESORIOS" | "HOGAR" | "ALIMENTOS" | "SERVICIOS" | "BELLEZA" | "OTRO";
 
 export type AttributeType = "text" | "number" | "select" | "boolean";
 
@@ -144,5 +144,6 @@ export const CATEGORY_FIELDS: Record<BusinessType, AttributeField[]> = {
     { key: "duracion", label: "Duración", type: "text", placeholder: "Ej: 1 hora / por sesión" },
     { key: "modalidad", label: "Modalidad", type: "select", options: ["Domicilio", "En el local", "Virtual"], placeholder: "Selecciona" },
   ],
+  BELLEZA: [],
   OTRO: [],
 };

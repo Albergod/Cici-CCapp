@@ -50,6 +50,20 @@
       "when": 1789457645913,
       "tag": "0006_prestige_goal_and_verified_at",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789512821471,
+      "tag": "0007_beauty_services_and_agenda",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789512835714,
+      "tag": "0008_beauty_partial_index",
+      "breakpoints": true
     }
   ]
 }

@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { eq, and, inArray, asc, desc, sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { conversations, stores, messages, users, products } from "../db/schema";
+import { conversations, stores, messages, users, products, storeServices } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
-import { getStoreGreeting, getIAStoreReply, buildInvoiceVersions } from "../lib/ai";
+import { getStoreGreeting } from "../lib/ai";
+import { generateAssistantReply } from "../lib/assistant";
 import {
   storeOperational,
   refreshStoreStatus,
@@ -82,12 +83,12 @@ async function enrichConversations(convs: Record<string, any>[], userId: string)
   }));
 }
 
-// Inserta el saludo inicial de la IA si la conversación nació con un producto
-// y la tienda es PRO/BUSINESS. Devuelve el saludo o null.
+// Inserta el saludo inicial de la IA si la conversación nació con un producto o
+// servicio y la tienda es PRO/BUSINESS. Devuelve el saludo o null.
 async function maybeInsertGreeting(conversationCsId: string, storeId: string) {
   const store = await db.query.stores.findFirst({
     where: eq(stores.id, storeId),
-    with: { products: true },
+    with: { products: true, services: true },
   });
   if (!store || (store.plan !== "PRO" && store.plan !== "BUSINESS")) return null;
 
@@ -101,12 +102,19 @@ async function maybeInsertGreeting(conversationCsId: string, storeId: string) {
   const product = conv.assertedProductId
     ? store.products?.find((p) => p.id === conv.assertedProductId) ?? undefined
     : undefined;
+  const service = conv.assertedServiceId
+    ? store.services?.find((s) => s.id === conv.assertedServiceId) ?? undefined
+    : undefined;
 
-  if (!product) return null;
+  if (!product && !service) return null;
 
   const greeting = await getStoreGreeting(
-    { name: store.name, plan: store.plan, prestigeActive: true },
-    product,
+    { name: store.name, plan: store.plan, prestigeActive: true, businessType: store.businessType ?? undefined },
+    product
+      ? { name: product.name }
+      : service
+        ? { name: service.name, isService: true }
+        : undefined,
   );
 
   const [aiMsg] = await db
@@ -124,7 +132,7 @@ async function maybeInsertGreeting(conversationCsId: string, storeId: string) {
 // Cliente abre (o recupera) su conversación con una tienda.
 router.post("/stores/:storeId/conversation", requireAuth, async (req: AuthRequest, res) => {
   const { storeId } = req.params;
-  const { productId } = (req.body ?? {}) as { productId?: string };
+  const { productId, serviceId } = (req.body ?? {}) as { productId?: string; serviceId?: string };
 
   const [store] = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
   if (!store) return res.status(404).json({ error: "Tienda no encontrada" });
@@ -180,12 +188,16 @@ router.post("/stores/:storeId/conversation", requireAuth, async (req: AuthReques
     });
 
   if (existing) {
-    if (productId && existing.assertedProductId !== productId) {
+    if ((productId && existing.assertedProductId !== productId) || (serviceId && existing.assertedServiceId !== serviceId)) {
       await db
         .update(conversations)
-        .set({ assertedProductId: productId })
+        .set({
+          assertedProductId: productId ?? existing.assertedProductId,
+          assertedServiceId: serviceId ?? existing.assertedServiceId,
+        })
         .where(eq(conversations.id, existing.id));
-      existing.assertedProductId = productId;
+      existing.assertedProductId = productId ?? existing.assertedProductId;
+      existing.assertedServiceId = serviceId ?? existing.assertedServiceId;
       await maybeInsertGreeting(existing.id, storeId);
     }
     return buildResponse(existing);
@@ -197,10 +209,11 @@ router.post("/stores/:storeId/conversation", requireAuth, async (req: AuthReques
       customerId: req.userId!,
       storeId,
       assertedProductId: productId ?? null,
+      assertedServiceId: serviceId ?? null,
     })
     .returning();
 
-  if (productId) {
+  if (productId || serviceId) {
     await maybeInsertGreeting(newConv.id, storeId);
   }
 
@@ -377,74 +390,49 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
   // (flujo normal). No se sanciona mencionarlo; la moderación se apoya en
   // reportes de compradores, ventas infladas y revisión manual del admin.
 
-  // La IA actúa si el chat tiene contexto (un producto asociado).
-  let aiReply: string | null = null;
+  // La IA actúa si el chat tiene contexto (producto o servicio asociado) o si
+  // es una tienda BELLEZA con servicios (agenda).
   const isPaidPlan = conversation.store.plan === "PRO" || conversation.store.plan === "BUSINESS";
-  const hasContext = !!conversation.assertedProductId;
+  const hasContext = !!conversation.assertedProductId || !!conversation.assertedServiceId;
+  const isBeautyWithServices =
+    conversation.store.businessType === "BELLEZA" &&
+    (await db.query.storeServices.findFirst({
+      where: eq(storeServices.storeId, conversation.storeId),
+      columns: { id: true },
+    })) !== undefined;
 
-  if (isCustomer && isPaidPlan && hasContext) {
-    const storeInfo = {
-      name: conversation.store.name,
-      plan: conversation.store.plan as "PRO" | "BUSINESS",
-      prestigeActive: true,
-      whatsapp: conversation.store.whatsapp ?? null,
-      businessType: conversation.store.businessType as string,
-    };
-
-    const storeProducts = conversation.store.products?.map((p: any) => ({
-      name: p.name,
-      price: Number(p.price),
-      description: p.description ?? undefined,
-      stock: p.stock !== undefined && p.stock !== null ? Number(p.stock) : null,
-      attributes: p.attributes ?? undefined,
-    })) || [];
-
-    const contextProduct = conversation.assertedProductId
-      ? conversation.store.products?.find((p: any) => p.id === conversation.assertedProductId) ?? null
-      : null;
-
-    // Obtener el nombre del cliente para la factura
+  if (isCustomer && isPaidPlan && (hasContext || isBeautyWithServices)) {
     const [customer] = await db
       .select({ name: users.name })
       .from(users)
       .where(eq(users.id, conversation.customerId))
       .limit(1);
 
-    // Historial de mensajes anterior (para que la IA recuerde datos ya
-    // aportados: talla, dirección, teléfono, etc.)
-    const orderHistory = await db
-      .select({ content: messages.content })
-      .from(messages)
-      .where(eq(messages.conversationId, conversation.id))
-      .orderBy(asc(messages.createdAt));
+    const result = await generateAssistantReply(
+      {
+        conversation: {
+          id: conversation.id,
+          customerId: conversation.customerId,
+          assertedProductId: conversation.assertedProductId,
+          assertedServiceId: conversation.assertedServiceId,
+        },
+        storeId: conversation.storeId,
+      },
+      customer?.name,
+    );
 
-    aiReply = await getIAStoreReply({
-      store: storeInfo,
-      products: storeProducts,
-      history: orderHistory,
-      contextProduct: contextProduct
-        ? { name: (contextProduct as any).name, attributes: (contextProduct as any).attributes ?? undefined }
-        : null,
-      customerName: customer?.name,
-    });
-
-    // Si la respuesta es una factura, separar la versión del chat (cliente)
-    // de la versión de WhatsApp (comerciante) y guardar ambas.
-    const invoiceVersions = buildInvoiceVersions(aiReply);
-
-    // Insertar la respuesta de la IA en la base de datos
     const [aiMsg] = await db
       .insert(messages)
       .values({
         conversationId: conversation.id,
         senderId: conversation.store.ownerId,
-        content: invoiceVersions ? invoiceVersions.chat : aiReply,
-        waText: invoiceVersions ? invoiceVersions.wa : null,
+        content: result.content,
+        waText: result.waText,
         aiGenerated: true,
       })
       .returning();
 
-    return res.json({ message: savedMsg, aiReply: aiMsg });
+    return res.json({ message: savedMsg, aiReply: aiMsg, appointmentId: result.appointmentId ?? null });
   }
 
   res.json({ message: savedMsg, aiReply: null });

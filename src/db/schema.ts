@@ -10,7 +10,7 @@ import {
   jsonb,
   integer,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 export const planEnum = pgEnum("plan_type", ["FREE", "PRO", "BUSINESS"]);
 export const cycleEnum = pgEnum("subscription_cycle", ["MONTHLY", "BI_MONTHLY"]);
@@ -24,8 +24,21 @@ export const storeStatusEnum = pgEnum("store_status", [
   "SUSPENDED",
   "BANNED",
 ]);
+
+// Horario y parámetros de la agenda de una tienda BELLEZA.
+export interface ScheduleConfig {
+  openTime: string; // "HH:MM" local
+  closeTime: string; // "HH:MM" local
+  lunchStart: string; // "12:00"
+  lunchEnd: string; // "13:00" (no se agenda en [lunchStart, lunchEnd))
+  workingDays: number[]; // 0 = domingo … 6 = sábado
+  bookingHorizonDays: number; // cuántos días adelante se puede reservar
+  timezone: string; // zona horaria de la tienda (default America/Bogota)
+}
 // Tipo de negocio: define si los productos de la tienda requieren talla
-// (Ropa y Calzado sí; el resto, no).
+// (Ropa y Calzado sí; el resto, no). BELLEZA activa el modelo de servicios
+// con agenda: el comerciante crea servicios con duración y sus clientes
+// reservan citas vía chat.
 export const businessTypeEnum = pgEnum("business_type", [
   "ROPA",
   "CALZADO",
@@ -33,6 +46,7 @@ export const businessTypeEnum = pgEnum("business_type", [
   "HOGAR",
   "ALIMENTOS",
   "SERVICIOS",
+  "BELLEZA",
   "OTRO",
 ]);
 
@@ -93,7 +107,63 @@ export const stores = pgTable("stores", {
   suspensionEndsAt: timestamp("suspension_ends_at"),
   sanctionsCount: integer("sanctions_count").default(0).notNull(),
   banReason: text("ban_reason"),
+  // Configuración de la agenda para tiendas BELLEZA (opcional, ignorada en el
+  // resto). JSON libre:
+  //   { openTime: "08:00", closeTime: "21:00", lunchStart: "12:00",
+  //     lunchEnd: "13:00", workingDays: [1,2,3,4,5,6], bookingHorizonDays: 30 }
+  schedule: jsonb("schedule").$type<ScheduleConfig>().default({
+    openTime: "08:00",
+    closeTime: "21:00",
+    lunchStart: "12:00",
+    lunchEnd: "13:00",
+    workingDays: [1, 2, 3, 4, 5, 6],
+    bookingHorizonDays: 30,
+    timezone: "America/Bogota",
+  }).notNull(),
 });
+
+// Servicio de una tienda BELLEZA. A diferencia de un producto (que tiene
+// stock), un servicio tiene una DURACIÓN estimada en minutos: la agenda usa
+// ese tiempo para reservar el slot de la cita.
+export const storeServices = pgTable("store_services", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  price: numeric("price", { precision: 10, scale: 2 }).notNull(),
+  durationMinutes: integer("duration_minutes").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  storeId: uuid("store_id")
+    .notNull()
+    .references(() => stores.id),
+});
+
+// Cita en la agenda de una tienda BELLEZA.
+export const appointments = pgTable(
+  "appointments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    appointmentDate: timestamp("appointment_date", { mode: "string" }).notNull(),
+    startTime: text("start_time").notNull(), // "HH:MM" local
+    endTime: text("end_time").notNull(), // "HH:MM" local
+    status: text("status").notNull().default("confirmed"), // confirmed | cancelled | completed
+    note: text("note"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => storeServices.id),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => users.id),
+  },
+  (t) => ({
+    storeDate: uniqueIndex("appointments_store_date_unique")
+      .on(t.storeId, t.appointmentDate, t.startTime)
+      .where(sql`${t.status} <> 'cancelled'`),
+  }),
+);
 
 export const categories = pgTable(
   "categories",
@@ -161,6 +231,9 @@ export const conversations = pgTable(
       .notNull()
       .references(() => stores.id),
     assertedProductId: uuid("asserted_product_id").references(() => products.id),
+    // Servicio elegido en una tienda BELLEZA: da contexto a la IA para
+    // agendar la cita (equivalente al producto en tiendas que venden).
+    assertedServiceId: uuid("asserted_service_id").references(() => storeServices.id),
     // Última vez que cada participante abrió/vio la conversación. Permite
     // calcular mensajes no leídos por rol sin guardar estado por mensaje.
     customerLastReadAt: timestamp("customer_last_read_at"),
@@ -306,6 +379,8 @@ export const storesRelations = relations(stores, ({ one, many }) => ({
   paymentReports: many(paymentReports),
   mpPayments: many(mpPayments),
   violations: many(violations),
+  services: many(storeServices),
+  appointments: many(appointments),
 }));
 
 export const categoriesRelations = relations(categories, ({ one, many }) => ({
@@ -319,6 +394,20 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   saleItems: many(saleItems),
 }));
 
+export const storeServicesRelations = relations(storeServices, ({ one, many }) => ({
+  store: one(stores, { fields: [storeServices.storeId], references: [stores.id] }),
+  appointments: many(appointments),
+}));
+
+export const appointmentsRelations = relations(appointments, ({ one }) => ({
+  store: one(stores, { fields: [appointments.storeId], references: [stores.id] }),
+  service: one(storeServices, {
+    fields: [appointments.serviceId],
+    references: [storeServices.id],
+  }),
+  customer: one(users, { fields: [appointments.customerId], references: [users.id] }),
+}));
+
 export const followsRelations = relations(follows, ({ one }) => ({
   user: one(users, { fields: [follows.userId], references: [users.id] }),
   store: one(stores, { fields: [follows.storeId], references: [stores.id] }),
@@ -330,6 +419,10 @@ export const conversationsRelations = relations(conversations, ({ one, many }) =
   assertedProduct: one(products, {
     fields: [conversations.assertedProductId],
     references: [products.id],
+  }),
+  assertedService: one(storeServices, {
+    fields: [conversations.assertedServiceId],
+    references: [storeServices.id],
   }),
   messages: many(messages),
 }));

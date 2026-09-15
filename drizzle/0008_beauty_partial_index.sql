@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS "appointments_store_date_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "appointments_store_date_unique" ON "appointments" USING btree ("store_id","appointment_date","start_time") WHERE "appointments"."status" <> 'cancelled';

@@ -1,5 +1,48 @@
 export type ModerationStatus = 'ACTIVE' | 'MUTED' | 'SUSPENDED' | 'BANNED';
 
+export type BusinessType =
+  | 'ROPA'
+  | 'CALZADO'
+  | 'ACCESORIOS'
+  | 'HOGAR'
+  | 'ALIMENTOS'
+  | 'SERVICIOS'
+  | 'BELLEZA'
+  | 'OTRO';
+
+export interface ScheduleConfig {
+  openTime: string;
+  closeTime: string;
+  lunchStart: string;
+  lunchEnd: string;
+  workingDays: number[];
+  bookingHorizonDays: number;
+  timezone: string;
+}
+
+export interface StoreService {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  durationMinutes: number;
+  storeId: string;
+  createdAt?: string;
+}
+
+export type AppointmentStatus = 'confirmed' | 'completed' | 'cancelled';
+
+export interface Appointment {
+  id: string;
+  appointmentDate: string; // YYYY-MM-DD
+  startTime: string;
+  endTime: string;
+  status: AppointmentStatus;
+  note?: string | null;
+  service: { name: string; price: number; durationMinutes: number };
+  customer?: { id: string; name: string };
+}
+
 export interface User {
   id: string;
   email: string;
@@ -22,8 +65,10 @@ export interface Store {
   bannerUrl: string | null;
   whatsapp?: string | null;
   plan: 'FREE' | 'PRO' | 'BUSINESS';
-  businessType?: 'ROPA' | 'CALZADO' | 'ACCESORIOS' | 'HOGAR' | 'ALIMENTOS' | 'SERVICIOS' | 'OTRO';
+  businessType?: BusinessType;
   subscriptionCycle?: 'MONTHLY' | 'BI_MONTHLY' | null;
+  schedule?: ScheduleConfig;
+  services?: StoreService[];
   ownerId: string;
   createdAt: string;
   trialStartedAt?: string;

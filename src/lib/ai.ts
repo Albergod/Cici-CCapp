@@ -87,6 +87,16 @@ const BUSINESS_TYPE_PROFILES: Record<string, BusinessProfile> = {
     neverAsk: "tallas ni medidas corporales en ningún caso.",
     greetingNote: "prestador de servicios",
   },
+  BELLEZA: {
+    label: "salón de belleza o spa",
+    closingQuestions:
+      "ofrece reservar un servicio con cita: pide el servicio deseado, el día y la hora; ofrece solo los horarios libres disponibles y nunca inventes una franja.",
+    productPlaceholder: "[Nombre del servicio]",
+    productNote:
+      "una cita NO es un pedido; jamás generes una factura (Pedido Confirmado) por un servicio. La cita se reserva y el pago se coordina en el local.",
+    neverAsk: "tallas ni medidas corporales; no inventes servicios que no estén en el catálogo.",
+    greetingNote: "salón de belleza, spa o estética",
+  },
   OTRO: {
     label: "tienda",
     closingQuestions:
@@ -217,28 +227,36 @@ function fallbackReply({
 
 export async function getStoreGreeting(
   store: StoreInfo,
-  product?: { name: string },
+  item?: { name: string; isService?: boolean },
 ): Promise<string> {
   if (store.plan === "FREE" || !openai) {
-    return fallbackGreeting({ storeName: store.name, productName: product?.name });
+    return fallbackGreeting({ storeName: store.name, productName: item?.name });
   }
   try {
     const profile = profileFor(store);
-    const prompt = `Eres un asistente virtual de "${store.name}" (plan ${store.plan}, ${profile.label}). El cliente acaba de abrir el chat mirando el producto "${product?.name}". Escribe un saludo cálido, natural y breve (máx. 30 palabras) que invite a preguntar por ese producto o por otras dudas. No menciones precios ni disponibilidad en el saludo inicial; solo presentate y abre la conversación.`;
+    const itemWord = item?.isService ? "servicio" : "producto";
+    const prompt = `Eres un asistente virtual de "${store.name}" (plan ${store.plan}, ${profile.label}). El cliente acaba de abrir el chat mirando ${item ? `el ${itemWord} "${item.name}"` : "la tienda"}. Escribe un saludo cálido, natural y breve (máx. 30 palabras) que invite a preguntar por ${item ? `ese ${itemWord}` : "la tienda"} o por otras dudas. No menciones precios ni disponibilidad en el saludo inicial; solo presentate y abre la conversación.`;
     const resp = await openai!.chat.completions.create({
       model: AI_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
     });
     return (
-      resp.choices[0]?.message?.content?.trim() || fallbackGreeting({ storeName: store.name, productName: product?.name })
+      resp.choices[0]?.message?.content?.trim() || fallbackGreeting({ storeName: store.name, productName: item?.name })
     );
   } catch {
-    return fallbackGreeting({ storeName: store.name, productName: product?.name });
+    return fallbackGreeting({ storeName: store.name, productName: item?.name });
   }
 }
 
 // ── Generador de respuesta guardada ────────────────────────────────────
+
+/** Parsea la línea de reserva que emite la IA: RESERVAR|<servicio>|<fecha>|<hora> */
+export function parseBookingCommand(text: string | null | undefined): { serviceName: string; date: string; time: string } | null {
+  const m = /^RESERVAR\|(.+?)\|(\d{4}-\d{2}-\d{2})\|(\d{2}:\d{2})$/.exec((text ?? "").trim());
+  if (!m) return null;
+  return { serviceName: m[1].trim().slice(0, 120), date: m[2], time: m[3] };
+}
 
 export async function getIAStoreReply({
   store,
@@ -246,12 +264,20 @@ export async function getIAStoreReply({
   history,
   contextProduct,
   customerName,
+  services,
+  bookingSlots,
+  bookingEnabled,
+  contextService,
 }: {
   store: StoreInfo;
   products: ProductShort[];
   history?: { content: string }[];
   contextProduct?: { name: string; attributes?: Record<string, string | number | boolean> } | null;
   customerName?: string;
+  services?: { name: string; price: number; durationMinutes: number }[];
+  bookingSlots?: string;
+  bookingEnabled?: boolean;
+  contextService?: string | null;
 }): Promise<string> {
   const lastMessage = history && history.length > 0 ? history[history.length - 1] : undefined;
   const lastMessageContent = lastMessage?.content;
@@ -292,7 +318,9 @@ export async function getIAStoreReply({
             ? ` ${contextProduct.name} tiene estos atributos: ${attributesSummary(store.businessType as BusinessType | undefined, contextProduct.attributes)}.`
             : ""
         }`
-      : "El cliente abrió el chat sin seleccionar un producto específico, así que acompaña su consulta con naturalidad.";
+      : bookingEnabled && contextService
+        ? `El cliente llegó al chat mirando este servicio: "${contextService}". Acompaña su consulta y ofrécele reservar ese servicio (o el que prefiera) en los horarios libres.`
+        : "El cliente abrió el chat sin seleccionar un producto específico, así que acompaña su consulta con naturalidad.";
 
     const profile = profileFor(store);
 
@@ -316,7 +344,23 @@ Si el cliente ya dio esos datos en mensajes anteriores, no se los vuelvas a pedi
       : "";
 
     // Instrucciones de pedido y factura (adaptadas a la categoría)
-    const orderInstruct = `
+    const orderInstruct = bookingEnabled
+      ? `
+Tu tienda está activa para reservar citas. Servicios disponibles (usá SIEMPRE estos nombres exactos):
+${(services ?? []).map((s) => `- ${s.name} (${s.durationMinutes} min, ${formatPrice(s.price)})`).join("\n") || "(sin servicios aún)"}
+
+Horarios libres reales (NUNCA inventes ni propongas horas fuera de esta lista):
+${bookingSlots || "(sin horarios)"}
+
+Cuando el cliente quiera reservar un servicio:
+1. Confirma qué servicio quiere (de la lista exacta) y en qué día/hora.
+2. Ofrece solo las franjas libres de la lista. Pregunta cuál prefiere.
+3. Cuando tengas servicio + día (YYYY-MM-DD) + hora (HH:MM) claramente elegidos por el cliente, responde SOLO con la línea:
+   RESERVAR|<nombre exacto del servicio>|<YYYY-MM-DD>|<HH:MM>
+   Sin nada más: sin saludos, markdown, comillas, explicaciones ni despedidas.
+
+No generes facturas (Pedido Confirmado) por servicios: una cita solo se reserva.`
+      : `
 Cuando el cliente confirme que quiere comprar un producto:
 1. Verifica que tengas el nombre del cliente${customerName ? ` (en esta conversación el cliente se llama: ${customerName})` : ". Si no lo conoces, pídelo"}.
 2. Verifica que tengas la dirección de entrega completa.

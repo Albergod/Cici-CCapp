@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { eq, and, sql, desc, count, isNull, lt, ne, isNotNull, inArray, gte } from "drizzle-orm";
 import { db } from "../db/client";
-import { stores, follows, users, products, mpPayments, violations } from "../db/schema";
+import { stores, follows, users, products, mpPayments, violations, storeServices } from "../db/schema";
 import { requireAuth, optionalAuth, AuthRequest } from "../middleware/auth";
 import { getContactEligibility } from "../lib/subscription";
 import { imageUrl } from "../lib/validators";
@@ -77,13 +77,27 @@ function slugify(name: string) {
     .replace(/(^-|-$)/g, "");
 }
 
+export const BUSINESS_TYPES = ["ROPA", "CALZADO", "ACCESORIOS", "HOGAR", "ALIMENTOS", "SERVICIOS", "BELLEZA", "OTRO"] as const;
+
+// Horario de agenda para tiendas BELLEZA (coincide con ScheduleConfig).
+const scheduleSchema = z.object({
+  openTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  closeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  lunchStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  lunchEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  workingDays: z.array(z.number().int().min(0).max(6)).min(1),
+  bookingHorizonDays: z.number().int().min(1).max(90),
+  timezone: z.string().min(1),
+});
+
 const createStoreSchema = z.object({
   name: z.string().min(2),
   description: z.string().optional(),
   logoUrl: imageUrl().optional(),
   bannerUrl: imageUrl().optional(),
   whatsapp: z.string().max(20).optional(),
-  businessType: z.enum(["ROPA", "CALZADO", "ACCESORIOS", "HOGAR", "ALIMENTOS", "SERVICIOS", "OTRO"]).optional(),
+  businessType: z.enum(BUSINESS_TYPES).optional(),
+  schedule: scheduleSchema.optional(),
 });
 
 // Crear tienda ("abrir tu local").
@@ -179,6 +193,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       slug,
       referredByStoreId,
       ownerId: req.userId!,
+      schedule: parsed.data.schedule ?? undefined,
     })
     .returning();
 
@@ -382,7 +397,8 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
       logoUrl: imageUrl().optional().or(z.literal("")),
       bannerUrl: imageUrl().optional().or(z.literal("")),
       whatsapp: z.string().max(20).optional(),
-      businessType: z.enum(["ROPA", "CALZADO", "ACCESORIOS", "HOGAR", "ALIMENTOS", "SERVICIOS", "OTRO"]).optional(),
+      businessType: z.enum(BUSINESS_TYPES).optional(),
+      schedule: scheduleSchema.optional(),
     })
     .safeParse(req.body);
   if (!parsed.success) {
@@ -418,6 +434,7 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
   if (parsed.data.bannerUrl !== undefined) patch.bannerUrl = parsed.data.bannerUrl || null;
   if (parsed.data.whatsapp !== undefined) patch.whatsapp = parsed.data.whatsapp || null;
   if (parsed.data.businessType !== undefined) patch.businessType = parsed.data.businessType;
+  if (parsed.data.schedule !== undefined) patch.schedule = parsed.data.schedule;
 
   const [updated] = await db
     .update(stores)
@@ -509,9 +526,20 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
       .where(and(eq(stores.id, store.id), isNull(stores.verifiedAt)));
   }
 
+  // Servicios + horario de agenda (tiendas BELLEZA). La cita se reserva por
+  // chat; aquí solo se exponen catálogo y franjas para el público.
+  const services =
+    store.businessType === "BELLEZA"
+      ? await db.query.storeServices.findMany({
+          where: eq(storeServices.storeId, store.id),
+          orderBy: (sv, { asc }) => [asc(sv.name)],
+        })
+      : [];
+
   res.json({
     ...rest,
     products: visibleProducts,
+    services,
     followersCount: followers.length,
     contactAvailable: elig.contactAvailable,
     subscriptionStatus: elig.status,

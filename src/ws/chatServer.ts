@@ -3,9 +3,9 @@ import { Server } from "http";
 import jwt from "jsonwebtoken";
 import { eq, asc } from "drizzle-orm";
 import { db } from "../db/client";
-import { conversations, messages, stores, products, users } from "../db/schema";
+import { conversations, messages, stores, users, storeServices } from "../db/schema";
 import { JWT_SECRET } from "../middleware/auth";
-import { getIAStoreReply, buildInvoiceVersions } from "../lib/ai";
+import { generateAssistantReply } from "../lib/assistant";
 import {
   storeOperational,
   refreshStoreStatus,
@@ -201,70 +201,56 @@ export function attachChatWebSocket(server: Server) {
         // (flujo normal). No se sanciona mencionarlo; solo se bloquea si la
         // tienda está suspendida/baneada por reportes o ventas infladas.
 
-        // La IA solo actúa si el cliente llegó por una productCard (hay producto
-        // asociado a la conversación). Si usó el botón "Contactar" general de la
-        // tienda, el mensaje queda esperando la respuesta del vendedor humano.
+        // La IA solo actúa si el cliente llegó por una productCard (producto o
+        // servicio asociado) o si es una tienda BELLEZA con servicios.
         const isCustomerMsg = conversation.customerId === userId;
         const isPaidPlan = conversation.store.plan === "PRO" || conversation.store.plan === "BUSINESS";
+        const hasContext = !!conversation.assertedProductId || !!conversation.assertedServiceId;
+        const isBeautyWithServices =
+          conversation.store.businessType === "BELLEZA" &&
+          (await db.query.storeServices.findFirst({
+            where: eq(storeServices.storeId, conversation.storeId),
+            columns: { id: true },
+          })) !== undefined;
 
-        if (isCustomerMsg && isPaidPlan && conversation.assertedProductId) {
-          // Traer los productos de la tienda
-          const storeWithProducts = await db.query.stores.findFirst({
-            where: eq(stores.id, conversation.storeId),
-            with: { products: true },
-          });
+        if (isCustomerMsg && isPaidPlan && (hasContext || isBeautyWithServices)) {
+          const [customer] = await db
+            .select({ name: users.name })
+            .from(users)
+            .where(eq(users.id, conversation.customerId))
+            .limit(1);
 
-          if (storeWithProducts) {
-            const storeInfo = {
-              name: storeWithProducts.name,
-              plan: storeWithProducts.plan as "PRO" | "BUSINESS",
-              prestigeActive: true,
-              whatsapp: storeWithProducts.whatsapp ?? null,
-              needsSizes: (storeWithProducts.businessType as string || "OTRO") === "ROPA"
-                || (storeWithProducts.businessType as string || "OTRO") === "CALZADO",
-            };
+          const result = await generateAssistantReply(
+            {
+              conversation: {
+                id: conversation.id,
+                customerId: conversation.customerId,
+                assertedProductId: conversation.assertedProductId,
+                assertedServiceId: conversation.assertedServiceId,
+              },
+              storeId: conversation.storeId,
+            },
+            customer?.name,
+          );
 
-            const storeProducts = (storeWithProducts.products || []).map((p) => ({
-              name: p.name,
-              price: Number(p.price),
-              description: p.description ?? undefined,
-              stock: p.stock !== undefined && p.stock !== null ? Number(p.stock) : null,
-            }));
+          // Insertar el mensaje del asistente (charla o confirmación de cita)
+          const [aiMsg] = await db
+            .insert(messages)
+            .values({
+              conversationId,
+              senderId: conversation.store.ownerId,
+              content: result.content,
+              waText: result.waText,
+              aiGenerated: true,
+            })
+            .returning();
 
-            const contextProduct = conversation.assertedProductId
-              ? storeWithProducts.products?.find((p) => p.id === conversation.assertedProductId) ?? null
-              : null;
-
-            // Historial previo para que la IA recuerde datos ya aportados
-            const history = await db
-              .select({ content: messages.content })
-              .from(messages)
-              .where(eq(messages.conversationId, conversationId))
-              .orderBy(asc(messages.createdAt));
-
-            const aiReply = await getIAStoreReply({
-              store: storeInfo,
-              products: storeProducts,
-              history,
-              contextProduct,
+          broadcast(conversationId, { type: "message", message: aiMsg });
+          if (result.appointmentId) {
+            broadcast(conversationId, {
+              type: "appointment_created",
+              appointmentId: result.appointmentId,
             });
-
-            // Si es una factura, separar versión chat (cliente) y WhatsApp (comerciante)
-            const invoiceVersions = buildInvoiceVersions(aiReply);
-
-            // Insertar el mensaje de la IA
-            const [aiMsg] = await db
-              .insert(messages)
-              .values({
-                conversationId,
-                senderId: storeWithProducts.ownerId,
-                content: invoiceVersions ? invoiceVersions.chat : aiReply,
-                waText: invoiceVersions ? invoiceVersions.wa : null,
-                aiGenerated: true,
-              })
-              .returning();
-
-            broadcast(conversationId, { type: "message", message: aiMsg });
           }
         }
       } catch {

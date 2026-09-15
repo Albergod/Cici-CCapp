@@ -17,6 +17,8 @@ import adminRoutes from "./routes/admin.routes";
 import uploadRoutes from "./routes/upload.routes";
 import paymentRoutes from "./routes/payments.routes";
 import wompiRoutes from "./routes/wompi.routes";
+import servicesRouter from "./routes/services.routes";
+import appointmentsRouter from "./routes/appointments.routes";
 import { attachChatWebSocket } from "./ws/chatServer";
 import { globalLimiter } from "./middleware/rate-limit";
 import { expireStoresAndReturnCount } from "./routes/store.routes";
@@ -70,6 +72,8 @@ export function createApp() {
   app.use("/api/upload", uploadRoutes);
   app.use("/api/payments", paymentRoutes);
   app.use("/api/payments/wompi", wompiRoutes);
+  app.use("/api/services", servicesRouter);
+  app.use("/api/appointments", appointmentsRouter);
 
   const frontendDist = path.join(appRoot, "frontend", "dist");
   if (fs.existsSync(frontendDist)) {
@@ -122,6 +126,41 @@ if (isMainModule) {
     await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS referral_rewarded boolean NOT NULL DEFAULT false`);
     await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS prestige_goal integer NOT NULL DEFAULT 100`);
     await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS verified_at timestamp`);
+    // ── Belleza / agenda ────────────────────────────────────────────────────
+    // El enum no admite ADD VALUE ... IF NOT EXISTS en todas las versiones;
+    // se agrega condicionalmente y fuera de transacción (db.execute por auto).
+    try {
+      await db.execute(sql`ALTER TYPE business_type ADD VALUE IF NOT EXISTS 'BELLEZA'`);
+    } catch {
+      const has = await db.execute(sql`SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname='business_type' AND e.enumlabel='BELLEZA'`);
+      if (!has.rows.length) await db.execute(sql`ALTER TYPE business_type ADD VALUE 'BELLEZA'`);
+    }
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS schedule jsonb NOT NULL DEFAULT '{"openTime":"08:00","closeTime":"21:00","lunchStart":"12:00","lunchEnd":"13:00","workingDays":[1,2,3,4,5,6],"bookingHorizonDays":30,"timezone":"America/Bogota"}'::jsonb`);
+    await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS asserted_service_id uuid`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS store_services (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      name text NOT NULL,
+      description text,
+      price numeric(10, 2) NOT NULL,
+      duration_minutes integer NOT NULL,
+      created_at timestamp DEFAULT now() NOT NULL,
+      store_id uuid NOT NULL REFERENCES stores(id)
+    )`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS appointments (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      appointment_date timestamp NOT NULL,
+      start_time text NOT NULL,
+      end_time text NOT NULL,
+      status text DEFAULT 'confirmed' NOT NULL,
+      note text,
+      created_at timestamp DEFAULT now() NOT NULL,
+      store_id uuid NOT NULL REFERENCES stores(id),
+      service_id uuid NOT NULL REFERENCES store_services(id),
+      customer_id uuid NOT NULL REFERENCES users(id)
+    )`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS appointments_store_date_unique
+      ON appointments (store_id, appointment_date, start_time)
+      WHERE status <> 'cancelled'`);
   }
 
   async function runMigrations(): Promise<void> {

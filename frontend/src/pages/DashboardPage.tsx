@@ -10,6 +10,7 @@ import { PremiumUnlockedModal } from '@/components/PremiumUnlockedModal';
 import { PaymentResultModal, PaymentResultState } from '@/components/PaymentResultModal';
 import { SalesDashboard } from '@/components/SalesDashboard';
 import { PrestigeCard } from '@/components/PrestigeCard';
+import { BeautyServicesPanel } from '@/components/BeautyServicesPanel';
 import { ShareStoreCard } from '@/components/ShareStoreCard';
 import { fieldsFor, attributesToTitledList } from '@/lib/categoryFields';
 import { formatCOP } from '@/lib/format';
@@ -20,12 +21,21 @@ import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashbo
 // confirmado (jamás se crea una tienda "fantasma" si el pago se cancela).
 const PENDING_STORE_KEY = 'cc-pending-store-draft';
 
-type StoreBusinessType = 'ROPA' | 'CALZADO' | 'ACCESORIOS' | 'HOGAR' | 'ALIMENTOS' | 'SERVICIOS' | 'OTRO';
+type StoreBusinessType = 'ROPA' | 'CALZADO' | 'ACCESORIOS' | 'HOGAR' | 'ALIMENTOS' | 'SERVICIOS' | 'BELLEZA' | 'OTRO';
 
 type StoreDraft = {
   name: string;
   description?: string;
   businessType: StoreBusinessType;
+  schedule?: {
+    openTime: string;
+    closeTime: string;
+    lunchStart: string;
+    lunchEnd: string;
+    workingDays: number[];
+    bookingHorizonDays: number;
+    timezone: string;
+  };
 };
 
 function readStoreDraft(): StoreDraft | null {
@@ -55,7 +65,16 @@ export function DashboardPage() {
   const [paymentResult, setPaymentResult] = useState<PaymentResultState>(null);
   const [storeName, setStoreName] = useState('');
   const [storeDescription, setStoreDescription] = useState('');
-  const [storeBusinessType, setStoreBusinessType] = useState<'ROPA' | 'CALZADO' | 'ACCESORIOS' | 'HOGAR' | 'ALIMENTOS' | 'SERVICIOS' | 'OTRO'>('OTRO');
+  const [storeBusinessType, setStoreBusinessType] = useState<StoreBusinessType>('OTRO');
+  const [schedule, setSchedule] = useState({
+    openTime: '08:00',
+    closeTime: '21:00',
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+    workingDays: [1, 2, 3, 4, 5, 6],
+    bookingHorizonDays: 30,
+    timezone: 'America/Bogota',
+  });
   const [showProductForm, setShowProductForm] = useState(false);
   const [addingProduct, setAddingProduct] = useState(false);
   const [productName, setProductName] = useState('');
@@ -187,6 +206,7 @@ export function DashboardPage() {
             name: storeName,
             description: storeDescription || undefined,
             businessType: storeBusinessType,
+            ...(storeBusinessType === 'BELLEZA' ? { schedule } : {}),
           }),
         );
         setShowCreateForm(false);
@@ -199,6 +219,7 @@ export function DashboardPage() {
         name: storeName,
         description: storeDescription || undefined,
         businessType: storeBusinessType,
+        ...(storeBusinessType === 'BELLEZA' ? { schedule } : {}),
       });
       setStore(newStore);
       setShowCreateForm(false);
@@ -227,6 +248,7 @@ export function DashboardPage() {
         name: draft.name,
         description: draft.description,
         businessType: draft.businessType,
+        ...(draft.businessType === 'BELLEZA' && draft.schedule ? { schedule: draft.schedule } : {}),
       });
       sessionStorage.removeItem(PENDING_STORE_KEY);
       setStore(created);
@@ -529,6 +551,7 @@ export function DashboardPage() {
                   <option value="HOGAR">Hogar</option>
                   <option value="ALIMENTOS">Alimentos</option>
                   <option value="SERVICIOS">Servicios</option>
+                  <option value="BELLEZA">Belleza y Spa</option>
                   <option value="OTRO">Otro</option>
                 </select>
                 <p className="text-xs text-surface-500 mt-1">
@@ -536,6 +559,84 @@ export function DashboardPage() {
                   adecuados (talla, modelo, cantidad, fecha, etc.) antes de confirmar un pedido.
                 </p>
               </div>
+
+              {storeBusinessType === 'BELLEZA' && (
+                <div className="rounded-2xl bg-surface-50 border border-surface-200 p-4 space-y-3">
+                  <p className="text-sm font-semibold text-surface-700">
+                    Horario de agenda
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="text-xs font-medium text-surface-500">Abre</span>
+                      <input
+                        type="time"
+                        value={schedule.openTime}
+                        onChange={(e) => setSchedule({ ...schedule, openTime: e.target.value })}
+                        className="input"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-medium text-surface-500">Cierra</span>
+                      <input
+                        type="time"
+                        value={schedule.closeTime}
+                        onChange={(e) => setSchedule({ ...schedule, closeTime: e.target.value })}
+                        className="input"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-medium text-surface-500">Almuerzo desde</span>
+                      <input
+                        type="time"
+                        value={schedule.lunchStart}
+                        onChange={(e) => setSchedule({ ...schedule, lunchStart: e.target.value })}
+                        className="input"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-medium text-surface-500">Almuerzo hasta</span>
+                      <input
+                        type="time"
+                        value={schedule.lunchEnd}
+                        onChange={(e) => setSchedule({ ...schedule, lunchEnd: e.target.value })}
+                        className="input"
+                      />
+                    </label>
+                  </div>
+                  <div>
+                    <span className="text-xs font-medium text-surface-500">Días de atención</span>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {[
+                        ['D', 0], ['L', 1], ['M', 2], ['X', 3], ['J', 4], ['V', 5], ['S', 6],
+                      ].map(([label, day]) => {
+                        const d = day as number;
+                        const active = schedule.workingDays.includes(d);
+                        return (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() =>
+                              setSchedule({
+                                ...schedule,
+                                workingDays: active
+                                  ? schedule.workingDays.filter((w) => w !== d)
+                                  : [...schedule.workingDays, d].sort(),
+                              })
+                            }
+                            className={`w-10 h-10 rounded-xl text-sm font-bold transition-all ${
+                              active
+                                ? 'bg-brand-600 text-white shadow-soft'
+                                : 'bg-white text-surface-400 border border-surface-200 hover:border-brand-300'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-semibold text-surface-700 mb-1.5">
@@ -681,6 +782,13 @@ export function DashboardPage() {
             <PrestigeCard onUpgrade={openUpgrade} />
 
             <SalesDashboard store={store} onUpgrade={openUpgrade} />
+
+            {store.businessType === 'BELLEZA' && (
+              <BeautyServicesPanel
+                store={store}
+                onStoreUpdated={(s) => setStore(s)}
+              />
+            )}
 
             <div className="card p-6">
               <div className="flex items-center justify-between mb-5">

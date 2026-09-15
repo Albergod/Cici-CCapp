@@ -66,7 +66,24 @@ export function StorePage() {
     }
 
     try {
-      const conversation = await api.chat.openConversation(store.id, productId);
+      const conversation = await api.chat.openConversation(
+        store.id,
+        productId ? { productId } : undefined
+      );
+      navigate(`/chat/${conversation.id}`);
+    } catch (err) {
+      console.error('Error opening conversation:', err);
+    }
+  };
+
+  // Reserva de un servicio (BELLEZA): abre el chat con la agenda del asistente.
+  const handleReserve = async (service: { id: string; name: string }) => {
+    if (!isAuthenticated || !store) {
+      navigate('/login');
+      return;
+    }
+    try {
+      const conversation = await api.chat.openConversation(store.id, { serviceId: service.id });
       navigate(`/chat/${conversation.id}`);
     } catch (err) {
       console.error('Error opening conversation:', err);
@@ -272,6 +289,64 @@ export function StorePage() {
             </button>
           </div>
         </div>
+
+        {/* ── Servicios y agenda (BELLEZA) ───────────────────── */}
+        {store.businessType === 'BELLEZA' &&
+          (store.services && store.services.length > 0) && (
+            <div className="mb-10">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="font-display text-xl md:text-2xl font-bold text-surface-900 tracking-tight flex items-center gap-2.5">
+                  Servicios con cita
+                  <span className="inline-flex items-center justify-center min-w-[1.75rem] h-6 px-2 rounded-full bg-accent-100 text-accent-700 text-xs font-bold">
+                    {store.services.length}
+                  </span>
+                </h2>
+                <span className="hidden sm:block text-xs text-surface-400 font-medium">
+                  Reserva por chat y la dueña la confirma en su agenda.
+                </span>
+              </div>
+
+              {store.schedule && (
+                <p className="text-xs text-surface-500 mb-4">
+                  Horario: {store.schedule.openTime} – {store.schedule.closeTime}
+                  {store.schedule.lunchStart !== store.schedule.lunchEnd &&
+                    ` (almuerzo ${store.schedule.lunchStart} – ${store.schedule.lunchEnd})`}
+                  {' · '}Agenda hasta {store.schedule.bookingHorizonDays} días adelante.
+                </p>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {store.services.map((svc) => (
+                  <div
+                    key={svc.id}
+                    className="card p-5 flex flex-col gap-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-display font-bold text-surface-900">{svc.name}</h3>
+                        <p className="text-xs text-surface-400 mt-0.5">
+                          {svc.durationMinutes} min
+                        </p>
+                      </div>
+                      <span className="font-display font-bold text-brand-600">
+                        ${svc.price.toLocaleString('es-CO')}
+                      </span>
+                    </div>
+                    {svc.description && (
+                      <p className="text-sm text-surface-500 leading-relaxed flex-1">{svc.description}</p>
+                    )}
+                    <button
+                      onClick={() => handleReserve(svc)}
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 text-white text-sm font-semibold transition-all active:scale-[0.98]"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      Reservar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
         {/* ── Productos ─────────────────────────────────────── */}
         <div className="mb-10">

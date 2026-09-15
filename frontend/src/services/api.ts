@@ -1,4 +1,4 @@
-import { AuthResponse, Conversation, Store, Product, Message, SaleStats, ReferralInfo } from '@/types';
+import { AuthResponse, Conversation, Store, Product, Message, SaleStats, ReferralInfo, StoreService, Appointment, BusinessType } from '@/types';
 
 const API_BASE = '/api';
 
@@ -105,7 +105,16 @@ export const api = {
     create: (data: {
       name: string;
       description?: string;
-      businessType?: 'ROPA' | 'CALZADO' | 'ACCESORIOS' | 'HOGAR' | 'ALIMENTOS' | 'SERVICIOS' | 'OTRO';
+      businessType?: BusinessType;
+      schedule?: {
+        openTime: string;
+        closeTime: string;
+        lunchStart: string;
+        lunchEnd: string;
+        workingDays: number[];
+        bookingHorizonDays: number;
+        timezone: string;
+      };
     }) =>
       request<Store>('/stores', {
         method: 'POST',
@@ -133,7 +142,16 @@ export const api = {
       logoUrl?: string;
       bannerUrl?: string;
       whatsapp?: string;
-      businessType?: 'ROPA' | 'CALZADO' | 'ACCESORIOS' | 'HOGAR' | 'ALIMENTOS' | 'SERVICIOS' | 'OTRO';
+      businessType?: BusinessType;
+      schedule?: {
+        openTime: string;
+        closeTime: string;
+        lunchStart: string;
+        lunchEnd: string;
+        workingDays: number[];
+        bookingHorizonDays: number;
+        timezone: string;
+      };
     }) =>
       request<Store>(`/stores/${id}`, {
         method: 'PATCH',
@@ -205,10 +223,13 @@ export const api = {
   },
 
   chat: {
-    openConversation: (storeId: string, productId?: string, cartItems?: { productId: string; quantity: number }[]) =>
+    openConversation: (storeId: string, opts?: { productId?: string; serviceId?: string }) =>
       request<Conversation>(`/stores/${storeId}/conversation`, {
         method: 'POST',
-        body: JSON.stringify({ productId, cartItems }),
+        body: JSON.stringify({
+          productId: opts?.productId,
+          serviceId: opts?.serviceId,
+        }),
       }),
     listConversations: async (): Promise<Conversation[]> => {
       const data = await request<{
@@ -235,6 +256,36 @@ export const api = {
       }),
     unreadCount: () =>
       request<{ totalUnread: number }>('/conversations/unread-count'),
+  },
+
+  services: {
+    list: () => request<StoreService[]>('/services'),
+    templates: async (): Promise<{ name: string; durationMinutes: number }[]> =>
+      request('/services/templates'),
+    create: (data: { name: string; description?: string; price: number; durationMinutes: number }) =>
+      request<StoreService>('/services', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<{ name: string; description?: string; price: number; durationMinutes: number }>) =>
+      request<StoreService>(`/services/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: string) => request<{ ok: boolean }>(`/services/${id}`, { method: 'DELETE' }),
+  },
+
+  appointments: {
+    agenda: (params?: { from?: string; to?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.from) qs.set('from', params.from);
+      if (params?.to) qs.set('to', params.to);
+      const q = qs.toString();
+      return request<Appointment[]>(`/appointments/agenda${q ? `?${q}` : ''}`);
+    },
+    book: (data: { storeId: string; serviceId: string; date: string; startTime: string; note?: string }) =>
+      request<{ ok: true; appointment: Appointment }>('/appointments', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    cancel: (id: string) =>
+      request<{ ok: boolean }>(`/appointments/${id}/cancel`, { method: 'PATCH' }),
+    complete: (id: string) =>
+      request<{ ok: boolean }>(`/appointments/${id}/complete`, { method: 'PATCH' }),
   },
 };
 
