@@ -1,9 +1,14 @@
+export type ModerationStatus = 'ACTIVE' | 'MUTED' | 'SUSPENDED' | 'BANNED';
+
 export interface User {
   id: string;
   email: string;
   name: string;
   avatarUrl: string | null;
   createdAt?: string;
+  termsAcceptedAt?: string | null;
+  moderationStatus?: ModerationStatus;
+  moderationUntil?: string | null;
 }
 
 export type SubscriptionStatus = 'trial' | 'active' | 'expired';
@@ -80,6 +85,8 @@ export interface Message {
   createdAt: string;
   aiGenerated?: boolean;
   waText?: string | null;
+  removedAt?: string | null;
+  removedReason?: string | null;
 }
 
 export interface AuthResponse {

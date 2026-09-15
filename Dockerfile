@@ -31,6 +31,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=backend-build /app/dist ./dist
+COPY drizzle ./drizzle
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 EXPOSE 3000
 CMD ["node", "dist/index.js"]

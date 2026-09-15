@@ -63,10 +63,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       }),
-    register: (email: string, password: string, name: string, refCode?: string) =>
+    register: (email: string, password: string, name: string, refCode?: string, termsAccepted?: boolean) =>
       request<AuthResponse>('/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email, password, name, refCode }),
+        body: JSON.stringify({ email, password, name, refCode, termsAccepted: termsAccepted ?? false }),
       }),
     google: (credential: string, refCode?: string) =>
       request<AuthResponse>('/auth/google', {

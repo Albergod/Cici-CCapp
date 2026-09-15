@@ -3,12 +3,15 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/services/api';
 import { useAuth } from '@/stores/authStore';
 import { GoogleAuthButton } from '@/components/GoogleAuthButton';
+import TermsModal from '@/components/TermsModal';
 import { Loader2, Store } from 'lucide-react';
 
 export function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { login } = useAuth();
@@ -18,11 +21,15 @@ export function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError(null);
+    if (!termsAccepted) {
+      setError('Debes aceptar los Términos y Condiciones para continuar.');
+      return;
+    }
+    setLoading(true);
 
     try {
-      const { token, user } = await api.auth.register(email, password, name, refCode);
+      const { token, user } = await api.auth.register(email, password, name, refCode, termsAccepted);
       login(token, user);
       navigate('/');
     } catch (err) {
@@ -95,6 +102,26 @@ export function RegisterPage() {
               />
             </div>
 
+            <label className="flex items-start gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 accent-brand-600"
+              />
+              <span className="text-sm text-surface-600 leading-snug">
+                Acepto los{' '}
+                <button
+                  type="button"
+                  onClick={() => setTermsOpen(true)}
+                  className="font-semibold text-brand-600 underline decoration-brand-300 underline-offset-2 hover:text-brand-700"
+                >
+                  Términos y Condiciones
+                </button>
+                , incluidas las normas de conducta del chat y sus sanciones.
+              </span>
+            </label>
+
             <button type="submit" disabled={loading} className="btn-primary w-full !py-3">
               {loading ? (
                 <>
@@ -117,6 +144,8 @@ export function RegisterPage() {
           </form>
         </div>
       </div>
+
+      <TermsModal open={termsOpen} onClose={() => setTermsOpen(false)} />
     </div>
   );
 }

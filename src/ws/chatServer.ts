@@ -3,10 +3,17 @@ import { Server } from "http";
 import jwt from "jsonwebtoken";
 import { eq, asc } from "drizzle-orm";
 import { db } from "../db/client";
-import { conversations, messages, stores, products } from "../db/schema";
+import { conversations, messages, stores, products, users } from "../db/schema";
 import { JWT_SECRET } from "../middleware/auth";
 import { getIAStoreReply, buildInvoiceVersions } from "../lib/ai";
-import { storeOperational, refreshStoreStatus } from "../lib/moderation";
+import {
+  storeOperational,
+  refreshStoreStatus,
+  userBlockState,
+  refreshUserModeration,
+  gateIncomingMessage,
+  retractIfFlaggedByAI,
+} from "../lib/moderation";
 
 interface ClientInfo {
   ws: WebSocket;
@@ -79,6 +86,27 @@ export function attachChatWebSocket(server: Server) {
       return;
     }
 
+    // Moderación: si el usuario tiene sanciones vigentes (mute/suspensión) o
+    // fue expulsado (ban), no puede usar el chat hasta que expiren.
+    const [modUser] = await db
+      .select({ id: users.id, name: users.name, moderationStatus: users.moderationStatus, moderationUntil: users.moderationUntil })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (modUser) await refreshUserModeration(userId);
+    const modState = userBlockState(modUser ?? { id: userId });
+    if (modState.blocked) {
+      const restante =
+        modState.status === "BANNED"
+          ? "Tu cuenta fue expulsada por violar las normas de conducta del chat."
+          : modState.status === "MUTED"
+            ? `Tu chat está silenciado hasta el ${new Date(String(modState.until)).toLocaleString("es-CO")}.`
+            : `Tu cuenta está suspendida hasta el ${new Date(String(modState.until)).toLocaleString("es-CO")}.`;
+      ws.send(JSON.stringify({ type: "moderation_blocked", accountStatus: modState.status, until: modState.until, message: restante }));
+      ws.close(4007, "Cuenta con sanción de moderación activa");
+      return;
+    }
+
     // El cliente solo puede conectarse si la tienda tiene el contacto activo
     // (prueba gratis vigente o suscripción de espacio). El dueño siempre accede.
     if (isCustomer) {
@@ -120,6 +148,34 @@ export function attachChatWebSocket(server: Server) {
           }
         }
 
+        // Moderación del mensaje: bloqueo instantáneo por lista (groserías /
+        // contenido prohibido) y por cuenta sancionada.
+        const gate = await gateIncomingMessage({
+          userId,
+          content: content.trim(),
+          senderName: modUser?.name,
+          senderIsMerchant: isStoreOwner,
+        });
+        if (gate.status === "blocked_by_state") {
+          const messageText =
+            gate.accountStatus === "BANNED"
+              ? "Tu cuenta fue expulsada por violar las normas de conducta del chat."
+              : gate.accountStatus === "MUTED"
+                ? `Tu chat está silenciado hasta el ${new Date(String(gate.until)).toLocaleString("es-CO")}. No se envió el mensaje.`
+                : `Tu cuenta está suspendida hasta el ${new Date(String(gate.until)).toLocaleString("es-CO")}. No se envió el mensaje.`;
+          ws.send(JSON.stringify({ type: "moderation_blocked", accountStatus: gate.accountStatus, until: gate.until, message: messageText }));
+          return;
+        }
+        if (gate.status === "blocked") {
+          ws.send(JSON.stringify({
+            type: "message_blocked",
+            action: gate.action,
+            until: gate.until ?? null,
+            reason: gate.reason,
+          }));
+          return;
+        }
+
         // Insertar el mensaje del cliente
         const [message] = await db
           .insert(messages)
@@ -127,6 +183,19 @@ export function attachChatWebSocket(server: Server) {
           .returning();
 
         broadcast(conversationId, { type: "message", message });
+
+        // Revisión en segundo plano con IA: si detecta abuso (acoso, sarcasmo
+        // ofensivo, presión), retira el mensaje publicado y aplica la escalera.
+        void retractIfFlaggedByAI({
+          userId,
+          senderName: modUser?.name,
+          senderIsMerchant: isStoreOwner,
+          messageId: message.id,
+          content: content.trim(),
+          onRetracted: (reason) => {
+            broadcast(conversationId, { type: "message_retracted", messageId: message.id, reason });
+          },
+        });
 
         // Modelo de ventas A: el cierre se hace por el WhatsApp del comerciante
         // (flujo normal). No se sanciona mencionarlo; solo se bloquea si la

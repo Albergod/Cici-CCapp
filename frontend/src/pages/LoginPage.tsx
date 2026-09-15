@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '@/services/api';
 import { useAuth } from '@/stores/authStore';
 import { GoogleAuthButton } from '@/components/GoogleAuthButton';
+import TermsModal from '@/components/TermsModal';
 import { Loader2, Store } from 'lucide-react';
 
 export function LoginPage() {
@@ -10,6 +11,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [termsOpen, setTermsOpen] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -104,8 +106,22 @@ export function LoginPage() {
               </Link>
             </p>
           </form>
+
+          <div className="mt-3 rounded-xl bg-surface-50 p-3 text-center text-xs leading-relaxed text-surface-500">
+            Al usar la plataforma aceptas los{' '}
+            <button
+              type="button"
+              onClick={() => setTermsOpen(true)}
+              className="font-semibold text-brand-600 underline decoration-brand-300 underline-offset-2 hover:text-brand-700"
+            >
+              Términos y Condiciones
+            </button>{' '}
+            y sus normas de conducta para el chat.
+          </div>
         </div>
       </div>
+
+      <TermsModal open={termsOpen} onClose={() => setTermsOpen(false)} />
     </div>
   );
 }

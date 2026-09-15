@@ -4,7 +4,12 @@ import { db } from "../db/client";
 import { conversations, stores, messages, users, products } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { getStoreGreeting, getIAStoreReply, buildInvoiceVersions } from "../lib/ai";
-import { storeOperational, refreshStoreStatus } from "../lib/moderation";
+import {
+  storeOperational,
+  refreshStoreStatus,
+  gateIncomingMessage,
+  retractIfFlaggedByAI,
+} from "../lib/moderation";
 
 const router = Router();
 
@@ -133,6 +138,29 @@ router.post("/stores/:storeId/conversation", requireAuth, async (req: AuthReques
           ? "Esta tienda ya no está operando en la plataforma."
           : "Esta tienda está temporalmente suspendida y no puede recibir mensajes.",
     });
+  }
+
+  // Moderación: expulsado/sancionado no puede abrir conversaciones.
+  const [opener] = await db
+    .select({ id: users.id, moderationStatus: users.moderationStatus, moderationUntil: users.moderationUntil })
+    .from(users)
+    .where(eq(users.id, req.userId!))
+    .limit(1);
+  const gate = (() => {
+    if (opener?.moderationStatus === "BANNED") return { blocked: true, status: "BANNED" } as const;
+    if (opener?.moderationStatus === "MUTED" || opener?.moderationStatus === "SUSPENDED") {
+      if (opener.moderationUntil && new Date(opener.moderationUntil).getTime() > Date.now()) {
+        return { blocked: true, status: opener.moderationStatus, until: opener.moderationUntil } as const;
+      }
+    }
+    return { blocked: false } as const;
+  })();
+  if (gate.blocked) {
+    const messageText =
+      gate.status === "BANNED"
+        ? "Tu cuenta fue expulsada por violar las normas de conducta de la comunidad."
+        : `Tu cuenta está ${gate.status === "MUTED" ? "silenciada" : "suspendida"} hasta el ${new Date(String(gate.until)).toLocaleString("es-CO")}.`;
+    return res.status(403).json({ error: messageText, accountStatus: gate.status });
   }
 
   const [existing] = await db
@@ -305,6 +333,26 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
   const textToSend = content?.trim();
   if (!textToSend) return res.status(400).json({ error: "El mensaje no puede estar vacío" });
 
+  // Moderación del mensaje: bloqueo instantáneo por cuenta sancionada o por
+  // lista de groserías/contenido prohibido. Mismas reglas que el WebSocket.
+  const gate = await gateIncomingMessage({
+    userId: req.userId!,
+    content: textToSend,
+    senderIsMerchant: isStoreOwner,
+  });
+  if (gate.status === "blocked_by_state") {
+    const messageText =
+      gate.accountStatus === "BANNED"
+        ? "Tu cuenta fue expulsada por violar las normas de conducta del chat."
+        : gate.accountStatus === "MUTED"
+          ? `Tu chat está silenciado hasta el ${new Date(String(gate.until)).toLocaleString("es-CO")}.`
+          : `Tu cuenta está suspendida hasta el ${new Date(String(gate.until)).toLocaleString("es-CO")}.`;
+    return res.status(403).json({ error: messageText, accountStatus: gate.accountStatus });
+  }
+  if (gate.status === "blocked") {
+    return res.status(403).json({ error: gate.reason, action: gate.action, until: gate.until ?? null });
+  }
+
   // Guardar el mensaje del cliente
   const [savedMsg] = await db
     .insert(messages)
@@ -314,6 +362,16 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
       content: textToSend,
     })
     .returning();
+
+  // Revisión en segundo plano con IA (igual que el WebSocket): retira el
+  // mensaje si el abuso pasó el filtro de lista (sarcasmo, acoso, presión).
+  void retractIfFlaggedByAI({
+    userId: req.userId!,
+    senderIsMerchant: isStoreOwner,
+    messageId: savedMsg.id,
+    content: textToSend,
+    onRetracted: () => undefined,
+  });
 
   // Modelo de ventas A: el cierre se hace por el WhatsApp del comerciante
   // (flujo normal). No se sanciona mencionarlo; la moderación se apoya en

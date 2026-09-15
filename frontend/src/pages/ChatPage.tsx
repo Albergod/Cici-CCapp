@@ -29,6 +29,47 @@ export function ChatPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [navHeight, setNavHeight] = useState(64);
+  const [modBanner, setModBanner] = useState<string | null>(null);
+  const [bannerMuted, setBannerMuted] = useState(false);
+  const [retractedIds, setRetractedIds] = useState<Set<string>>(new Set());
+  const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Estado de moderación de MI cuenta: no puedo escribir si estoy con sanción
+  // vigente (silenciado/suspendido/expulsado). Expira automáticamente.
+  const myBlock = (() => {
+    if (!user) return null;
+    if (user.moderationStatus === 'BANNED') {
+      return {
+        status: 'BANNED' as const,
+        text: 'Tu cuenta fue expulsada por violar las normas de conducta del chat. No puedes enviar más mensajes.',
+      };
+    }
+    if (
+      (user.moderationStatus === 'MUTED' || user.moderationStatus === 'SUSPENDED') &&
+      user.moderationUntil &&
+      new Date(user.moderationUntil).getTime() > Date.now()
+    ) {
+      return {
+        status: user.moderationStatus as 'MUTED' | 'SUSPENDED',
+        until: new Date(user.moderationUntil).toLocaleString('es-CO'),
+        text:
+          user.moderationStatus === 'MUTED'
+            ? `Tu chat está silenciado hasta el ${new Date(user.moderationUntil).toLocaleString('es-CO')}. No puedes enviar mensajes.`
+            : `Tu cuenta está suspendida hasta el ${new Date(user.moderationUntil).toLocaleString('es-CO')}. No puedes enviar mensajes.`,
+      };
+    }
+    return null;
+  })();
+
+  const showModBanner = (text: string, muted = false) => {
+    setModBanner(text);
+    setBannerMuted(muted);
+    if (bannerTimer.current) clearTimeout(bannerTimer.current);
+    bannerTimer.current = setTimeout(() => {
+      setModBanner(null);
+      setBannerMuted(false);
+    }, 6000);
+  };
 
   // Mide en vivo la altura real del navbar para que el chat quepa justo debajo
   // (sin bajar de la vista ni dejar hueco sobrante, pase lo que pase con fuentes).
@@ -134,6 +175,19 @@ export function ChatPage() {
         if (data.message.senderId !== user?.id) {
           api.chat.markRead(convId).catch(() => {});
         }
+      } else if (data.type === 'message_blocked') {
+        showModBanner(
+          data.reason ||
+            'Tu mensaje fue bloqueado por las normas de conducta de la plataforma.',
+          true,
+        );
+      } else if (data.type === 'moderation_blocked') {
+        showModBanner(data.message || 'Tu cuenta tiene una sanción de moderación activa.', true);
+      } else if (data.type === 'message_retracted') {
+        setRetractedIds((prev) => new Set(prev).add(data.messageId));
+        showModBanner('Un mensaje fue retirado por moderación para mantener un trato respetuoso.');
+      } else if (data.type === 'chat_suspended') {
+        showModBanner(data.message || 'El chat de esta tienda está suspendido temporalmente.', true);
       }
     };
 
@@ -173,8 +227,15 @@ export function ChatPage() {
       updateConversationReadState(conversationId, aiReply || message);
       setNewMessage('');
     } catch (err) {
-      console.error('Error sending message:', err);
-      alert('No se pudo enviar el mensaje. Revisa tu conexión e inténtalo de nuevo.');
+      const msg = err instanceof Error ? err.message : '';
+      const isModeration =
+        /expulsada|silenciado|suspendida|contenido prohibido|lenguaje ofensivo|moderación/i.test(msg);
+      if (isModeration) {
+        showModBanner(msg, true);
+      } else {
+        console.error('Error sending message:', err);
+        alert('No se pudo enviar el mensaje. Revisa tu conexión e inténtalo de nuevo.');
+      }
     } finally {
       setSending(false);
     }
@@ -383,75 +444,104 @@ export function ChatPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-50/50" ref={messagesEndRef}>
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex ${
-                    msg.senderId === user?.id ? 'justify-end' : 'justify-start'
-                  }`}
-                >
+              {messages.map((msg) => {
+                const isRetracted =
+                  msg.removedAt != null || retractedIds.has(msg.id);
+                return (
                   <div
-                    className={`max-w-[85%] lg:max-w-md px-4 py-2.5 rounded-2xl shadow-soft ${
-                      msg.senderId === user?.id
-                        ? 'bg-gradient-to-r from-brand-600 to-accent-500 text-white'
-                        : 'bg-white text-surface-900'
+                    key={msg.id}
+                    className={`flex ${
+                      msg.senderId === user?.id ? 'justify-end' : 'justify-start'
                     }`}
                   >
-                    {msg.aiGenerated && (
-                      <div
-                        className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide mb-1 px-1.5 py-0.5 rounded-full ${
-                          msg.senderId === user?.id
-                            ? 'bg-white/20 text-white'
-                            : 'bg-brand-50 text-brand-600'
-                        }`}
-                      >
-                        <Bot className="w-3 h-3" />
-                        Respuesta IA
-                      </div>
-                    )}
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                    {msg.aiGenerated && isInvoice(msg.content) && activeConversation?.store?.whatsapp && user?.id === activeConversation.customerId && (
-                      <a
-                        href={`https://wa.me/${activeConversation.store.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(msg.waText || msg.content)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-2.5 inline-flex items-center gap-1.5 w-full justify-center py-2 px-3 rounded-lg text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors"
-                      >
-                        <Receipt className="w-3.5 h-3.5" />
-                        Enviar pedido al comerciante
-                      </a>
-                    )}
-                    <p
-                      className={`text-xs mt-1 ${
-                        msg.senderId === user?.id ? 'text-white/70' : 'text-surface-400'
+                    <div
+                      className={`max-w-[85%] lg:max-w-md px-4 py-2.5 rounded-2xl shadow-soft ${
+                        msg.senderId === user?.id
+                          ? 'bg-gradient-to-r from-brand-600 to-accent-500 text-white'
+                          : 'bg-white text-surface-900'
                       }`}
                     >
-                      {new Date(msg.createdAt).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </p>
+                      {isRetracted ? (
+                        <p className="text-sm leading-relaxed italic text-surface-400">
+                          Este mensaje fue retirado por moderación para mantener
+                          un trato respetuoso en el chat.
+                        </p>
+                      ) : (
+                        <>
+                          {msg.aiGenerated && (
+                            <div
+                              className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide mb-1 px-1.5 py-0.5 rounded-full ${
+                                msg.senderId === user?.id
+                                  ? 'bg-white/20 text-white'
+                                  : 'bg-brand-50 text-brand-600'
+                              }`}
+                            >
+                              <Bot className="w-3 h-3" />
+                              Respuesta IA
+                            </div>
+                          )}
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                            {msg.content}
+                          </p>
+                          {msg.aiGenerated &&
+                            isInvoice(msg.content) &&
+                            activeConversation?.store?.whatsapp &&
+                            user?.id === activeConversation.customerId && (
+                              <a
+                                href={`https://wa.me/${activeConversation.store.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(msg.waText || msg.content)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2.5 inline-flex items-center gap-1.5 w-full justify-center py-2 px-3 rounded-lg text-xs font-bold text-white bg-green-500 hover:bg-green-600 transition-colors"
+                              >
+                                <Receipt className="w-3.5 h-3.5" />
+                                Enviar pedido al comerciante
+                              </a>
+                            )}
+                        </>
+                      )}
+                      <p
+                        className={`text-xs mt-1 ${
+                          msg.senderId === user?.id ? 'text-white/70' : 'text-surface-400'
+                        }`}
+                      >
+                        {new Date(msg.createdAt).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <form
               onSubmit={handleSendMessage}
               className="px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-surface-200 bg-white shrink-0"
             >
+              {(modBanner || myBlock) && (
+                <div
+                  className={`mb-3 rounded-xl p-3 text-sm border ${
+                    bannerMuted || myBlock
+                      ? 'bg-amber-50 border-amber-200 text-amber-800'
+                      : 'bg-brand-50 border-brand-200 text-brand-700'
+                  }`}
+                >
+                  {myBlock ? myBlock.text : modBanner}
+                </div>
+              )}
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Escribe un mensaje..."
-                  disabled={sending}
+                  placeholder={myBlock ? 'No puedes enviar mensajes por el momento' : 'Escribe un mensaje...'}
+                  disabled={sending || !!myBlock}
                   className="input !rounded-full flex-1 min-w-0"
                 />
                 <button
                   type="submit"
-                  disabled={!newMessage.trim() || sending}
+                  disabled={!newMessage.trim() || sending || !!myBlock}
                   className="p-2.5 bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-all text-white shrink-0"
                 >
                   <Send className="w-5 h-5" />

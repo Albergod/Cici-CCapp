@@ -15,7 +15,34 @@ const registerSchema = z.object({
   password: z.string().min(6),
   name: z.string().min(2),
   refCode: z.string().optional(),
+  // Debe ser `true` si o sí: el usuario tiene que aceptar los Términos y
+  // Condiciones (incluida la política de conducta) antes de crear la cuenta.
+  termsAccepted: z
+    .boolean()
+    .refine((v) => v === true, {
+      message: "Debes aceptar los Términos y Condiciones para registrarte.",
+    }),
 });
+
+function publicUser(u: {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl?: string | null;
+  termsAcceptedAt?: Date | string | null;
+  moderationStatus?: string | null;
+  moderationUntil?: Date | string | null;
+}) {
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    avatarUrl: u.avatarUrl ?? null,
+    termsAcceptedAt: u.termsAcceptedAt ?? null,
+    moderationStatus: u.moderationStatus ?? "ACTIVE",
+    moderationUntil: u.moderationUntil ?? null,
+  };
+}
 
 router.post("/register", registerLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
@@ -32,13 +59,20 @@ router.post("/register", registerLimiter, async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
   const [user] = await db
     .insert(users)
-    .values({ email, passwordHash, name, refCode: refCode ?? null, signupIp: clientIp(req) })
+    .values({
+      email,
+      passwordHash,
+      name,
+      refCode: refCode ?? null,
+      signupIp: clientIp(req),
+      termsAcceptedAt: new Date(),
+    })
     .returning();
 
   const token = signToken(user.id);
   res.status(201).json({
     token,
-    user: { id: user.id, email: user.email, name: user.name },
+    user: publicUser(user),
   });
 });
 
@@ -60,8 +94,30 @@ router.post("/login", authLimiter, async (req, res) => {
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) return res.status(401).json({ error: "Credenciales inválidas" });
 
+  // Sanción caducada: se reactiva automáticamente y el login sigue normal.
+  if (
+    (user.moderationStatus === "MUTED" || user.moderationStatus === "SUSPENDED") &&
+    user.moderationUntil &&
+    new Date(user.moderationUntil).getTime() <= Date.now()
+  ) {
+    await db
+      .update(users)
+      .set({ moderationStatus: "ACTIVE", moderationUntil: null })
+      .where(eq(users.id, user.id));
+    user.moderationStatus = "ACTIVE";
+    user.moderationUntil = null;
+  }
+
+  // Cuenta expulsada: no puede iniciar sesión.
+  if (user.moderationStatus === "BANNED") {
+    return res.status(403).json({
+      error: "Tu cuenta fue expulsada por violar las normas de conducta de la comunidad.",
+      accountStatus: "BANNED",
+    });
+  }
+
   const token = signToken(user.id);
-  res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+  res.json({ token, user: publicUser(user) });
 });
 
 // ── Recuperación de contraseña ──────────────────────────────────────────────

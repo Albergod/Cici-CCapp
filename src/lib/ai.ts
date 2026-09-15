@@ -7,6 +7,8 @@ const AI_BASE_URL = process.env.AI_BASE_URL || "https://api.groq.com/openai/v1";
 const AI_API_KEY = process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || "";
 const AI_MODEL = process.env.AI_MODEL || "openai/gpt-oss-120b";
 
+export { AI_MODEL };
+
 export const openai = AI_API_KEY
   ? new OpenAI({ apiKey: AI_API_KEY, baseURL: AI_BASE_URL })
   : null;

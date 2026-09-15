@@ -130,7 +130,15 @@ router.post("/google", async (req, res) => {
 
     // Busca por correo: si ya existe, inicia sesión; si no, crea el usuario.
     let [user] = await db
-      .select({ id: users.id, email: users.email, name: users.name, avatarUrl: users.avatarUrl })
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        avatarUrl: users.avatarUrl,
+        termsAcceptedAt: users.termsAcceptedAt,
+        moderationStatus: users.moderationStatus,
+        moderationUntil: users.moderationUntil,
+      })
       .from(users)
       .where(eq(users.email, email))
       .limit(1);
@@ -145,15 +153,40 @@ router.post("/google", async (req, res) => {
           name: googleUser.name || email.split("@")[0],
           avatarUrl: googleUser.picture ?? null,
           refCode: parsed.data.refCode ?? null,
+          termsAcceptedAt: new Date(),
         })
-        .returning({ id: users.id, email: users.email, name: users.name, avatarUrl: users.avatarUrl });
+        .returning({
+          id: users.id,
+          email: users.email,
+          name: users.name,
+          avatarUrl: users.avatarUrl,
+          termsAcceptedAt: users.termsAcceptedAt,
+          moderationStatus: users.moderationStatus,
+          moderationUntil: users.moderationUntil,
+        });
       user = created;
+    }
+
+    // Cuenta expulsada: no puede iniciar sesión (ni con Google).
+    if (user.moderationStatus === "BANNED") {
+      return res.status(403).json({
+        error: "Tu cuenta fue expulsada por violar las normas de conducta de la comunidad.",
+        accountStatus: "BANNED",
+      });
     }
 
     const token = signToken(user.id);
     res.json({
       token,
-      user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        termsAcceptedAt: user.termsAcceptedAt ?? null,
+        moderationStatus: user.moderationStatus ?? "ACTIVE",
+        moderationUntil: user.moderationUntil ?? null,
+      },
     });
   } catch (err) {
     console.error("Error en login con Google:", err);

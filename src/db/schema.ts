@@ -44,6 +44,15 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   refCode: text("ref_code"), // código de referido que trajo a este usuario
   signupIp: text("signup_ip"), // IP del registro (detección de cuentas granja)
+  // Aceptación de los Términos y Condiciones (obligatoria al registrarse).
+  termsAcceptedAt: timestamp("terms_accepted_at"),
+  // Estado de moderación del usuario por conducta en el chat:
+  //   ACTIVE - puede usar el chat con normalidad
+  //   MUTED  - no puede enviar mensajes hasta moderation_until
+  //   SUSPENDED - suspendido temporalmente (hasta moderation_until)
+  //   BANNED - expulsado de la plataforma (permanente)
+  moderationStatus: text("moderation_status").notNull().default("ACTIVE"),
+  moderationUntil: timestamp("moderation_until"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -176,6 +185,10 @@ export const messages = pgTable("messages", {
   // Versión del mensaje destinada al WhatsApp del comerciante (cuando la
   // respuesta IA contiene una factura, difiere en el aviso de cierre).
   waText: text("wa_text"),
+  // Moderación: si la IA retira el mensaje tras publicarse, se marca aquí y el
+  // frontend lo muestra reemplazado por el aviso estándar.
+  removedAt: timestamp("removed_at"),
+  removedReason: text("removed_reason"),
 });
 
 // Registro de ventas del comercio: una venta puede omitir cliente o producto

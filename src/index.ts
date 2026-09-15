@@ -20,6 +20,8 @@ import wompiRoutes from "./routes/wompi.routes";
 import { attachChatWebSocket } from "./ws/chatServer";
 import { globalLimiter } from "./middleware/rate-limit";
 import { expireStoresAndReturnCount } from "./routes/store.routes";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { db } from "./db/client";
 
 export function createApp() {
   const app = express();
@@ -102,13 +104,36 @@ export const app = createApp();
 // Los tests importan app desde aquí o desde test-utils.ts y no levantan el server.
 const isMainModule = process.argv[1] === __filename;
 if (isMainModule) {
+  // ── Migraciones al arranque ───────────────────────────────────────────────
+  // Idempotente: aplica solo las pendientes (drizzle-migrator). Así el deploy
+  // en Render queda sincronizado con el esquema sin pasos manuales.
+  async function runMigrations(): Promise<void> {
+    const migrationsDir = path.join(path.resolve(__dirname, ".."), "drizzle");
+    if (!fs.existsSync(migrationsDir)) {
+      console.warn("⚠️ No existe la carpeta drizzle/, omitiendo migraciones al arrancar.");
+      return;
+    }
+    console.log("🧬 Aplicando migraciones de la base de datos…");
+    await migrate(db, { migrationsFolder: migrationsDir });
+    console.log("🧬 Migraciones aplicadas correctamente.");
+  }
+
   const server = http.createServer(app);
   attachChatWebSocket(server);
   const PORT = process.env.PORT || 3000;
-  server.listen(PORT, () => {
-    console.log(`🏬 CC Platform corriendo en http://localhost:${PORT}`);
-    console.log(`   WebSocket de chat en ws://localhost:${PORT}/ws/chat`);
-  });
+
+  runMigrations()
+    .then(() => {
+      server.listen(PORT, () => {
+        console.log(`🏬 CC Platform corriendo en http://localhost:${PORT}`);
+        console.log(`   WebSocket de chat en ws://localhost:${PORT}/ws/chat`);
+      });
+    })
+    .catch((err) => {
+      // Fallo fatal: mejor morir que arrancar con un esquema desincronizado.
+      console.error("❌ No se pudieron aplicar las migraciones:", err);
+      process.exit(1);
+    });
 
   // ── Cron de expiración de planes ─────────────────────────────────────────
   // Baja automáticamente a FREE las tiendas cuyo plan (PRO/BUSINESS) venció.
