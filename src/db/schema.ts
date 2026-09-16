@@ -145,7 +145,8 @@ export const appointments = pgTable(
     appointmentDate: timestamp("appointment_date", { mode: "string" }).notNull(),
     startTime: text("start_time").notNull(), // "HH:MM" local
     endTime: text("end_time").notNull(), // "HH:MM" local
-    status: text("status").notNull().default("confirmed"), // confirmed | cancelled | completed
+    // confirmed | cancelled | completed | no_show
+    status: text("status").notNull().default("confirmed"),
     note: text("note"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     storeId: uuid("store_id")
@@ -157,6 +158,9 @@ export const appointments = pgTable(
     customerId: uuid("customer_id")
       .notNull()
       .references(() => users.id),
+    // Venta generada al cerrar la cita ("Listo"). Garantiza idempotencia:
+    // una cita produce como máximo una venta.
+    saleId: uuid("sale_id").references(() => sales.id),
   },
   (t) => ({
     storeDate: uniqueIndex("appointments_store_date_unique")
@@ -290,6 +294,11 @@ export const sales = pgTable("sales", {
   // rastreable (MP/WOMPI/CARD) son "ventas reales" para el check verificado;
   // las de efectivo/transferencia por fuera no inflan reputación.
   paymentMethod: text("payment_method"),
+  // Origen de la venta: manual (la registra el comerciante a mano), appointment
+  // (se generó al cerrar una cita "Listo") u order (confirmó un pedido del chat).
+  // Las ventas con respaldo de una cita/pedido no cuentan para el anti-fraude
+  // de "ventas infladas": tienen un cliente real detrás.
+  origin: text("origin").notNull().default("manual"),
 });
 
 // Registro de faltas y sanciones (anti-fraude). El panel de super admin las
@@ -321,6 +330,9 @@ export const saleItems = pgTable("sale_items", {
     .notNull()
     .references(() => sales.id),
   productId: uuid("product_id").references(() => products.id),
+  // Una venta puede venir de un producto o de un servicio (BELLEZA). Las ventas
+  // de servicio se registran por el comercio al cerrar la cita.
+  serviceId: uuid("service_id").references(() => storeServices.id),
 });
 
 // Pagos procesados por Mercado Pago (Checkout Pro). El único camino válido
@@ -406,6 +418,7 @@ export const appointmentsRelations = relations(appointments, ({ one }) => ({
     references: [storeServices.id],
   }),
   customer: one(users, { fields: [appointments.customerId], references: [users.id] }),
+  sale: one(sales, { fields: [appointments.saleId], references: [sales.id] }),
 }));
 
 export const followsRelations = relations(follows, ({ one }) => ({
@@ -450,6 +463,7 @@ export const violationsRelations = relations(violations, ({ one }) => ({
 export const saleItemsRelations = relations(saleItems, ({ one }) => ({
   sale: one(sales, { fields: [saleItems.saleId], references: [sales.id] }),
   product: one(products, { fields: [saleItems.productId], references: [products.id] }),
+  service: one(storeServices, { fields: [saleItems.serviceId], references: [storeServices.id] }),
 }));
 
 export const paymentReportsRelations = relations(paymentReports, ({ one }) => ({

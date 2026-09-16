@@ -5,7 +5,7 @@ import { Router } from "express";
 import { eq, and, desc } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
-import { appointments, storeServices, stores } from "../db/schema";
+import { appointments, saleItems, storeServices, stores } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { sql } from "drizzle-orm";
 import { minutesToTime, nowInTimezone, DEFAULT_SCHEDULE } from "../lib/booking";
@@ -151,6 +151,13 @@ router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
       error: `Este servicio tiene ${n} cita(s) futuras. Cancélalas antes de borrarlo.`,
     });
   }
+
+  // Las ventas históricas no se borran: se desvincula el servicio (la FK no
+  // permite borrarlo) y el nombre queda guardado en la nota de la venta.
+  await db
+    .update(saleItems)
+    .set({ serviceId: null })
+    .where(eq(saleItems.serviceId, service.id));
 
   // Elimina también la historia de citas del servicio para no violar la FK.
   await db.delete(appointments).where(eq(appointments.serviceId, service.id));

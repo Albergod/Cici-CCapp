@@ -30,7 +30,7 @@ export interface StoreService {
   createdAt?: string;
 }
 
-export type AppointmentStatus = 'confirmed' | 'completed' | 'cancelled';
+export type AppointmentStatus = 'confirmed' | 'completed' | 'cancelled' | 'no_show';
 
 export interface Appointment {
   id: string;
@@ -39,6 +39,7 @@ export interface Appointment {
   endTime: string;
   status: AppointmentStatus;
   note?: string | null;
+  saleId?: string | null;
   service: { name: string; price: number; durationMinutes: number };
   customer?: { id: string; name: string };
 }
@@ -144,6 +145,7 @@ export interface SaleItemSummary {
   name: string;
   quantity: number;
   unitPrice: number;
+  kind?: 'product' | 'service';
 }
 
 export interface RecentSale {
@@ -151,12 +153,19 @@ export interface RecentSale {
   total: number;
   soldAt: string;
   note: string | null;
+  origin?: 'manual' | 'appointment' | 'order';
   customerName: string | null;
   itemsSummary: SaleItemSummary[];
 }
 
 export interface TopProduct {
   productId: string;
+  name: string;
+  quantity: number;
+}
+
+export interface TopService {
+  serviceId: string;
   name: string;
   quantity: number;
 }
@@ -175,6 +184,7 @@ export interface SaleStats {
   customerCount: number;
   productCount: number;
   topProducts: TopProduct[];
+  topServices?: TopService[];
   topViewed: ViewedProduct[];
   conversionRate: number;
   totalViews: number;

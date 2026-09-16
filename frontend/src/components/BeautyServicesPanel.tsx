@@ -46,6 +46,7 @@ export function BeautyServicesPanel({ store, onStoreUpdated }: Props) {
   const [loading, setLoading] = useState(true);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const [schedule, setSchedule] = useState<ScheduleConfig>(store.schedule ?? {
     openTime: '08:00',
@@ -159,10 +160,24 @@ export function BeautyServicesPanel({ store, onStoreUpdated }: Props) {
     }
   };
 
-  const setAppointment = async (id: string, action: 'cancel' | 'complete') => {
+  const setAppointment = async (id: string, action: 'cancel' | 'done' | 'no_show') => {
+    setError(null);
+    setNotice(null);
     try {
-      if (action === 'cancel') await api.appointments.cancel(id);
-      else await api.appointments.complete(id);
+      if (action === 'cancel') {
+        await api.appointments.cancel(id);
+      } else {
+        const res = await api.appointments.close(id, action);
+        if (action === 'done') {
+          setNotice(
+            res.sale
+              ? `¡Listo! Venta registrada por ${formatCOP(res.sale.total)}.`
+              : 'Cita cerrada.',
+          );
+        } else {
+          setNotice('Cita marcada como "no vino".');
+        }
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo actualizar la cita');
@@ -182,6 +197,12 @@ export function BeautyServicesPanel({ store, onStoreUpdated }: Props) {
       {error && (
         <div className="p-3 bg-accent-50 border border-accent-200 rounded-xl text-sm text-accent-600">
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
+          {notice}
         </div>
       )}
 
@@ -499,7 +520,12 @@ export function BeautyServicesPanel({ store, onStoreUpdated }: Props) {
                           )}
                           {a.status === 'completed' && (
                             <span className="px-2 py-1 rounded-full bg-brand-50 text-brand-700 text-[10px] font-bold uppercase">
-                              Completada
+                              {a.saleId ? 'Atendida · venta registrada' : 'Atendida'}
+                            </span>
+                          )}
+                          {a.status === 'no_show' && (
+                            <span className="px-2 py-1 rounded-full bg-amber-50 text-amber-700 text-[10px] font-bold uppercase">
+                              No vino
                             </span>
                           )}
                           {a.status === 'cancelled' && (
@@ -510,11 +536,19 @@ export function BeautyServicesPanel({ store, onStoreUpdated }: Props) {
                           {a.status === 'confirmed' && (
                             <>
                               <button
-                                onClick={() => setAppointment(a.id, 'complete')}
-                                title="Marcar como atendida"
-                                className="p-2 rounded-lg bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors"
+                                onClick={() => setAppointment(a.id, 'done')}
+                                title="Listo: atendida y registra la venta"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors text-xs font-bold"
                               >
                                 <CheckCircle2 className="w-4 h-4" />
+                                Listo
+                              </button>
+                              <button
+                                onClick={() => setAppointment(a.id, 'no_show')}
+                                title="El cliente no vino"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors text-xs font-bold"
+                              >
+                                No vino
                               </button>
                               <button
                                 onClick={() => setAppointment(a.id, 'cancel')}

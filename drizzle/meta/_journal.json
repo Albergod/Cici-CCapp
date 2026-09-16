@@ -64,6 +64,13 @@
       "when": 1789512835714,
       "tag": "0008_beauty_partial_index",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789600000000,
+      "tag": "0009_appointment_sale_link",
+      "breakpoints": true
     }
   ]
 }

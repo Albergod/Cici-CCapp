@@ -3,7 +3,7 @@ import request from "supertest";
 import type { Express } from "express";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../src/db/client";
-import { users, stores, storeServices, appointments, conversations } from "../src/db/schema";
+import { users, stores, storeServices, appointments, conversations, sales, saleItems } from "../src/db/schema";
 import "dotenv/config";
 
 let app: Express;
@@ -80,6 +80,16 @@ describe("Agenda de citas (BELLEZA)", () => {
       .limit(1);
     if (store) {
       await db.delete(appointments).where(eq(appointments.storeId, store.id));
+      const storeSales = await db
+        .select({ id: sales.id })
+        .from(sales)
+        .where(eq(sales.storeId, store.id));
+      if (storeSales.length) {
+        await db.delete(saleItems).where(
+          inArray(saleItems.saleId, storeSales.map((s) => s.id)),
+        );
+      }
+      await db.delete(sales).where(eq(sales.storeId, store.id));
       await db.delete(storeServices).where(eq(storeServices.storeId, store.id));
     }
     await db.delete(stores).where(eq(stores.name, storeName));
@@ -243,6 +253,16 @@ describe("Regresión: estados, moderación y contexto (BELLEZA)", () => {
       .where(inArray(conversations.assertedServiceId, svcRows.map((s) => s.id)));
     for (const s of rows) {
       await db.delete(appointments).where(eq(appointments.storeId, s.id));
+      const storeSales = await db
+        .select({ id: sales.id })
+        .from(sales)
+        .where(eq(sales.storeId, s.id));
+      if (storeSales.length) {
+        await db.delete(saleItems).where(
+          inArray(saleItems.saleId, storeSales.map((x) => x.id)),
+        );
+      }
+      await db.delete(sales).where(eq(sales.storeId, s.id));
       await db.delete(storeServices).where(eq(storeServices.storeId, s.id));
     }
     await db.delete(stores).where(inArray(stores.name, names));
@@ -352,5 +372,277 @@ describe("Regresión: estados, moderación y contexto (BELLEZA)", () => {
       .send({ serviceId });
     expect(own.status).toBe(200);
     expect(own.body.assertedServiceId).toBe(serviceId);
+  });
+});
+
+describe("Cita → venta: cerrar con 'Listo' / 'No vino' (BELLEZA)", () => {
+  const tag = `close-${ts}`;
+  const ownerEmail = `belleza-close-owner-${tag}@example.com`;
+  const clientEmail = `belleza-close-client-${tag}@example.com`;
+  const otherEmail = `belleza-close-other-${tag}@example.com`;
+  const storeName = `Belleza Close ${tag}`;
+  const dateStr = futureWorkday(5);
+  let storeId = "";
+  let serviceId = "";
+  let tokenM = "";
+  let tokenC = "";
+  let tokenO = "";
+
+  async function book(startTime: string): Promise<string> {
+    const r = await request(app)
+      .post("/api/appointments")
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({ storeId, serviceId, date: dateStr, startTime });
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    return r.body.appointment.id;
+  }
+
+  async function stats() {
+    const r = await request(app)
+      .get("/api/sales/stats")
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(r.status).toBe(200);
+    return r.body;
+  }
+
+  beforeAll(async () => {
+    const mod = await import("../src/index");
+    app = (mod as unknown as { default: Express }).default || (mod as unknown as Express);
+
+    tokenM = await registerUser(ownerEmail);
+    tokenC = await registerUser(clientEmail);
+    tokenO = await registerUser(otherEmail);
+
+    const store = await request(app)
+      .post("/api/stores")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ name: storeName, businessType: "BELLEZA" });
+    expect(store.status).toBe(201);
+    storeId = store.body.id;
+
+    const svc = await request(app)
+      .post("/api/services")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ name: "Corte cierre", price: 40000, durationMinutes: 45 });
+    expect(svc.status).toBe(201);
+    serviceId = svc.body.id;
+  });
+
+  afterAll(async () => {
+    const [store] = await db
+      .select({ id: stores.id })
+      .from(stores)
+      .where(eq(stores.name, storeName))
+      .limit(1);
+    if (store) {
+      await db.delete(appointments).where(eq(appointments.storeId, store.id));
+      const storeSales = await db
+        .select({ id: sales.id })
+        .from(sales)
+        .where(eq(sales.storeId, store.id));
+      if (storeSales.length) {
+        await db.delete(saleItems).where(
+          inArray(saleItems.saleId, storeSales.map((s) => s.id)),
+        );
+      }
+      await db.delete(sales).where(eq(sales.storeId, store.id));
+      const svcRows = await db
+        .select({ id: storeServices.id })
+        .from(storeServices)
+        .where(eq(storeServices.storeId, store.id));
+      if (svcRows.length) {
+        await db
+          .delete(conversations)
+          .where(inArray(conversations.assertedServiceId, svcRows.map((s) => s.id)));
+      }
+      await db.delete(storeServices).where(eq(storeServices.storeId, store.id));
+    }
+    await db.delete(stores).where(eq(stores.name, storeName));
+    await db
+      .delete(users)
+      .where(inArray(users.email, [ownerEmail, clientEmail, otherEmail]));
+  });
+
+  it("un cliente no puede cerrar (ni 'Listo' ni 'No vino')", async () => {
+    const apptId = await book("09:00");
+    const done = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({ outcome: "done" });
+    expect(done.status).toBe(403);
+
+    const noShow = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenO}`)
+      .send({ outcome: "no_show" });
+    expect(noShow.status).toBe(403);
+
+    // Y el estado sigue intacto
+    const after = await db
+      .select({ status: appointments.status })
+      .from(appointments)
+      .where(eq(appointments.id, apptId))
+      .limit(1);
+    expect(after[0].status).toBe("confirmed");
+
+    // Limpieza: cancelar para no dejar una cita confirmada que bloquee el borrado.
+    await request(app)
+      .patch(`/api/appointments/${apptId}/cancel`)
+      .set("Authorization", `Bearer ${tokenM}`);
+  });
+
+  it("'Listo' marca atendida, crea la venta y la refleja en stats (y es idempotente)", async () => {
+    const before = await stats();
+    const apptId = await book("10:00");
+
+    const close = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "done" });
+    expect(close.status).toBe(200);
+    expect(close.body.sale).toBeTruthy();
+    expect(close.body.sale.total).toBe(40000);
+    expect(close.body.sale.origin).toBe("appointment");
+
+    // La cita quedó completada y ligada a la venta
+    const [appt] = await db
+      .select({ status: appointments.status, saleId: appointments.saleId })
+      .from(appointments)
+      .where(eq(appointments.id, apptId))
+      .limit(1);
+    expect(appt.status).toBe("completed");
+    expect(appt.saleId).toBe(close.body.sale.id);
+
+    // Stats: suma la venta y aparece en topServices/recentSales
+    const after = await stats();
+    expect(after.totalSales).toBe(before.totalSales + 1);
+    expect(after.topServices.some((s: any) => s.name === "Corte cierre")).toBe(true);
+    const recent = after.recentSales.find((s: any) => s.id === close.body.sale.id);
+    expect(recent).toBeTruthy();
+    expect(recent.itemsSummary[0].kind).toBe("service");
+
+    // Idempotencia: cerrar de nuevo no duplica la venta
+    const again = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "done" });
+    expect(again.status).toBe(200);
+    expect(again.body.idempotent).toBe(true);
+    expect(again.body.sale.id).toBe(close.body.sale.id);
+
+    const afterAgain = await stats();
+    expect(afterAgain.totalSales).toBe(after.totalSales);
+  });
+
+  it("'No vino' cierra sin venta y no se puede luego completar", async () => {
+    const before = await stats();
+    const apptId = await book("11:00");
+
+    const noShow = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "no_show" });
+    expect(noShow.status).toBe(200);
+    expect(noShow.body.status).toBe("no_show");
+
+    const [appt] = await db
+      .select({ status: appointments.status, saleId: appointments.saleId })
+      .from(appointments)
+      .where(eq(appointments.id, apptId))
+      .limit(1);
+    expect(appt.status).toBe("no_show");
+    expect(appt.saleId).toBeNull();
+
+    const after = await stats();
+    expect(after.totalSales).toBe(before.totalSales);
+
+    // Ni "Listo" ni "No vino" de nuevo deben crear venta / romper estado
+    const doneAfter = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "done" });
+    expect(doneAfter.status).toBe(409);
+
+    const noShowAgain = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "no_show" });
+    expect(noShowAgain.status).toBe(200);
+    expect(noShowAgain.body.idempotent).toBe(true);
+  });
+
+  it("cancelar no se puede cerrar y validar UUID inválido responde 400", async () => {
+    const apptId = await book("09:00");
+    const cancel = await request(app)
+      .patch(`/api/appointments/${apptId}/cancel`)
+      .set("Authorization", `Bearer ${tokenC}`);
+    expect(cancel.status).toBe(200);
+
+    const closeCancelled = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "done" });
+    expect(closeCancelled.status).toBe(409);
+
+    const badId = await request(app)
+      .post("/api/appointments/not-a-uuid/close")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "done" });
+    expect(badId.status).toBe(400);
+
+    const badOutcome = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "whatever" });
+    expect(badOutcome.status).toBe(400);
+  });
+
+  it("una cita completada con el endpoint viejo /complete igual se cierra con 'Listo'", async () => {
+    const apptId = await book("09:00");
+    const legacy = await request(app)
+      .patch(`/api/appointments/${apptId}/complete`)
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(legacy.status).toBe(200);
+
+    const close = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "done" });
+    expect(close.status).toBe(200);
+    expect(close.body.sale).toBeTruthy();
+
+    const again = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "done" });
+    expect(again.status).toBe(200);
+    expect(again.body.idempotent).toBe(true);
+  });
+
+  it("al borrar el servicio se conserva la venta histórica (desvinculada)", async () => {
+    const apptId = await book("08:00");
+    const close = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "done" });
+    expect(close.status).toBe(200);
+    const saleId = close.body.sale.id;
+
+    // No quedan citas confirmadas futuras, así que se puede borrar el servicio.
+    const removed = await request(app)
+      .delete(`/api/services/${serviceId}`)
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(removed.status).toBe(200);
+
+    // La venta sigue existiendo y el ítem quedó sin serviceId.
+    const [sale] = await db.select().from(sales).where(eq(sales.id, saleId)).limit(1);
+    expect(sale).toBeTruthy();
+    expect(sale.note).toBe("Corte cierre");
+    const [item] = await db
+      .select({ serviceId: saleItems.serviceId })
+      .from(saleItems)
+      .where(eq(saleItems.saleId, saleId))
+      .limit(1);
+    expect(item.serviceId).toBeNull();
   });
 });

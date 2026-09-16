@@ -286,6 +286,11 @@ export const api = {
       request<{ ok: boolean }>(`/appointments/${id}/cancel`, { method: 'PATCH' }),
     complete: (id: string) =>
       request<{ ok: boolean }>(`/appointments/${id}/complete`, { method: 'PATCH' }),
+    close: (id: string, outcome: 'done' | 'no_show') =>
+      request<{ ok: boolean; sale?: { id: string; total: number } | null }>(
+        `/appointments/${id}/close`,
+        { method: 'POST', body: JSON.stringify({ outcome }) },
+      ),
   },
 };
 

@@ -165,6 +165,10 @@ if (isMainModule) {
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS appointments_store_date_unique
       ON appointments (store_id, appointment_date, start_time)
       WHERE status <> 'cancelled'`);
+    // ── Cita → venta ────────────────────────────────────────────────────────
+    await db.execute(sql`ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS service_id uuid`);
+    await db.execute(sql`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS sale_id uuid`);
+    await db.execute(sql`ALTER TABLE sales ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT 'manual'`);
   }
 
   async function runMigrations(): Promise<void> {

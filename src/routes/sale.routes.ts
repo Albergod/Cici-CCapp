@@ -1,16 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq, desc, sql, and, gte } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { db } from "../db/client";
-import { stores, products, sales, saleItems } from "../db/schema";
+import { stores, products, sales } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
-import {
-  storeOperational,
-  refreshStoreStatus,
-  insertViolation,
-  TRACKED_PAYMENT_METHODS,
-  INFLATED_SALE_DAY_BURST,
-} from "../lib/moderation";
+import { createSale } from "../lib/sales";
 
 const router = Router();
 
@@ -22,7 +16,8 @@ async function getOwnStore(userId: string): Promise<string | null> {
   return store?.id ?? null;
 }
 
-// Registrar una venta manual (una o más líneas de producto)
+// Registrar una venta manual (productos). El comerciante también puede cerrar
+// una cita desde /appointments/:id/close, que reusa la misma lib de ventas.
 const registerSaleSchema = z.object({
   items: z
     .array(
@@ -38,120 +33,25 @@ const registerSaleSchema = z.object({
 });
 
 router.post("/sales", requireAuth, async (req: AuthRequest, res) => {
-  const [store] = await db
-    .select()
-    .from(stores)
-    .where(eq(stores.ownerId, req.userId!))
-    .limit(1);
-  if (!store) return res.status(403).json({ error: "No tienes una tienda propia." });
-
-  // Anti-fraude: una tienda suspendida o baneada no puede registrar ventas
-  // (evita que inflen su reputación mientras están sancionadas).
-  await refreshStoreStatus(store);
-  if (!storeOperational(store)) {
-    return res.status(403).json({
-      error:
-        store.status === "BANNED"
-          ? "Tu tienda fue vetada de la plataforma."
-          : "Tu tienda está suspendida temporalmente; no puedes registrar ventas hasta que termine la sanción.",
-    });
-  }
+  const storeId = await getOwnStore(req.userId!);
+  if (!storeId) return res.status(403).json({ error: "No tienes una tienda propia." });
 
   const parsed = registerSaleSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  const storeId = store.id;
-
-  // Verificar que todos los productos pertenezcan a esta tienda
-  const productsDb = await db.query.products.findMany({
-    where: eq(products.storeId, storeId),
-    columns: { id: true, price: true, stock: true },
+  const result = await createSale({
+    storeId,
+    items: parsed.data.items,
+    note: parsed.data.note,
+    customerId: parsed.data.customerId,
+    paymentMethod: parsed.data.paymentMethod ?? null,
+    origin: "manual",
   });
-  const priceMap = new Map(productsDb.map((p) => [p.id, Number(p.price)]));
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
 
-  for (const item of parsed.data.items) {
-    if (!priceMap.has(item.productId)) {
-      return res
-        .status(400)
-        .json({ error: `El producto no pertenece a tu tienda o no existe.` });
-    }
-  }
-
-  const total = parsed.data.items.reduce(
-    (acc, item) => acc + priceMap.get(item.productId)! * item.quantity,
-    0,
-  );
-
-  const paymentMethod = parsed.data.paymentMethod ?? null;
-
-  const [sale] = await db
-    .insert(sales)
-    .values({
-      storeId,
-      total: String(total.toFixed(2)),
-      note: parsed.data.note,
-      customerId: parsed.data.customerId,
-      paymentMethod,
-    })
-    .returning();
-
-  // ── Anti-fraude: venta inflada ──────────────────────────────────────────
-  // Un volumen alto de ventas autoregistradas SIN un método de pago
-  // rastreable en 24h huele a inflación de reputación (el check verificado
-  // solo cuenta ventas pagadas por MP/WOMPI/CARD). Se registra la violación
-  // para que el admin decida; no bloquea la operación de la tienda.
-  let antiFraudFlagged = false;
-  if (!paymentMethod || !TRACKED_PAYMENT_METHODS.includes(paymentMethod)) {
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const [burst] = await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(sales)
-      .where(and(eq(sales.storeId, storeId), gte(sales.soldAt, since)));
-    if (Number(burst?.n ?? 0) >= INFLATED_SALE_DAY_BURST) {
-      antiFraudFlagged = true;
-      await insertViolation({
-        type: "inflated_sale",
-        severity: "warning",
-        storeId,
-        reason: `${Number(burst?.n ?? 0)} ventas autoregistradas en 24h sin método de pago rastreable (posible inflación de reputación).`,
-        metadata: { salesIn24h: Number(burst?.n ?? 0), paymentMethod: paymentMethod ?? "ninguno" },
-      });
-    }
-  }
-
-  for (const item of parsed.data.items) {
-    await db.insert(saleItems).values({
-      saleId: sale.id,
-      productId: item.productId,
-      quantity: String(item.quantity),
-      unitPrice: String(priceMap.get(item.productId)!.toFixed(2)),
-    });
-
-    // Descontar stock: al llegar a 0 (o menos) el producto se desactiva solo
-    // en vez de eliminarse, manteniendo su histórico.
-    await db
-      .update(products)
-      .set({
-        stock: sql`GREATEST(0, ${products.stock} - ${Math.floor(item.quantity)})`,
-      })
-      .where(eq(products.id, item.productId));
-
-    const [after] = await db
-      .select({ stock: products.stock })
-      .from(products)
-      .where(eq(products.id, item.productId))
-      .limit(1);
-    if (after && Number(after.stock) <= 0) {
-      await db
-        .update(products)
-        .set({ available: false })
-        .where(eq(products.id, item.productId));
-    }
-  }
-
-  res.status(201).json({ ...sale, total: Number(sale.total), antiFraudFlagged });
+  res.status(201).json({ ...result.sale, antiFraudFlagged: result.antiFraudFlagged });
 });
 
 // Estadísticas del negocio + ventas recientes
@@ -167,7 +67,12 @@ router.get("/sales/stats", requireAuth, async (req: AuthRequest, res) => {
   const allSales = await db.query.sales.findMany({
     where: eq(sales.storeId, storeId),
     with: {
-      items: { with: { product: { columns: { id: true, name: true } } } },
+      items: {
+        with: {
+          product: { columns: { id: true, name: true } },
+          service: { columns: { id: true, name: true } },
+        },
+      },
       customer: { columns: { id: true, name: true } },
     },
     orderBy: (s, { desc }) => [desc(s.soldAt)],
@@ -199,22 +104,44 @@ router.get("/sales/stats", requireAuth, async (req: AuthRequest, res) => {
     string,
     { name: string; quantity: number; productId: string }
   >();
+  // Servicios más vendidos (ventas generadas al cerrar una cita en BELLEZA)
+  const serviceMap = new Map<
+    string,
+    { name: string; quantity: number; serviceId: string }
+  >();
   for (const s of allSales) {
     for (const item of s.items) {
-      const key = item.productId ?? item.product?.name ?? "—";
       const qty = Number(item.quantity) || 0;
+      if (item.serviceId) {
+        const key = item.serviceId;
+        if (serviceMap.has(key)) {
+          serviceMap.get(key)!.quantity += qty;
+        } else {
+          serviceMap.set(key, {
+            name: item.service?.name ?? "Servicio",
+            quantity: qty,
+            serviceId: item.serviceId,
+          });
+        }
+        continue;
+      }
+      if (!item.productId) continue;
+      const key = item.productId;
       if (soldMap.has(key)) {
         soldMap.get(key)!.quantity += qty;
       } else {
         soldMap.set(key, {
           name: item.product?.name ?? "Producto",
           quantity: qty,
-          productId: item.productId ?? "",
+          productId: item.productId,
         });
       }
     }
   }
   const topProducts = [...soldMap.values()]
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 5);
+  const topServices = [...serviceMap.values()]
     .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 5);
 
@@ -239,11 +166,13 @@ router.get("/sales/stats", requireAuth, async (req: AuthRequest, res) => {
     total: Number(s.total),
     soldAt: s.soldAt,
     note: s.note,
+    origin: s.origin,
     customerName: s.customer?.name ?? null,
     itemsSummary: s.items.map((i) => ({
-      name: i.product?.name ?? "Producto",
+      name: i.product?.name ?? i.service?.name ?? "Ítem",
       quantity: Number(i.quantity),
       unitPrice: Number(i.unitPrice),
+      kind: i.serviceId ? ("service" as const) : ("product" as const),
     })),
   }));
 
@@ -254,6 +183,7 @@ router.get("/sales/stats", requireAuth, async (req: AuthRequest, res) => {
     todayRevenue,
     customerCount,
     topProducts,
+    topServices,
     topViewed,
     conversionRate,
     totalViews,
@@ -267,10 +197,13 @@ type saleWithItems = {
   total: number | string;
   soldAt: Date | null;
   note: string | null;
+  origin: string;
   customerId: string | null;
   items: {
     productId: string | null;
     product?: { id: string; name: string } | null;
+    serviceId: string | null;
+    service?: { id: string; name: string } | null;
     quantity: string;
     unitPrice: string;
   }[];

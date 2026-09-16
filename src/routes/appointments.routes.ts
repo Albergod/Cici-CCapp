@@ -2,12 +2,13 @@
 // cambios de estado (cancelar/completar). La reserva vía chat reutiliza
 // createBooking() (src/lib/appointments.ts) para validación determinística.
 import { Router } from "express";
-import { eq, and, gte, lte, asc } from "drizzle-orm";
+import { eq, and, gte, lte, asc, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client";
-import { appointments, stores, storeServices, users } from "../db/schema";
+import { appointments, sales, stores, storeServices, users } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { createBooking } from "../lib/appointments";
+import { createSale } from "../lib/sales";
 import { nowInTimezone, dateFromDb, DEFAULT_SCHEDULE } from "../lib/booking";
 import { userBlockState, refreshUserModeration } from "../lib/moderation";
 
@@ -52,6 +53,7 @@ router.get("/agenda", requireAuth, async (req: AuthRequest, res) => {
       endTime: appointments.endTime,
       status: appointments.status,
       note: appointments.note,
+      saleId: appointments.saleId,
       serviceName: storeServices.name,
       servicePrice: storeServices.price,
       serviceDurationMinutes: storeServices.durationMinutes,
@@ -166,12 +168,181 @@ router.patch("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
   res.json({ ok: true });
 });
 
-// Completar una cita (solo el comerciante: el servicio se prestó). Solo desde
-// "confirmed": una cita cancelada no se puede completar.
+type CloseDoneResult =
+  | {
+      kind: "ok";
+      idempotent: boolean;
+      appointment: { id: string; status: string; saleId: string | null };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sale: any;
+    }
+  | { kind: "error"; status: number; error: string };
+
+// Atender una cita ("Listo"): completa Y registra la venta del servicio en UNA
+// transacción. Es idempotente vía appointments.saleId — una cita produce como
+// máximo una venta. Si algo falla a mitad (inserción de venta, stock…), el
+// rollback deja la cita en su estado original: ni "completada sin venta" ni
+// venta huérfana. También cierra citas que quedaron "completed" por el endpoint
+// viejo /complete sin haber generado venta.
+async function closeAsDone(apptId: string, userId: string): Promise<CloseDoneResult> {
+  return db.transaction(async (tx) => {
+    const [appt] = await tx
+      .select({
+        id: appointments.id,
+        storeId: appointments.storeId,
+        serviceId: appointments.serviceId,
+        customerId: appointments.customerId,
+        status: appointments.status,
+        saleId: appointments.saleId,
+      })
+      .from(appointments)
+      .where(eq(appointments.id, apptId))
+      .limit(1);
+    if (!appt) return { kind: "error" as const, status: 404, error: "Cita no encontrada." };
+
+    const [store] = await tx
+      .select({ ownerId: stores.ownerId })
+      .from(stores)
+      .where(eq(stores.id, appt.storeId))
+      .limit(1);
+    if (store?.ownerId !== userId) {
+      return { kind: "error" as const, status: 403, error: "No autorizado." };
+    }
+
+    if (appt.status === "cancelled") {
+      return {
+        kind: "error" as const,
+        status: 409,
+        error: "La cita fue cancelada y no se puede cerrar.",
+      };
+    }
+    if (appt.status === "no_show") {
+      return { kind: "error" as const, status: 409, error: "La cita está marcada como 'no vino'." };
+    }
+
+    // Idempotencia: si ya tiene venta, devolvemos la existente sin duplicar.
+    if (appt.saleId) {
+      const [existing] = await tx.select().from(sales).where(eq(sales.id, appt.saleId)).limit(1);
+      return {
+        kind: "ok" as const,
+        idempotent: true,
+        appointment: { id: apptId, status: "completed", saleId: appt.saleId },
+        sale: existing ? { ...existing, total: Number(existing.total) } : null,
+      };
+    }
+
+    // Reclamo atómico: evita que dos requests simultáneos generen dos ventas.
+    const claimed = await tx
+      .update(appointments)
+      .set({ status: "completed" })
+      .where(
+        and(
+          eq(appointments.id, apptId),
+          isNull(appointments.saleId),
+          ne(appointments.status, "cancelled"),
+          ne(appointments.status, "no_show"),
+        ),
+      )
+      .returning({ id: appointments.id });
+
+    if (!claimed.length) {
+      const [fresh] = await tx
+        .select({ status: appointments.status, saleId: appointments.saleId })
+        .from(appointments)
+        .where(eq(appointments.id, apptId))
+        .limit(1);
+      if (fresh?.saleId) {
+        const [existing] = await tx.select().from(sales).where(eq(sales.id, fresh.saleId)).limit(1);
+        return {
+          kind: "ok" as const,
+          idempotent: true,
+          appointment: { id: apptId, status: fresh.status, saleId: fresh.saleId },
+          sale: existing ? { ...existing, total: Number(existing.total) } : null,
+        };
+      }
+      return {
+        kind: "error" as const,
+        status: 409,
+        error: "No se pudo cerrar la cita; inténtalo de nuevo.",
+      };
+    }
+
+    const [svc] = await tx
+      .select({ name: storeServices.name })
+      .from(storeServices)
+      .where(eq(storeServices.id, appt.serviceId))
+      .limit(1);
+
+    const saleResult = await createSale(
+      {
+        storeId: appt.storeId,
+        items: [{ serviceId: appt.serviceId, quantity: 1 }],
+        note: svc?.name ?? "Servicio",
+        customerId: appt.customerId,
+        paymentMethod: null,
+        origin: "appointment",
+      },
+      // PgTransaction y NodePgDatabase comparten API; el cast es seguro porque
+      // createSale no usa $client (no accede al pool directamente).
+      tx as unknown as typeof db,
+    );
+    if (!saleResult.ok) {
+      return { kind: "error" as const, status: saleResult.status, error: saleResult.error };
+    }
+
+    await tx
+      .update(appointments)
+      .set({ saleId: saleResult.sale.id })
+      .where(eq(appointments.id, apptId));
+
+    return {
+      kind: "ok" as const,
+      idempotent: false,
+      appointment: { id: apptId, status: "completed", saleId: saleResult.sale.id },
+      sale: saleResult.sale,
+    };
+  });
+}
+
+// Alias del endpoint viejo /complete: atiende la cita Y registra la venta con la
+// misma transacción que /close ("Listo"). Un solo camino para "atendida".
 router.patch("/:id/complete", requireAuth, async (req: AuthRequest, res) => {
   if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
+  const r = await closeAsDone(req.params.id, req.userId!);
+  if (r.kind === "error") return res.status(r.status).json({ error: r.error });
+  res.json({ ok: true, appointment: r.appointment, sale: r.sale });
+});
+
+// Cerrar una cita desde la agenda (solo el comerciante):
+//  - outcome "done":    atiende la cita Y registra la venta del servicio. La
+//    plata la cobra el comercio por fuera, así que la venta no lleva método.
+//  - outcome "no_show": el cliente no vino; cierra sin venta.
+const closeSchema = z.object({ outcome: z.enum(["done", "no_show"]) });
+
+router.post("/:id/close", requireAuth, async (req: AuthRequest, res) => {
+  if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
+  const parsed = closeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  if (parsed.data.outcome === "done") {
+    const r = await closeAsDone(req.params.id, req.userId!);
+    if (r.kind === "error") return res.status(r.status).json({ error: r.error });
+    return res.json({
+      ok: true,
+      idempotent: r.idempotent,
+      appointment: r.appointment,
+      sale: r.sale,
+    });
+  }
+
+  // ── No vino ─────────────────────────────────────────────────────────────
   const [appt] = await db
-    .select({ id: appointments.id, storeId: appointments.storeId, status: appointments.status })
+    .select({
+      id: appointments.id,
+      storeId: appointments.storeId,
+      status: appointments.status,
+      saleId: appointments.saleId,
+    })
     .from(appointments)
     .where(eq(appointments.id, req.params.id))
     .limit(1);
@@ -185,14 +356,20 @@ router.patch("/:id/complete", requireAuth, async (req: AuthRequest, res) => {
   if (store?.ownerId !== req.userId) return res.status(403).json({ error: "No autorizado." });
 
   if (appt.status === "cancelled") {
-    return res.status(409).json({ error: "La cita fue cancelada y no se puede completar." });
+    return res.status(409).json({ error: "La cita fue cancelada y no se puede cerrar." });
+  }
+  if (appt.status === "completed" || appt.saleId) {
+    return res.status(409).json({ error: "La cita ya fue atendida y tiene una venta." });
+  }
+  if (appt.status === "no_show") {
+    return res.json({ ok: true, status: "no_show", idempotent: true });
   }
 
   await db
     .update(appointments)
-    .set({ status: "completed" })
-    .where(eq(appointments.id, appt.id));
-  res.json({ ok: true });
+    .set({ status: "no_show" })
+    .where(and(eq(appointments.id, appt.id), eq(appointments.status, "confirmed")));
+  return res.json({ ok: true, status: "no_show" });
 });
 
 export default router;
