@@ -7,6 +7,7 @@ import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import morgan from "morgan";
+import compression from "compression";
 import http from "http";
 import path from "path";
 import fs from "fs";
@@ -49,6 +50,9 @@ export function createApp() {
   app.use(cors());
   app.use(express.json());
   app.use(morgan("dev"));
+  // Compresión gzip para JSON y estáticos: el feed y los catálogos pesan mucho
+  // menos por la red (~70-80% de ahorro).
+  app.use(compression());
 
   // ── Archivos estáticos (términos, privacidad, etc.) ────────────────────────
   // Resolvemos rutas desde la ubicación real del código (__dirname) en vez de

@@ -19,6 +19,8 @@ export function StoreCard({ store }: StoreCardProps) {
           <img
             src={store.bannerUrl}
             alt=""
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover"
           />
         )}
@@ -35,7 +37,7 @@ export function StoreCard({ store }: StoreCardProps) {
         <div className="flex items-start -mt-10 mb-3 relative z-10">
           <div className="w-14 h-14 rounded-2xl bg-white shadow-soft flex items-center justify-center overflow-hidden ring-4 ring-white">
             {store.logoUrl ? (
-              <img src={store.logoUrl} alt="" className="w-full h-full object-cover" />
+              <img src={store.logoUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
             ) : (
               <span className={`w-full h-full ${gradient} flex items-center justify-center text-white text-xl font-extrabold`}>
                 {store.name.charAt(0).toUpperCase()}

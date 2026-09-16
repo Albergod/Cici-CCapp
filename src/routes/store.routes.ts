@@ -371,8 +371,28 @@ router.get("/", async (req, res) => {
       sql`CASE WHEN ${s.plan} = 'BUSINESS' THEN 0 WHEN ${s.plan} = 'PRO' THEN 1 ELSE 2 END`,
       desc(s.createdAt),
     ],
-    with: { followers: true, products: true },
   });
+
+  // Conteos agregados del feed: NUNCA traemos las filas completas de productos
+  // y followers de todas las tiendas (el payload explotaba con el mall lleno);
+  // solo los COUNT por tienda.
+  const ids = results.map((r) => r.id);
+  const [prodCountRows, followCountRows] = ids.length
+    ? await Promise.all([
+        db
+          .select({ storeId: products.storeId, n: sql<number>`count(*)::int` })
+          .from(products)
+          .where(inArray(products.storeId, ids))
+          .groupBy(products.storeId),
+        db
+          .select({ storeId: follows.storeId, n: sql<number>`count(*)::int` })
+          .from(follows)
+          .where(inArray(follows.storeId, ids))
+          .groupBy(follows.storeId),
+      ])
+    : [[], []];
+  const prodCounts = new Map(prodCountRows.map((r) => [r.storeId, Number(r.n)]));
+  const followCounts = new Map(followCountRows.map((r) => [r.storeId, Number(r.n)]));
 
   // Ventas reales (medios rastreables) de la página completa en una query.
   const trackedSales = await getTrackedSalesCounts(results.map((r) => r.id));
@@ -396,7 +416,7 @@ router.get("/", async (req, res) => {
       .where(and(inArray(stores.id, eligible.map((s) => s.id)), isNull(stores.verifiedAt)));
   }
 
-  const withCounts = results.map(({ followers, products, referralCode: _rc, referredByStoreId: _rbid, ...store }) => {
+  const withCounts = results.map(({ referralCode: _rc, referredByStoreId: _rbid, ...store }) => {
     const elig = getContactEligibility(
       store.trialStartedAt,
       store.subscriptionExpiresAt,
@@ -407,8 +427,8 @@ router.get("/", async (req, res) => {
     const prestigeActive = store.plan !== "FREE";
     return {
       ...store,
-      followersCount: followers.length,
-      productsCount: products.length,
+      followersCount: followCounts.get(store.id) ?? 0,
+      productsCount: prodCounts.get(store.id) ?? 0,
       contactAvailable: elig.contactAvailable,
       subscriptionStatus: elig.status,
       onTrial: isOnTrial(store),
