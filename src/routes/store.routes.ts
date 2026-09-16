@@ -119,13 +119,14 @@ const createStoreSchema = z.object({
 });
 
 // Crear tienda ("abrir tu local").
-// Modo trial: toda tienda nueva se abre como PRO por TRIAL_DURATION_MS (14 días).
-// El marcador de prueba es `subscriptionCycle = null` (un pago real SIEMPRE
-// fija MONTHLY/BI_MONTHLY en activatePaidPlan). Al vencer, el cron
-// expireStoresAndReturnCount baja la tienda a FREE (modo manual) y recién ahí
-// el comerciante decide si continúa con un plan de pago. Si el comerciante ya
+// La tienda nace FREE (modo manual, sin IA): la prueba de 14 días NO arranca
+// acá. El comerciante la activa con POST /stores/:id/trial cuando su espacio
+// ya tiene algo que probar (≥1 producto o servicio) y SOLO una vez por
+// propietario. El marcador de prueba es `subscriptionCycle = null` (un pago
+// real SIEMPRE fija MONTHLY/BI_MONTHLY en activatePaidPlan). Al vencer, el
+// cron expireStoresAndReturnCount baja la tienda a FREE. Si el comerciante ya
 // pagó ANTES de crear la tienda (pago sin storeId, fila approved con store_id
-// NULL), ese plan real pisa el trial.
+// NULL), ese plan real pisa el estado FREE.
 router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const parsed = createStoreSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -213,11 +214,11 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     .insert(stores)
     .values({
       ...parsed.data,
-      // Trial PRO: plan abierto 14 días SIN ciclo (marcador de prueba). El
-      // referido/prestigio se siguen bloqueando (referralCode=null).
-      plan: "PRO",
+      // FREE por defecto: la prueba PRO se activa aparte (/stores/:id/trial).
+      // trial_started_at se queda NULL hasta esa activación.
+      plan: "FREE",
       subscriptionCycle: null,
-      subscriptionExpiresAt: new Date(Date.now() + TRIAL_DURATION_MS),
+      subscriptionExpiresAt: null,
       slug,
       referredByStoreId,
       ownerId: req.userId!,
@@ -256,6 +257,79 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   }
 
   res.status(201).json(withTrialFlags(store));
+});
+
+// ── Activación de la prueba PRO (14 días) ───────────────────────────────────
+// "Business activation": para probar PRO el espacio debe tener algo que
+// probar (≥1 producto o ≥1 servicio). El trial es UNA SOLA vez por
+// propietario (users.trial_used_at), no por tienda: si más adelante se
+// permiten varias tiendas por usuario, los 14 días no se reinician.
+const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+router.post("/:id/trial", requireAuth, async (req: AuthRequest, res) => {
+  if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
+
+  const [store] = await db
+    .select()
+    .from(stores)
+    .where(and(eq(stores.id, req.params.id), eq(stores.ownerId, req.userId!)))
+    .limit(1);
+  if (!store) return res.status(404).json({ error: "No tienes una tienda." });
+
+  const [owner] = await db
+    .select({ trialUsedAt: users.trialUsedAt })
+    .from(users)
+    .where(eq(users.id, req.userId!))
+    .limit(1);
+  if (owner?.trialUsedAt) {
+    return res.status(409).json({ error: "Ya usaste tu prueba gratis de 14 días." });
+  }
+
+  if (store.plan !== "FREE") {
+    return res.status(409).json({
+      error: "Esta tienda ya tiene un plan. El trial solo se activa desde el plan gratis.",
+    });
+  }
+
+  // Business activation: el espacio necesita contenido que mostrar/probar.
+  const [counts] = await db
+    .select({
+      products: sql<number>`(
+        SELECT count(*)::int FROM ${products} WHERE ${products.storeId} = ${store.id}
+      )`,
+      services: sql<number>`(
+        SELECT count(*)::int FROM ${storeServices} WHERE ${storeServices.storeId} = ${store.id}
+      )`,
+    })
+    .from(stores)
+    .where(eq(stores.id, store.id))
+    .limit(1);
+  const businessActivated = Number(counts?.products ?? 0) >= 1 || Number(counts?.services ?? 0) >= 1;
+  if (!businessActivated) {
+    return res.status(400).json({
+      error: "Agrega al menos un producto o un servicio para activar tu prueba de 14 días.",
+      code: "business_not_activated",
+    });
+  }
+
+  const now = new Date();
+  const ok = await db.transaction(async (tx) => {
+    await tx
+      .update(stores)
+      .set({
+        plan: "PRO",
+        subscriptionCycle: null,
+        trialStartedAt: now,
+        subscriptionExpiresAt: new Date(Date.now() + TRIAL_DURATION_MS),
+      })
+      .where(eq(stores.id, store.id));
+    await tx.update(users).set({ trialUsedAt: now }).where(eq(users.id, req.userId!));
+    return true;
+  });
+  if (!ok) return res.status(500).json({ error: "No se pudo activar la prueba. Inténtalo de nuevo." });
+
+  const [updated] = await db.select().from(stores).where(eq(stores.id, store.id)).limit(1);
+  res.status(201).json(withTrialFlags(updated ?? store));
 });
 
 // Feed / explorar tiendas destacadas (paginado simple).

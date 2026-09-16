@@ -8,7 +8,7 @@ import { db } from "../db/client";
 import { appointments, saleItems, storeServices, stores } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { sql } from "drizzle-orm";
-import { minutesToTime, nowInTimezone, DEFAULT_SCHEDULE } from "../lib/booking";
+import { minutesToTime, nowInTimezone, normalizeSchedule } from "../lib/booking";
 
 const router = Router();
 
@@ -16,7 +16,7 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 async function requireOwnBeautyStore(userId: string) {
   const [store] = await db
-    .select({ id: stores.id, businessType: stores.businessType })
+    .select({ id: stores.id, businessType: stores.businessType, schedule: stores.schedule })
     .from(stores)
     .where(eq(stores.ownerId, userId))
     .limit(1);
@@ -132,7 +132,7 @@ router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
   // Una cita bloquea el borrado si aún no terminó (en la zona horaria del
   // esquema de la tienda, no el UTC del servidor): fecha de hoy con hora de
   // fin aún en el futuro, o cualquier fecha posterior.
-  const now = nowInTimezone(DEFAULT_SCHEDULE.timezone);
+  const now = nowInTimezone(normalizeSchedule(store!.schedule).timezone);
   const todayMidnight = `${now.date} 00:00:00`;
   const nowClock = minutesToTime(now.minutes)!;
   const [{ n }] = await db

@@ -1,11 +1,12 @@
 // Lógica de negocio de suscripciones y periodo de prueba.
 // Modelo de negocio: "centro comercial digital".
 // - Cada creador abre su tienda (local).
-// - Modo trial: al crear la tienda el plan se abre como PRO por 14 días (el
-//   marcador de prueba es `subscriptionCycle = null`, vs un pago real que
-//   siempre fija MONTHLY/BI_MONTHLY). El "Día 14 → ¿Quieres continuar?" lo
-//   resuelve el cron de expiración: baja la tienda a FREE y queda en modo
-//   manual (sin IA).
+// - El trial NO arranca al crear la tienda: la tienda nace FREE y el
+//   comerciante activa la prueba (POST /stores/:id/trial, una sola vez por
+//   propietario) cuando ya tiene algo que probar. El marcador de prueba es
+//   `plan != FREE` + `subscriptionCycle = null`, vs un pago real que siempre
+//   fija MONTHLY/BI_MONTHLY. El "Día 14 → ¿Quieres continuar?" lo resuelve el
+//   cron de expiración: baja la tienda a FREE y queda en modo manual (sin IA).
 // - El contacto directo con clientes (chat) está SIEMPRE disponible: quien
 //   prueba la app necesita experimentar su valor para luego pagar por el
 //   espacio, el sistema de prestigio/referidos y los límites ampliados.
@@ -29,7 +30,7 @@ export function isOnTrial(store: {
   );
 }
 
-export type SubscriptionStatus = "trial" | "active" | "expired";
+export type SubscriptionStatus = "trial" | "active" | "free" | "expired";
 
 export interface ContactEligibility {
   /** true si el cliente/creador puede usar el contacto directo. Siempre disponible. */
@@ -80,7 +81,24 @@ export function getContactEligibility(
     subscriptionCycle !== undefined &&
     (subExpiry === null || subExpiry > now);
 
-  const status: SubscriptionStatus = subscribed ? "active" : onTrialWindow ? "trial" : "expired";
+  // La tienda nunca activó la prueba (recién creada, FREE sin trial): estado
+  // "free". Una tienda que YA la usó (trial o plan vencido) va a "expired".
+  const expired =
+    (subExpiry !== null && subExpiry <= now) ||
+    (plan === "FREE" &&
+      subscriptionCycle === null &&
+      subscriptionExpiresAt === null &&
+      !!trialStartedAt);
+
+  const status: SubscriptionStatus = subscribed
+    ? "active"
+    : onTrialWindow
+      ? "trial"
+      : expired
+        ? "expired"
+        : plan === "FREE"
+          ? "free"
+          : "expired";
 
   // El contacto nunca se bloquea.
   const contactAvailable = true;

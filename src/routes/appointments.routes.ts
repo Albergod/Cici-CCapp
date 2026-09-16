@@ -9,7 +9,7 @@ import { appointments, sales, stores, storeServices, users } from "../db/schema"
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { createBooking } from "../lib/appointments";
 import { createSale } from "../lib/sales";
-import { nowInTimezone, dateFromDb, DEFAULT_SCHEDULE } from "../lib/booking";
+import { nowInTimezone, dateFromDb, normalizeSchedule } from "../lib/booking";
 import { userBlockState, refreshUserModeration } from "../lib/moderation";
 
 const router = Router();
@@ -28,7 +28,7 @@ function daysFrom(base: string, days: number): string {
 // su agenda personalmente; la IA solo está en planes de pago).
 router.get("/agenda", requireAuth, async (req: AuthRequest, res) => {
   const [store] = await db
-    .select({ id: stores.id, businessType: stores.businessType })
+    .select({ id: stores.id, businessType: stores.businessType, schedule: stores.schedule })
     .from(stores)
     .where(eq(stores.ownerId, req.userId!))
     .limit(1);
@@ -36,7 +36,7 @@ router.get("/agenda", requireAuth, async (req: AuthRequest, res) => {
 
   const from = String(req.query.from ?? "").trim();
   const to = String(req.query.to ?? "").trim();
-  const today = nowInTimezone(DEFAULT_SCHEDULE.timezone).date;
+  const today = nowInTimezone(normalizeSchedule(store.schedule).timezone).date;
   const fromUsed = DATE_RX.test(from) ? from : today;
   const cFrom = `${fromUsed} 00:00:00`;
   const toUsed = DATE_RX.test(to) ? to : daysFrom(fromUsed, 7);

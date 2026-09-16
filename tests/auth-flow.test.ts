@@ -59,7 +59,7 @@ describe("Flujo crítico (LOGIN → CREAR TIENDA → CHECKOUT)", () => {
     expect(r.status).toBe(400);
   });
 
-  it("debe crear una tienda en prueba gratis (plan PRO abierto por 14 días)", async () => {
+  it("crea una tienda Free y activa la prueba PRO de 14 días una sola vez", async () => {
     const email = `store-${Date.now()}@example.com`;
     await request(app).post("/api/auth/register").send({
       email,
@@ -78,12 +78,44 @@ describe("Flujo crítico (LOGIN → CREAR TIENDA → CHECKOUT)", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({ name: "Tienda Test", description: "Test", businessType: "OTRO" });
     expect(r.status).toBe(201);
-    expect(r.body.plan).toBe("PRO");
+    // La tienda nace FREE: la prueba NO arranca sola.
+    expect(r.body.plan).toBe("FREE");
     expect(r.body.subscriptionCycle).toBeNull();
-    expect(r.body.onTrial).toBe(true);
-    expect(r.body.trialEndsAt).toBeDefined();
-    // En prueba gratis aún no hay código de referido.
+    expect(r.body.onTrial).toBe(false);
+    expect(r.body.trialEndsAt).toBeUndefined();
     expect(r.body.referralCode).toBeNull();
+
+    // Business activation: sin contenido aún no se puede activar la prueba.
+    const early = await request(app)
+      .post(`/api/stores/${r.body.id}/trial`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(early.status).toBe(400);
+    expect(early.body.code).toBe("business_not_activated");
+
+    // Se agrega un producto y se activa el trial.
+    await request(app)
+      .post(`/api/stores/${r.body.id}/products`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Camiseta", price: 45000, stock: 5 });
+    const t1 = await request(app)
+      .post(`/api/stores/${r.body.id}/trial`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(t1.status).toBe(201);
+    expect(t1.body.plan).toBe("PRO");
+    expect(t1.body.subscriptionCycle).toBeNull();
+    expect(t1.body.onTrial).toBe(true);
+    expect(t1.body.referralCode).toBeNull();
+
+    // Fecha de fin ≈ now + 14 días (±2h de holgura).
+    const plus14 = Date.now() + 14 * 24 * 60 * 60 * 1000;
+    expect(Math.abs((t1.body.trialEndsAt as number) - plus14)).toBeLessThan(2 * 60 * 60 * 1000);
+
+    // Una sola vez por propietario.
+    const t2 = await request(app)
+      .post(`/api/stores/${r.body.id}/trial`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(t2.status).toBe(409);
+    expect(t2.body.error).toMatch(/ya usaste/i);
   });
 });
 

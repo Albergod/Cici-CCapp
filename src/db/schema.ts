@@ -67,6 +67,10 @@ export const users = pgTable("users", {
   //   BANNED - expulsado de la plataforma (permanente)
   moderationStatus: text("moderation_status").notNull().default("ACTIVE"),
   moderationUntil: timestamp("moderation_until"),
+  // Una sola prueba gratis por propietario (fecha en que la usó). Se marca al
+  // activar el trial (POST /stores/:id/trial), no al crear la cuenta. Así un
+  // usuario no puede reiniciar los 14 días creando otra tienda.
+  trialUsedAt: timestamp("trial_used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -82,7 +86,9 @@ export const stores = pgTable("stores", {
   businessType: businessTypeEnum("business_type").default("OTRO").notNull(),
   subscriptionCycle: cycleEnum("subscription_cycle"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-  trialStartedAt: timestamp("trial_started_at").defaultNow().notNull(),
+  // La prueba empieza SOLO cuando el comerciante la activa (POST
+  // /stores/:id/trial). Una tienda FREE recién creada lo tiene NULL.
+  trialStartedAt: timestamp("trial_started_at"),
   subscriptionExpiresAt: timestamp("subscription_expires_at"),
   ownerId: uuid("owner_id")
     .notNull()

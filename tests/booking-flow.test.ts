@@ -697,9 +697,10 @@ describe("Gates de plan: servicios, agenda y reservas solo PRO/BUSINESS", () => 
       .send({ name: storeName, businessType: "BELLEZA" });
     expect(store.status).toBe(201);
     storeId = store.body.id;
-    // Nueva tienda = prueba gratis 14 días (plan abierto). Para probar el modo
-    // manual post-prueba, la simulamos expirada: plan FREE sin ciclo.
-    expect(store.body.onTrial).toBe(true);
+    // Nueva tienda = FREE (prueba manual, se activa aparte). Para probar el
+    // modo manual post-prueba, la forzamos a FREE sin ciclo.
+    expect(store.body.plan).toBe("FREE");
+    expect(store.body.onTrial).toBe(false);
     await db
       .update(stores)
       .set({ plan: "FREE", subscriptionCycle: null })

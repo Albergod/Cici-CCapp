@@ -250,12 +250,12 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
               </div>
               <h3 className="font-extrabold text-surface-900">Comerciante Free</h3>
               <p className="text-sm text-surface-500 mt-1">
-                Comienza sin pagar nada. Publica tus productos y abre tu local.
+                Empieza gratis: crea tu espacio y activa la prueba PRO cuando lo tengas listo.
               </p>
               <div className="mt-3 space-y-2 text-sm">
                 <span className="flex items-center gap-2 text-surface-700">
                   <Check className="w-4 h-4 text-emerald-500" />
-                  Prueba de 14 días con todo el plan abierto
+                  Empieza gratis y activa tu prueba de 14 días cuando tu espacio esté listo
                 </span>
                 <span className="flex items-center gap-2 text-surface-700">
                   <Check className="w-4 h-4 text-emerald-500" />
@@ -263,7 +263,7 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
                 </span>
                 <span className="flex items-center gap-2 text-surface-400">
                   <X className="w-4 h-4" />
-                  Sin asistente IA ni pedidos automáticos
+                  La asistencia IA llega con tu prueba PRO o plan de pago
                 </span>
                 <span className="flex items-center gap-2 text-surface-400">
                   <X className="w-4 h-4" />

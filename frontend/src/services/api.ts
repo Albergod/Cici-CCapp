@@ -104,6 +104,8 @@ export const api = {
         products: data.products?.map((p) => ({ ...p, price: toNumber(p.price) })) ?? [],
       };
     },
+    activateTrial: (storeId: string) =>
+      request<Store>(`/stores/${storeId}/trial`, { method: 'POST' }),
     create: (data: {
       name: string;
       description?: string;

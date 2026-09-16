@@ -15,7 +15,8 @@ import { OrdersPanel } from '@/components/OrdersPanel';
 import { ShareStoreCard } from '@/components/ShareStoreCard';
 import { fieldsFor, attributesToTitledList } from '@/lib/categoryFields';
 import { formatCOP } from '@/lib/format';
-import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp } from 'lucide-react';
+import { isBusinessActivated } from '@/lib/business';
+import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp, Rocket } from 'lucide-react';
 
 // Datos de la tienda por crear, guardados mientras se paga. Sobreviven al
 // redirect de Mercado Pago para que la tienda se cree recién cuando el pago es
@@ -189,6 +190,17 @@ export function DashboardPage() {
       console.error('Error loading store:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleActivateTrial = async () => {
+    if (!store) return;
+    try {
+      const updated = await api.stores.activateTrial(store.id);
+      const detail = await api.stores.getBySlug(updated.slug);
+      setStore(detail);
+    } catch (err) {
+      console.error('Error al activar la prueba:', err);
     }
   };
 
@@ -773,7 +785,11 @@ export function DashboardPage() {
               </div>
             </div>
 
-            <DashboardSubscription store={store} onUpgrade={openUpgrade} />
+            <DashboardSubscription
+              store={store}
+              onUpgrade={openUpgrade}
+              onActivateTrial={handleActivateTrial}
+            />
 
             <ShareStoreCard
               url={`${window.location.origin}/store/${store.slug}`}
@@ -1338,10 +1354,19 @@ function formatDaysLeft(ms: number | undefined): string {
   return `${days} día${days !== 1 ? 's' : ''}`;
 }
 
-function DashboardSubscription({ store, onUpgrade }: { store: Store; onUpgrade: () => void }) {
-  const status = store.subscriptionStatus ?? 'trial';
+function DashboardSubscription({
+  store,
+  onUpgrade,
+  onActivateTrial,
+}: {
+  store: Store;
+  onUpgrade: () => void;
+  onActivateTrial: () => void;
+}) {
+  const status = store.subscriptionStatus ?? 'free';
   const trialEndsAt = store.trialEndsAt;
   const [open, setOpen] = useState(false);
+  const businessActivated = isBusinessActivated(store);
 
   if (status === 'active') {
     const benefits = [
@@ -1451,6 +1476,61 @@ function DashboardSubscription({ store, onUpgrade }: { store: Store; onUpgrade: 
             <CreditCard className="w-3.5 h-3.5" />
             Activar Espacio Premium
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'free') {
+    if (businessActivated) {
+      return (
+        <div className="card p-5 border-brand-200 bg-gradient-to-br from-brand-50 to-accent-50">
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 rounded-xl bg-brand-600 text-white flex items-center justify-center shrink-0">
+              <Rocket className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-surface-900">Tu espacio está listo para probar PRO</p>
+              <p className="text-sm text-surface-600 mt-0.5">
+                Activa tu prueba gratis y deja que la IA atienda tus clientes durante{' '}
+                <strong>14 días sin costo</strong>: asistente IA, agenda de citas, prestigio y
+                referidos, con todo el plan abierto. Cuando la actives, la IA se encarga del chat
+                de tu espacio desde el primer día.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={onActivateTrial}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-gradient-to-r from-brand-600 to-accent-500 text-white rounded-full hover:from-brand-700 hover:to-accent-600 transition-all"
+                >
+                  <Rocket className="w-3.5 h-3.5" />
+                  Activar prueba gratis (14 días)
+                </button>
+                <button
+                  type="button"
+                  onClick={onUpgrade}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-surface-900 text-white rounded-full hover:bg-surface-800 transition-all"
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                  Ir directo a un plan de pago
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="card p-5 flex items-start gap-4">
+        <div className="w-11 h-11 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center shrink-0">
+          <Rocket className="w-5 h-5" />
+        </div>
+        <div className="flex-1">
+          <p className="font-bold text-surface-900">Empieza tu prueba PRO gratis</p>
+          <p className="text-sm text-surface-600 mt-0.5">
+            Agrega al menos un producto o un servicio a tu espacio y podrás activar la prueba de{' '}
+            <strong>14 días sin costo</strong> con asistente IA, agenda y prestigio.
+          </p>
         </div>
       </div>
     );

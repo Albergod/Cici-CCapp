@@ -127,6 +127,9 @@ if (isMainModule) {
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at timestamp`);
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS moderation_status text NOT NULL DEFAULT 'ACTIVE'`);
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS moderation_until timestamp`);
+    // Trial manual: la prueba no arranca al crear la tienda, solo al activarla.
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_used_at timestamp`);
+    await db.execute(sql`ALTER TABLE stores ALTER COLUMN trial_started_at DROP DEFAULT`);
     await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS removed_at timestamp`);
     await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS removed_reason text`);
     await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS referral_rewarded boolean NOT NULL DEFAULT false`);

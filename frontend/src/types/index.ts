@@ -55,7 +55,7 @@ export interface User {
   moderationUntil?: string | null;
 }
 
-export type SubscriptionStatus = 'trial' | 'active' | 'expired';
+export type SubscriptionStatus = 'trial' | 'active' | 'free' | 'expired';
 
 export interface Store {
   id: string;

@@ -36,6 +36,19 @@ async function createStore(token: string, name: string, businessType = "OTRO") {
     .send({ name, description: "Test", businessType });
 }
 
+async function addProduct(token: string, storeId: string, name = "Camisa Algodón") {
+  return request(app)
+    .post(`/api/stores/${storeId}/products`)
+    .set("Authorization", `Bearer ${token}`)
+    .send({ name, price: 45000, stock: 10 });
+}
+
+async function activateTrial(token: string, storeId: string) {
+  return request(app)
+    .post(`/api/stores/${storeId}/trial`)
+    .set("Authorization", `Bearer ${token}`);
+}
+
 async function storeIdByOwnerEmail(email: string): Promise<string> {
   const [store] = await db
     .select({ id: stores.id })
@@ -66,7 +79,16 @@ describe("Prueba gratis universal de 14 días", () => {
         .innerJoin(users, eq(stores.ownerId, users.id))
         .where(eq(users.email, email))
         .limit(1);
-      if (store) await db.delete(stores).where(eq(stores.id, store.id));
+      if (store) {
+        const prods = await db
+          .select({ id: products.id })
+          .from(products)
+          .where(eq(products.storeId, store.id));
+        if (prods.length) {
+          await db.delete(products).where(inArray(products.id, prods.map((p) => p.id)));
+        }
+        await db.delete(stores).where(eq(stores.id, store.id));
+      }
       await db.delete(users).where(eq(users.email, email));
     };
     await clean(emails.a);
@@ -74,29 +96,49 @@ describe("Prueba gratis universal de 14 días", () => {
     await clean(emails.c);
   });
 
-  it("toda tienda nueva abre en prueba: plan PRO, sin ciclo y ~14 días", async () => {
+  it("activa la prueba solo con contenido (≥1 producto) y abre PRO ~14 días", async () => {
     const token = await registerUser(emails.a);
     const r = await createStore(token, `Trial A ${ts}`);
     expect(r.status).toBe(201);
-    expect(r.body.plan).toBe("PRO");
-    expect(r.body.subscriptionCycle).toBeNull();
-    expect(r.body.onTrial).toBe(true);
+    // Nace FREE: la prueba no arranca sola.
+    expect(r.body.plan).toBe("FREE");
+    expect(r.body.onTrial).toBe(false);
     expect(r.body.referralCode).toBeNull();
+
+    // Sin contenido la activación se rechaza.
+    const denied = await activateTrial(token, r.body.id);
+    expect(denied.status).toBe(400);
+    expect(denied.body.code).toBe("business_not_activated");
+
+    await addProduct(token, r.body.id);
+    const t = await activateTrial(token, r.body.id);
+    expect(t.status).toBe(201);
+    expect(t.body.plan).toBe("PRO");
+    expect(t.body.subscriptionCycle).toBeNull();
+    expect(t.body.onTrial).toBe(true);
+    expect(t.body.referralCode).toBeNull();
 
     // Fecha de fin de prueba ≈ now + 14 días (±2h de holgura).
     const plus14 = Date.now() + 14 * 24 * 60 * 60 * 1000;
-    expect(Math.abs((r.body.trialEndsAt as number) - plus14)).toBeLessThan(2 * 60 * 60 * 1000);
+    expect(Math.abs((t.body.trialEndsAt as number) - plus14)).toBeLessThan(2 * 60 * 60 * 1000);
 
     // El perfil público reporta status trial (no active) durante la prueba.
     const profile = await request(app).get(`/api/stores/${r.body.slug}`);
     expect(profile.status).toBe(200);
     expect(profile.body.subscriptionStatus).toBe("trial");
+
+    // Una sola vez por propietario (trialUsedAt).
+    const again = await activateTrial(token, r.body.id);
+    expect(again.status).toBe(409);
+    expect(again.body.error).toMatch(/ya usaste/i);
   });
 
   it("durante la prueba los referidos están bloqueados (active:false)", async () => {
     const token = await registerUser(emails.b);
     const r = await createStore(token, `Trial B ${ts}`);
-    expect(r.status).toBe(201);
+    await addProduct(token, r.body.id);
+    const t = await activateTrial(token, r.body.id);
+    expect(t.status).toBe(201);
 
     const ref = await request(app)
       .get("/api/stores/referral")
@@ -111,7 +153,9 @@ describe("Prueba gratis universal de 14 días", () => {
   it("un referidor en prueba no premia a su referido (awardReferralPrestige → 0)", async () => {
     const token = await registerUser(emails.c);
     const r = await createStore(token, `Trial C ${ts}`);
-    expect(r.status).toBe(201);
+    await addProduct(token, r.body.id);
+    const t = await activateTrial(token, r.body.id);
+    expect(t.status).toBe(201);
     const trialId = r.body.id as string;
 
     // Simulamos una referencia ya establecida hacia la tienda en prueba.
