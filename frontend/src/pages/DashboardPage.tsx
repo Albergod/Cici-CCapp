@@ -49,6 +49,9 @@ function readStoreDraft(): StoreDraft | null {
   }
 }
 
+const EXPIRING_SOON_DAYS = 10;
+const URGENT_SOON_DAYS = 3;
+
 export function DashboardPage() {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -685,12 +688,12 @@ export function DashboardPage() {
           </div>
         ) : store ? (
           <div className="space-y-6">
-            {store.plan !== 'FREE' && store.subscriptionExpiresAt && (() => {
+            {store.plan !== 'FREE' && !store.onTrial && store.subscriptionExpiresAt && (() => {
               const daysLeft = Math.ceil(
                 (new Date(store.subscriptionExpiresAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
               );
-              if (daysLeft <= 0) return null;
-              const urgent = daysLeft <= 3;
+              if (daysLeft <= 0 || daysLeft > EXPIRING_SOON_DAYS) return null;
+              const urgent = daysLeft <= URGENT_SOON_DAYS;
               const expiresOn = new Date(store.subscriptionExpiresAt!).toLocaleDateString('es-CO', {
                 day: 'numeric',
                 month: 'long',
@@ -1065,12 +1068,12 @@ export function DashboardPage() {
               )}
             </div>
 
-            {store.plan !== 'FREE' && store.subscriptionExpiresAt && (() => {
+            {store.plan !== 'FREE' && !store.onTrial && store.subscriptionExpiresAt && (() => {
               const daysLeft = Math.max(
                 0,
                 Math.ceil((new Date(store.subscriptionExpiresAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
               );
-              if (daysLeft <= 0) return null;
+              if (daysLeft <= 0 || daysLeft > EXPIRING_SOON_DAYS) return null;
               return (
                 <div className="card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-t-4 border-brand-600">
                   <div>
