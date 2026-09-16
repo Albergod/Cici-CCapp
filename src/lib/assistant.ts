@@ -2,7 +2,7 @@
 // y por el WebSocket del chat). Centraliza: contexto (producto o servicio),
 // slots libres de agenda para BELLEZA, generación de la respuesta de IA y la
 // ejecución determinística de una reserva (RESERVAR) que emite la IA.
-import { and, asc, eq, gte, ne, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lte, ne } from "drizzle-orm";
 import { db } from "../db/client";
 import { conversations, messages, products, storeServices, appointments, stores } from "../db/schema";
 import { getIAStoreReply, buildInvoiceVersions, parseBookingCommand, parseOrderCommand } from "./ai";
@@ -40,6 +40,7 @@ async function buildBookingSlotsText(storeId: string, schedule: ScheduleConfig, 
   const now = nowInTimezone(schedule.timezone);
   const horizonEnd = new Date(`${now.date}T00:00:00`);
   horizonEnd.setDate(horizonEnd.getDate() + schedule.bookingHorizonDays);
+  const horizonEndStr = `${horizonEnd.toISOString().slice(0, 10)} 23:59:59`;
 
   const rows = await db
     .select({
@@ -54,7 +55,7 @@ async function buildBookingSlotsText(storeId: string, schedule: ScheduleConfig, 
         eq(appointments.storeId, storeId),
         ne(appointments.status, "cancelled"),
         gte(appointments.appointmentDate, `${now.date} 00:00:00`),
-        sql`${appointments.appointmentDate} <= ${horizonEnd.toISOString().slice(0, 10)} 23:59:59`,
+        lte(appointments.appointmentDate, horizonEndStr),
       ),
     );
 
