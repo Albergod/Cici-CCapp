@@ -258,6 +258,15 @@ export function parseBookingCommand(text: string | null | undefined): { serviceN
   return { serviceName: m[1].trim().slice(0, 120), date: m[2], time: m[3] };
 }
 
+/** Parsea el pedido que emite la IA (MVP: 1 producto): PEDIDO|<producto>|<cantidad> */
+export function parseOrderCommand(text: string | null | undefined): { productName: string; quantity: number } | null {
+  const m = /^PEDIDO\|(.+?)\|(\d{1,4})$/.exec((text ?? "").trim());
+  if (!m) return null;
+  const quantity = Number(m[2]);
+  if (!Number.isFinite(quantity) || quantity < 1) return null;
+  return { productName: m[1].trim().slice(0, 120), quantity };
+}
+
 export async function getIAStoreReply({
   store,
   products,
@@ -267,6 +276,7 @@ export async function getIAStoreReply({
   services,
   bookingSlots,
   bookingEnabled,
+  pedidosEnabled,
   contextService,
 }: {
   store: StoreInfo;
@@ -277,6 +287,7 @@ export async function getIAStoreReply({
   services?: { name: string; price: number; durationMinutes: number }[];
   bookingSlots?: string;
   bookingEnabled?: boolean;
+  pedidosEnabled?: boolean;
   contextService?: string | null;
 }): Promise<string> {
   const lastMessage = history && history.length > 0 ? history[history.length - 1] : undefined;
@@ -360,7 +371,17 @@ Cuando el cliente quiera reservar un servicio:
    Sin nada más: sin saludos, markdown, comillas, explicaciones ni despedidas.
 
 No generes facturas (Pedido Confirmado) por servicios: una cita solo se reserva.`
-      : `
+      : pedidosEnabled
+        ? `
+Tu tienda vende productos con pedido automático. Cuando el cliente confirme que quiere comprar un producto del catálogo:
+1. Ubica el producto exacto del catálogo (nunca inventes precios ni productos).
+2. Si el cliente no dijo la cantidad, pregúntala; si no es clara, asume 1. Verifica antes que haya stock [solo quedan X / AGOTADO].
+3. Cuando tengas producto + cantidad claramente elegidos por el cliente, responde SOLO con la línea:
+   PEDIDO|<nombre exacto del producto>|<cantidad>
+   Sin nada más: sin saludos, markdown, comillas, explicaciones ni despedidas.
+
+No generes facturas (Pedido Confirmado): el pedido queda anotado automáticamente y el comerciante lo confirma para coordinar la entrega.`
+        : `
 Cuando el cliente confirme que quiere comprar un producto:
 1. Verifica que tengas el nombre del cliente${customerName ? ` (en esta conversación el cliente se llama: ${customerName})` : ". Si no lo conoces, pídelo"}.
 2. Verifica que tengas la dirección de entrega completa.

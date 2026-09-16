@@ -71,6 +71,13 @@
       "when": 1789600000000,
       "tag": "0009_appointment_sale_link",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789601000000,
+      "tag": "0010_orders",
+      "breakpoints": true
     }
   ]
 }

@@ -2,9 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { eq, and, sql, desc, count, isNull, lt, ne, isNotNull, inArray, gte } from "drizzle-orm";
 import { db } from "../db/client";
-import { stores, follows, users, products, mpPayments, violations, storeServices } from "../db/schema";
+import { stores, follows, users, products, mpPayments, violations, storeServices, businessTypeEnum } from "../db/schema";
 import { requireAuth, optionalAuth, AuthRequest } from "../middleware/auth";
-import { getContactEligibility } from "../lib/subscription";
+import { getContactEligibility, isOnTrial, TRIAL_DURATION_MS } from "../lib/subscription";
 import { imageUrl } from "../lib/validators";
 import {
   awardReferralPrestige,
@@ -28,6 +28,24 @@ import {
 } from "../lib/moderation";
 
 const router = Router();
+
+// Flags de trial para las respuestas públicas: onTrial (plan abierto sin pago
+// real), trialEndsAt (ms) y trialEnded (la prueba venció y hoy está FREE).
+function withTrialFlags<T extends Record<string, unknown>>(row: T) {
+  const elig = getContactEligibility(
+    row.trialStartedAt as Date | string | null | undefined,
+    row.subscriptionExpiresAt as Date | string | null | undefined,
+    row.plan as string | null | undefined,
+    row.subscriptionCycle as string | null | undefined,
+  );
+  return {
+    ...row,
+    onTrial: isOnTrial(row),
+    trialEndsAt: elig.trialEndsAt,
+    trialEnded:
+      row.plan === "FREE" && !row.referralCode && elig.status === "expired",
+  };
+}
 
 // ── Downgrade automático de tiendas vencidas ─────────────────────────────────
 // Baja a FREE las tiendas (PRO Y BUSINESS) cuyo subscriptionExpiresAt pasó.
@@ -101,11 +119,13 @@ const createStoreSchema = z.object({
 });
 
 // Crear tienda ("abrir tu local").
-// Las tiendas se crean SIEMPRE en plan FREE. Un plan de pago (PRO/BUSINESS)
-// solo se activa cuando un pago real es aprobado (ver payments/wompi). Si el
-// comerciante ya pagó su plan ANTES de crear la tienda (pago sin storeId, fila
-// approved con store_id NULL), ese plan se aplica aquí a la tienda recién
-// creada. Así SIEMPRE: sin pago aprobado jamás se concede premium.
+// Modo trial: toda tienda nueva se abre como PRO por TRIAL_DURATION_MS (14 días).
+// El marcador de prueba es `subscriptionCycle = null` (un pago real SIEMPRE
+// fija MONTHLY/BI_MONTHLY en activatePaidPlan). Al vencer, el cron
+// expireStoresAndReturnCount baja la tienda a FREE (modo manual) y recién ahí
+// el comerciante decide si continúa con un plan de pago. Si el comerciante ya
+// pagó ANTES de crear la tienda (pago sin storeId, fila approved con store_id
+// NULL), ese plan real pisa el trial.
 router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const parsed = createStoreSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -127,8 +147,8 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     slug = `${baseSlug}-${i++}`;
   }
 
-  // El sistema de prestigio y el código de referido se generan al activar un
-  // plan de pago (no al crear la tienda gratuita).
+  // El código de referido se genera al activar un plan de pago real (nunca en
+  // el trial), así que las tiendas en prueba no pueden "invitar y ganar".
 
   // Si el creador llegó con un código de referido, asociar la tienda al
   // referidor (este gana prestigio solo si tiene un plan de pago activo).
@@ -141,11 +161,15 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   let referredByStoreId: string | null = null;
   if (creator?.refCode) {
     const referrer = await db
-      .select({ id: stores.id, plan: stores.plan })
+      .select({ id: stores.id, plan: stores.plan, subscriptionCycle: stores.subscriptionCycle })
       .from(stores)
       .where(eq(stores.referralCode, creator.refCode))
       .limit(1);
-    if (referrer.length > 0 && referrer[0].plan !== "FREE") {
+    if (
+      referrer.length > 0 &&
+      referrer[0].plan !== "FREE" &&
+      referrer[0].subscriptionCycle !== null
+    ) {
       // Anti-fraude: granja de referidos. Si desde UNA misma IP se abrieron más
       // de REFERRAL_BURST_LIMIT tiendas con este código en 24h, no se premia:
       // se registra la violación para que el admin la revise.
@@ -189,7 +213,11 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     .insert(stores)
     .values({
       ...parsed.data,
-      plan: "FREE",
+      // Trial PRO: plan abierto 14 días SIN ciclo (marcador de prueba). El
+      // referido/prestigio se siguen bloqueando (referralCode=null).
+      plan: "PRO",
+      subscriptionCycle: null,
+      subscriptionExpiresAt: new Date(Date.now() + TRIAL_DURATION_MS),
       slug,
       referredByStoreId,
       ownerId: req.userId!,
@@ -221,19 +249,33 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
         .set({ storeId: store.id })
         .where(eq(mpPayments.id, paid.id));
       const [updated] = await db.select().from(stores).where(eq(stores.id, store.id)).limit(1);
-      return res.status(201).json(updated ?? store);
+      return res.status(201).json(withTrialFlags(updated ?? store));
     } catch (err) {
       console.error("aplicar plan pagado al crear la tienda:", err);
     }
   }
 
-  res.status(201).json(store);
+  res.status(201).json(withTrialFlags(store));
 });
 
-// Feed / explorar tiendas destacadas (paginado simple)
+// Feed / explorar tiendas destacadas (paginado simple).
+// `tipo`: "productos" (comercio de productos) o "belleza" (salones/barberías).
+// Sin `tipo` devuelve todas. Mapeo: BELLEZA → belleza; el resto → productos.
 router.get("/", async (req, res) => {
   const take = Math.min(Number(req.query.take) || 20, 50);
   const skip = Number(req.query.skip) || 0;
+  const tipo = String(req.query.tipo ?? "").trim();
+
+  const bellezaTipos: (typeof businessTypeEnum.enumValues)[number][] = ["BELLEZA"];
+  const productosTipos: (typeof businessTypeEnum.enumValues)[number][] = [
+    "ROPA",
+    "CALZADO",
+    "ACCESORIOS",
+    "HOGAR",
+    "ALIMENTOS",
+    "SERVICIOS",
+    "OTRO",
+  ];
 
   // Reactivar tiendas suspendidas cuya sanción ya expiró (revisión lazy).
   await reauthorizeExpiredSuspensions();
@@ -242,7 +284,12 @@ router.get("/", async (req, res) => {
     limit: take,
     offset: skip,
     // Solo tiendas activas: las suspendidas/banneadas no aparecen en el mall.
-    where: (s, { eq: eqOp }) => eqOp(s.status, "ACTIVE"),
+    where: (s, { eq: eqOp, inArray: inOp, and: andOp }) =>
+      tipo === "belleza"
+        ? andOp(eqOp(s.status, "ACTIVE"), inOp(s.businessType, bellezaTipos))
+        : tipo === "productos"
+          ? andOp(eqOp(s.status, "ACTIVE"), inOp(s.businessType, productosTipos))
+          : eqOp(s.status, "ACTIVE"),
     // Orden de prioridad en el centro comercial: los locales con plan de pago
     // (BUSINESS y PRO) se muestran primero; luego los FREE. Dentro del mismo
     // nivel, los más recientes primero.
@@ -280,6 +327,7 @@ router.get("/", async (req, res) => {
       store.trialStartedAt,
       store.subscriptionExpiresAt,
       store.plan,
+      store.subscriptionCycle,
     );
     const prestige = Number(store.prestigePoints) || 0;
     const prestigeActive = store.plan !== "FREE";
@@ -289,6 +337,8 @@ router.get("/", async (req, res) => {
       productsCount: products.length,
       contactAvailable: elig.contactAvailable,
       subscriptionStatus: elig.status,
+      onTrial: isOnTrial(store),
+      trialEndsAt: elig.trialEndsAt,
       prestigePoints: prestige,
       prestigeActive,
       prestigeGoal: store.prestigeGoal,
@@ -300,7 +350,8 @@ router.get("/", async (req, res) => {
 });
 
 // Referido del negocio: devuelve el enlace y los puntos del emprendedor autenticado.
-// El sistema de prestigio SOLO está activo para tiendas con plan de pago.
+// El sistema de prestigio SOLO está activo para tiendas con plan de pago REAL:
+// en modo trial (plan abierto sin ciclo) los referidos están bloqueados.
 router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
   const [store] = await db
     .select({
@@ -311,6 +362,7 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
       prestigeGoal: stores.prestigeGoal,
       verifiedAt: stores.verifiedAt,
       plan: stores.plan,
+      subscriptionCycle: stores.subscriptionCycle,
       createdAt: stores.createdAt,
     })
     .from(stores)
@@ -322,11 +374,12 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
   const prestigeActive = store.plan !== "FREE";
   const goal = Number(store.prestigeGoal) || VERIFIED_THRESHOLD;
 
-  if (!prestigeActive) {
+  if (!prestigeActive || isOnTrial(store)) {
     return res.json({
       active: false,
-      message:
-        "El sistema de prestigio se activa al elegir un plan de pago. Invita a otros emprendedores y gana el check verificado.",
+      message: isOnTrial(store)
+        ? "Durante tu prueba de 14 días los referidos están bloqueados. Al elegir tu plan de pago activas tu enlace y el check verificado."
+        : "El sistema de prestigio se activa al elegir un plan de pago. Invita a otros emprendedores y gana el check verificado.",
       prestigePoints: 0,
       required: goal,
       verified: false,
@@ -501,6 +554,7 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
     store.trialStartedAt,
     store.subscriptionExpiresAt,
     store.plan,
+    store.subscriptionCycle,
   );
   const prestige = Number(store.prestigePoints) || 0;
   const prestigeActive = store.plan !== "FREE";
@@ -527,7 +581,9 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
   }
 
   // Servicios + horario de agenda (tiendas BELLEZA). La cita se reserva por
-  // chat; aquí solo se exponen catálogo y franjas para el público.
+  // chat; aquí solo se exponen catálogo y franjas para el público. En FREE el
+  // modo es manual (sin IA), pero los servicios siguen visibles: el local
+  // atiende su agenda personalmente.
   const services =
     store.businessType === "BELLEZA"
       ? await db.query.storeServices.findMany({
@@ -543,6 +599,7 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
     followersCount: followers.length,
     contactAvailable: elig.contactAvailable,
     subscriptionStatus: elig.status,
+    onTrial: isOnTrial(store),
     trialEndsAt: elig.trialEndsAt,
     prestigePoints: prestige,
     prestigeActive,

@@ -9,20 +9,25 @@ import { Loader2, StoreIcon, Sparkles, ShoppingBag, MessageSquare, ChevronRight,
 export function HomePage() {
   const [stores, setStores] = useState<Store[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [tipo, setTipo] = useState<'productos' | 'belleza'>('productos');
   const [loading, setLoading] = useState(true);
   const [productsLoading, setProductsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tutorialOpen, setTutorialOpen] = useState(false);
 
   useEffect(() => {
-    loadStores();
     loadProducts();
   }, []);
+
+  useEffect(() => {
+    loadStores();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipo]);
 
   const loadStores = async () => {
     try {
       setLoading(true);
-      const data = await api.stores.list(0, 50);
+      const data = await api.stores.list(0, 50, tipo);
       setStores(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar tiendas');
@@ -112,11 +117,29 @@ export function HomePage() {
 
         <div className="flex items-center justify-between mb-6">
           <h2 className="font-display text-xl md:text-2xl font-bold text-surface-900 tracking-tight">Tiendas destacadas</h2>
-          <span className="text-sm text-surface-400 hidden sm:block">Explora lo nuevo</span>
           <span className="text-xs text-surface-400 sm:hidden flex items-center gap-1">
             Desliza para ver más
             <ChevronRight className="w-3.5 h-3.5" />
           </span>
+        </div>
+
+        <div className="flex items-center gap-2 mb-6 bg-surface-100 p-1.5 rounded-2xl w-fit max-w-full overflow-x-auto">
+          {([
+            { key: 'productos', label: 'Productos' },
+            { key: 'belleza', label: 'Belleza y barbería' },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTipo(t.key)}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors whitespace-nowrap ${
+                tipo === t.key
+                  ? 'bg-white text-brand-600 shadow-sm'
+                  : 'text-surface-500 hover:text-surface-800'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
         {loading ? (

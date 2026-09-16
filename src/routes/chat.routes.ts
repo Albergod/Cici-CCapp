@@ -454,7 +454,7 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
       })
       .returning();
 
-    return res.json({ message: savedMsg, aiReply: aiMsg, appointmentId: result.appointmentId ?? null });
+    return res.json({ message: savedMsg, aiReply: aiMsg, appointmentId: result.appointmentId ?? null, orderId: result.orderId ?? null });
   }
 
   res.json({ message: savedMsg, aiReply: null });

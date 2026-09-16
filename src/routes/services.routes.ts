@@ -46,7 +46,7 @@ const TEMPLATES: { name: string; durationMinutes: number }[] = [
   { name: "Masaje relajante", durationMinutes: 60 },
 ];
 
-// Listar servicios propios
+// Listar servicios propios (disponible en todos los planes: FREE = manual)
 router.get("/", requireAuth, async (req: AuthRequest, res) => {
   const store = await requireOwnBeautyStore(req.userId!);
   if (!store) return res.status(404).json({ error: "No tienes una tienda." });
@@ -67,7 +67,7 @@ router.get("/templates", requireAuth, async (_req: AuthRequest, res) => {
 router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const store = await requireOwnBeautyStore(req.userId!);
   if (!store) return res.status(404).json({ error: "No tienes una tienda." });
-  if (store.businessType !== "BELLEZA") {
+  if (store!.businessType !== "BELLEZA") {
     return res.status(400).json({ error: "Esta tienda no usa servicios." });
   }
   const parsed = serviceSchema.safeParse(req.body);

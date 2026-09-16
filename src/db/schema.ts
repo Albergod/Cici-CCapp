@@ -335,6 +335,37 @@ export const saleItems = pgTable("sale_items", {
   serviceId: uuid("service_id").references(() => storeServices.id),
 });
 
+// Pedido generado por el asistente IA en el chat (tiendas de productos). El
+// cliente confirma la compra y la IA crea un pedido `pending`; el comerciante
+// lo revisa en su panel de "Pedidos" y lo confirma (→ venta origin='order',
+// descuenta stock) o lo cancela. Un pedido pendiente NO toca stock ni cuenta
+// en las estadísticas.
+export const orders = pgTable("orders", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  // pending (por confirmar) | sold (confirmado → venta) | cancelled
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  storeId: uuid("store_id")
+    .notNull()
+    .references(() => stores.id),
+  customerId: uuid("customer_id").references(() => users.id),
+  note: text("note"),
+  // Venta generada al confirmar el pedido. Idempotencia: un pedido → máx 1 venta.
+  saleId: uuid("sale_id").references(() => sales.id),
+});
+
+export const orderItems = pgTable("order_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orderId: uuid("order_id")
+    .notNull()
+    .references(() => orders.id),
+  productId: uuid("product_id").references(() => products.id),
+  // Snapshot del producto en el momento del pedido (precio/stock pueden cambiar).
+  name: text("name").notNull(),
+  unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
+  quantity: numeric("quantity", { precision: 10, scale: 0 }).notNull(),
+});
+
 // Pagos procesados por Mercado Pago (Checkout Pro). El único camino válido
 // para pasar a PRO/BUSINESS: el plan se activa SOLO cuando la app confirma que
 // el pago fue aprobado (webhook + verificación del id de pago vs Mercado Pago).
@@ -393,6 +424,7 @@ export const storesRelations = relations(stores, ({ one, many }) => ({
   violations: many(violations),
   services: many(storeServices),
   appointments: many(appointments),
+  orders: many(orders),
 }));
 
 export const categoriesRelations = relations(categories, ({ one, many }) => ({
@@ -464,6 +496,18 @@ export const saleItemsRelations = relations(saleItems, ({ one }) => ({
   sale: one(sales, { fields: [saleItems.saleId], references: [sales.id] }),
   product: one(products, { fields: [saleItems.productId], references: [products.id] }),
   service: one(storeServices, { fields: [saleItems.serviceId], references: [storeServices.id] }),
+}));
+
+export const ordersRelations = relations(orders, ({ one, many }) => ({
+  store: one(stores, { fields: [orders.storeId], references: [stores.id] }),
+  customer: one(users, { fields: [orders.customerId], references: [users.id] }),
+  sale: one(sales, { fields: [orders.saleId], references: [sales.id] }),
+  items: many(orderItems),
+}));
+
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, { fields: [orderItems.orderId], references: [orders.id] }),
+  product: one(products, { fields: [orderItems.productId], references: [products.id] }),
 }));
 
 export const paymentReportsRelations = relations(paymentReports, ({ one }) => ({

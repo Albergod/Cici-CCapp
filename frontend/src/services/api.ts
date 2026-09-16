@@ -1,4 +1,4 @@
-import { AuthResponse, Conversation, Store, Product, Message, SaleStats, ReferralInfo, StoreService, Appointment, BusinessType } from '@/types';
+import { AuthResponse, Conversation, Store, Product, Message, SaleStats, ReferralInfo, StoreService, Appointment, BusinessType, Order } from '@/types';
 
 const API_BASE = '/api';
 
@@ -87,8 +87,10 @@ export const api = {
   },
 
   stores: {
-    list: async (skip = 0, take = 20): Promise<Store[]> => {
-      const data = await request<Store[]>(`/stores?skip=${skip}&take=${take}`);
+    list: async (skip = 0, take = 20, tipo?: 'productos' | 'belleza'): Promise<Store[]> => {
+      const q = new URLSearchParams({ skip: String(skip), take: String(take) });
+      if (tipo) q.set('tipo', tipo);
+      const data = await request<Store[]>(`/stores?${q.toString()}`);
       return data.map((s) => ({
         ...s,
         products:
@@ -243,7 +245,7 @@ export const api = {
         `/conversations/${conversationId}/messages`
       ),
     sendMessage: (conversationId: string, content: string, cartItems?: { productId: string; quantity: number }[]) =>
-      request<{ message: Message; aiReply?: Message | null }>(
+      request<{ message: Message; aiReply?: Message | null; appointmentId?: string | null; orderId?: string | null }>(
         `/conversations/${conversationId}/messages`,
         {
           method: 'POST',
@@ -291,6 +293,15 @@ export const api = {
         `/appointments/${id}/close`,
         { method: 'POST', body: JSON.stringify({ outcome }) },
       ),
+  },
+
+  orders: {
+    list: (status?: Order['status']) =>
+      request<Order[]>(`/orders${status ? `?status=${status}` : ''}`),
+    confirm: (id: string) =>
+      request<Order>(`/orders/${id}/confirm`, { method: 'POST' }),
+    cancel: (id: string) =>
+      request<Order>(`/orders/${id}/cancel`, { method: 'POST' }),
   },
 };
 

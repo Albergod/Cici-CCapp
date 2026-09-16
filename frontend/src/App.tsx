@@ -1,6 +1,7 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { useState } from 'react';
 import { Heart } from 'lucide-react';
+import { useAuth } from '@/stores/authStore';
 import { Navbar } from '@/components/Navbar';
 import { FollowedStoresSidebar } from '@/components/FollowedStoresSidebar';
 import { HomePage } from '@/pages/HomePage';
@@ -15,6 +16,14 @@ import { SearchPage } from '@/pages/SearchPage';
 import { AdminPage } from '@/pages/AdminPage';
 
 const AUTH_PAGES = ['/login', '/register', '/forgot-password', '/reset-password'];
+
+// Un usuario ya autenticado no debería poder volver a las páginas de sesión
+// (login/registro/recuperación): se le manda al inicio.
+function GuestOnly({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuth();
+  if (isAuthenticated) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -76,7 +85,9 @@ function App() {
         path="/login"
         element={
           <AppLayout>
-            <LoginPage />
+            <GuestOnly>
+              <LoginPage />
+            </GuestOnly>
           </AppLayout>
         }
       />
@@ -84,7 +95,9 @@ function App() {
         path="/register"
         element={
           <AppLayout>
-            <RegisterPage />
+            <GuestOnly>
+              <RegisterPage />
+            </GuestOnly>
           </AppLayout>
         }
       />
@@ -92,7 +105,9 @@ function App() {
         path="/forgot-password"
         element={
           <AppLayout>
-            <ForgotPasswordPage />
+            <GuestOnly>
+              <ForgotPasswordPage />
+            </GuestOnly>
           </AppLayout>
         }
       />
@@ -100,7 +115,9 @@ function App() {
         path="/reset-password/:token"
         element={
           <AppLayout>
-            <ResetPasswordPage />
+            <GuestOnly>
+              <ResetPasswordPage />
+            </GuestOnly>
           </AppLayout>
         }
       />

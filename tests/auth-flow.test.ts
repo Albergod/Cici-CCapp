@@ -59,7 +59,7 @@ describe("Flujo crítico (LOGIN → CREAR TIENDA → CHECKOUT)", () => {
     expect(r.status).toBe(400);
   });
 
-  it("debe crear una tienda FREE", async () => {
+  it("debe crear una tienda en prueba gratis (plan PRO abierto por 14 días)", async () => {
     const email = `store-${Date.now()}@example.com`;
     await request(app).post("/api/auth/register").send({
       email,
@@ -78,7 +78,12 @@ describe("Flujo crítico (LOGIN → CREAR TIENDA → CHECKOUT)", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({ name: "Tienda Test", description: "Test", businessType: "OTRO" });
     expect(r.status).toBe(201);
-    expect(r.body.plan).toBe("FREE");
+    expect(r.body.plan).toBe("PRO");
+    expect(r.body.subscriptionCycle).toBeNull();
+    expect(r.body.onTrial).toBe(true);
+    expect(r.body.trialEndsAt).toBeDefined();
+    // En prueba gratis aún no hay código de referido.
+    expect(r.body.referralCode).toBeNull();
   });
 });
 

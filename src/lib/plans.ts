@@ -43,7 +43,9 @@ export async function activatePaidPlan(
 
   const alreadyActive =
     (store.plan === plan && store.subscriptionCycle === cycle) ||
-    (store.plan !== "FREE" && store.subscriptionExpiresAt !== null &&
+    (store.plan !== "FREE" &&
+      store.subscriptionCycle !== null &&
+      store.subscriptionExpiresAt !== null &&
       new Date(store.subscriptionExpiresAt).getTime() > Date.now());
 
   let referralCode = store.referralCode;

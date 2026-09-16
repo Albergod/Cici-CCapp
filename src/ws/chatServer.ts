@@ -263,6 +263,9 @@ export function attachChatWebSocket(server: Server) {
               startTime: booked?.startTime ?? undefined,
             });
           }
+          if (result.orderId) {
+            broadcast(conversationId, { type: "order_created", orderId: result.orderId });
+          }
         }
       } catch {
         ws.send(JSON.stringify({ type: "error", error: "Payload inválido" }));

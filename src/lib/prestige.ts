@@ -53,6 +53,8 @@ export function getProductLimit(plan: string | null | undefined): number {
  * referral_rewarded actúa como guarda atómica contra dobles premios en
  * renovaciones/reactivaciones. El referidor debe tener un plan de pago activo.
  * Suma PRESTIGE_PER_REFERRAL y REFERRAL_BONUS_DAYS a la vigencia del plan.
+ * Un referidor en modo trial (plan != FREE pero subscription_cycle = null) tampoco
+ * premia: los días de regalo y los puntos solo aplican a un plan REAL pagado.
  * Devuelve los puntos otorgados (0 si no aplicó).
  */
 export async function awardReferralPrestige(referredStoreId: string): Promise<number> {
@@ -64,11 +66,18 @@ export async function awardReferralPrestige(referredStoreId: string): Promise<nu
   if (!claimed?.referredByStoreId) return 0;
 
   const [referrer] = await db
-    .select({ id: stores.id, plan: stores.plan })
+    .select({ id: stores.id, plan: stores.plan, subscriptionCycle: stores.subscriptionCycle })
     .from(stores)
     .where(eq(stores.id, claimed.referredByStoreId))
     .limit(1);
-  if (!referrer || referrer.plan === "FREE") return 0;
+  if (
+    !referrer ||
+    referrer.plan === "FREE" ||
+    referrer.subscriptionCycle === null ||
+    referrer.subscriptionCycle === undefined
+  ) {
+    return 0;
+  }
 
   await db
     .update(stores)

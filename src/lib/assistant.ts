@@ -5,8 +5,9 @@
 import { and, asc, eq, gte, ne, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { conversations, messages, products, storeServices, appointments, stores } from "../db/schema";
-import { getIAStoreReply, buildInvoiceVersions, parseBookingCommand } from "./ai";
+import { getIAStoreReply, buildInvoiceVersions, parseBookingCommand, parseOrderCommand } from "./ai";
 import { createBooking } from "./appointments";
+import { createPendingOrder } from "./orders";
 import {
   normalizeSchedule,
   nowInTimezone,
@@ -31,6 +32,7 @@ export interface AssistantResult {
   content: string;
   waText: string | null;
   appointmentId: string | null;
+  orderId: string | null;
 }
 
 /** Franjas libres de los próximos días en texto legible para el prompt de la IA. */
@@ -96,7 +98,7 @@ export async function generateAssistantReply(
     where: eq(stores.id, ctx.storeId),
     with: { products: true },
   });
-  if (!store) return { content: "Lo sentimos, la tienda no está disponible.", waText: null, appointmentId: null };
+  if (!store) return { content: "Lo sentimos, la tienda no está disponible.", waText: null, appointmentId: null, orderId: null };
 
   const isBeauty = store.businessType === "BELLEZA";
   const customer = customerName;
@@ -109,6 +111,8 @@ export async function generateAssistantReply(
     stock: p.stock !== undefined && p.stock !== null ? Number(p.stock) : null,
     attributes: p.attributes ?? undefined,
   }));
+  // Fase 2: pedido automático (solo tiendas de productos con catálogo).
+  const pedidosEnabled = !isBeauty && storeProducts.length > 0;
 
   const contextProduct = ctx.conversation.assertedProductId
     ? (store.products ?? []).find((p) => p.id === ctx.conversation.assertedProductId) ?? null
@@ -158,6 +162,7 @@ export async function generateAssistantReply(
     services: services.map((s) => ({ ...s })),
     bookingSlots,
     bookingEnabled: isBeauty && services.length > 0,
+    pedidosEnabled,
     contextService: contextServiceName,
   });
 
@@ -173,6 +178,7 @@ export async function generateAssistantReply(
         content: `No conozco ese servicio. Los disponibles son: ${suggestion}. ¿Cuál prefieres y en qué horario?`,
         waText: null,
         appointmentId: null,
+        orderId: null,
       };
     }
 
@@ -184,6 +190,7 @@ export async function generateAssistantReply(
         content: "No conozco ese servicio. Elige uno de los disponibles, por favor.",
         waText: null,
         appointmentId: null,
+        orderId: null,
       };
     }
 
@@ -200,12 +207,36 @@ export async function generateAssistantReply(
     return conflictReply(result, store, bookingSlots);
   }
 
+  // ¿Viene un pedido del playground? Ejecutarlo SIEMPRE de forma
+  // determinística (la IA nunca toca la DB).
+  if (pedidosEnabled) {
+    const orderReq = parseOrderCommand(aiReply);
+    if (orderReq) {
+      const result = await createPendingOrder({
+        storeId: store.id,
+        customerId: ctx.conversation.customerId,
+        productName: orderReq.productName,
+        quantity: orderReq.quantity,
+      });
+      if (!result.ok) {
+        return {
+          content: `😕 ${result.message}`,
+          waText: null,
+          appointmentId: null,
+          orderId: null,
+        };
+      }
+      return confirmOrder(result);
+    }
+  }
+
   // Respuesta normal de la IA (tal vez factura de un producto).
   const invoiceVersions = buildInvoiceVersions(aiReply);
   return {
     content: invoiceVersions ? invoiceVersions.chat : aiReply,
     waText: invoiceVersions ? invoiceVersions.wa : null,
     appointmentId: null,
+    orderId: null,
   };
 }
 
@@ -221,6 +252,19 @@ function confirmAppointment(
     content: `⭐ Cita reservada en ${store.name}\n\n*Servicio:* ${booking.serviceName}\n*Fecha:* ${booking.date}\n*Hora:* ${booking.time}${result.appointment.endTime ? ` - ${result.appointment.endTime}` : ""}\n\nEl comerciante la verá en su agenda y te coordinará si algo cambia.`,
     waText: `📅 Cita reservada:\n\n*Servicio:* ${booking.serviceName}\n*Fecha:* ${booking.date}\n*Hora:* ${booking.time}\n\nRevisa la agenda en la aplicación.`,
     appointmentId: result.appointment.id,
+    orderId: null,
+  };
+}
+
+function confirmOrder(
+  order: { orderId: string; productName: string; unitPrice: number; quantity: number; total: number },
+): AssistantResult {
+  const money = (n: number) => `$${n.toLocaleString("es-CL")}`;
+  return {
+    content: `🛍️ Pedido anotado\n\n*Producto:* ${order.productName} x${order.quantity}\n*Total:* ${money(order.total)}\n\nEl comerciante lo confirmará y te escribirá para coordinar la entrega.`,
+    waText: `🛍️ Nuevo pedido por confirmar:\n\n*Producto:* ${order.productName} x${order.quantity}\n*Total:* ${money(order.total)}\n\nRevísalo en "Pedidos" de tu panel.`,
+    appointmentId: null,
+    orderId: order.orderId,
   };
 }
 
@@ -243,5 +287,6 @@ function conflictReply(
     content: `😕 No pudimos agendar: ${reason}.\n\nHorarios libres que te propongo:\n${bookingSlots}\n\n¿Quieres reservar alguno?`,
     waText: null,
     appointmentId: null,
+    orderId: null,
   };
 }

@@ -80,6 +80,10 @@ export interface Store {
   following?: boolean;
   subscriptionStatus?: SubscriptionStatus;
   trialEndsAt?: number;
+  /** true: plan de pago abierto por la prueba de 14 días (aún no pagó). */
+  onTrial?: boolean;
+  /** true: la prueba terminó y la tienda bajó a modo FREE (manual). */
+  trialEnded?: boolean;
   prestigePoints?: number;
   prestigeGoal?: number;
   prestigeActive?: boolean;
@@ -201,4 +205,28 @@ export interface ReferralInfo {
   verified: boolean;
   productLimit: number;
   message?: string;
+}
+
+export type OrderStatus = 'pending' | 'sold' | 'cancelled';
+
+export interface OrderItem {
+  id: string;
+  orderId: string;
+  productId: string | null;
+  name: string;
+  unitPrice: number;
+  quantity: number;
+}
+
+export interface Order {
+  id: string;
+  status: OrderStatus;
+  createdAt: string;
+  storeId: string;
+  customerId?: string | null;
+  customer?: { id: string; name: string } | null;
+  note?: string | null;
+  saleId?: string | null;
+  sale?: { id: string; total: number } | null;
+  items: OrderItem[];
 }

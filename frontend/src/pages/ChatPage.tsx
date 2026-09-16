@@ -200,6 +200,8 @@ export function ChatPage() {
             ? `Cita reservada para el ${data.date} a las ${data.startTime}.`
             : 'Tu cita fue reservada. El local confirmará cuando estés por allá.',
         );
+      } else if (data.type === 'order_created') {
+        showBookingNotice('Tu pedido quedó anotado. El comerciante lo confirmará y se comunicará contigo para coordinar la entrega.');
       } else if (data.type === 'chat_suspended') {
         showModBanner(data.message || 'El chat de esta tienda está suspendido temporalmente.', true);
       }

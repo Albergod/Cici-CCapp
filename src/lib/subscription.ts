@@ -1,13 +1,33 @@
 // Lógica de negocio de suscripciones y periodo de prueba.
 // Modelo de negocio: "centro comercial digital".
 // - Cada creador abre su tienda (local).
-// - El contacto directo con clientes (chat) está SIEMPRE disponible: quien prueba
-//   la app necesita experimentar su valor para luego pagar por el espacio y el
-//   sistema de prestigio/referidos. La suscripción de pago otorga prestigio,
-//   referidos, más productos y permanencia del local.
+// - Modo trial: al crear la tienda el plan se abre como PRO por 14 días (el
+//   marcador de prueba es `subscriptionCycle = null`, vs un pago real que
+//   siempre fija MONTHLY/BI_MONTHLY). El "Día 14 → ¿Quieres continuar?" lo
+//   resuelve el cron de expiración: baja la tienda a FREE y queda en modo
+//   manual (sin IA).
+// - El contacto directo con clientes (chat) está SIEMPRE disponible: quien
+//   prueba la app necesita experimentar su valor para luego pagar por el
+//   espacio, el sistema de prestigio/referidos y los límites ampliados.
 
-// Periodo de prueba del plan gratis: 30 días.
-export const TRIAL_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+// Periodo de prueba PRO: 14 días.
+export const TRIAL_DURATION_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * true si la tienda está en prueba PRO (plan de pago SIN ciclo: un pago real
+ * siempre configura subscription_cycle). Las tiendas FREE y las pagadas de
+ * verdad devuelven false.
+ */
+export function isOnTrial(store: {
+  plan?: string | null;
+  subscriptionCycle?: string | null;
+}): boolean {
+  return (
+    !!store.plan &&
+    store.plan !== "FREE" &&
+    (store.subscriptionCycle === null || store.subscriptionCycle === undefined)
+  );
+}
 
 export type SubscriptionStatus = "trial" | "active" | "expired";
 
@@ -34,28 +54,33 @@ export function getContactEligibility(
   trialStartedAt: Date | string | null | undefined,
   subscriptionExpiresAt: Date | string | null | undefined,
   plan?: string | null,
+  subscriptionCycle?: string | null,
 ): ContactEligibility {
   const now = Date.now();
 
   const trialStart = trialStartedAt ? new Date(trialStartedAt).getTime() : now;
   const trialEnd = trialStart + TRIAL_DURATION_MS;
-  const onTrial = now < trialEnd;
+
+  // En prueba (plan de pago SIN ciclo, dentro de los 14 días): sigue siendo
+  // trial aunque subscriptionExpiresAt esté en el futuro.
+  const onTrialWindow =
+    !!plan && plan !== "FREE" && (subscriptionCycle === null || subscriptionCycle === undefined) && now < trialEnd;
 
   const subExpiry = subscriptionExpiresAt
     ? new Date(subscriptionExpiresAt).getTime()
     : null;
 
-  // Un plan de pago sin fecha de expiración (NULL) se trata como suscripción
-  // vigente: el comerciante pagó y no vence (caso de espacios administrados).
-  const subscribed = plan && plan !== "FREE"
-    ? subExpiry === null || subExpiry > now
-    : subExpiry !== null && subExpiry > now;
+  // Suscripción REAL: un pago de verdad siempre fija el ciclo. Un plan de pago
+  // sin fecha de expiración (NULL) se trata como vigente (espacios
+  // administrados).
+  const subscribed =
+    !!plan &&
+    plan !== "FREE" &&
+    subscriptionCycle !== null &&
+    subscriptionCycle !== undefined &&
+    (subExpiry === null || subExpiry > now);
 
-  const status: SubscriptionStatus = subscribed
-    ? "active"
-    : onTrial
-      ? "trial"
-      : "expired";
+  const status: SubscriptionStatus = subscribed ? "active" : onTrialWindow ? "trial" : "expired";
 
   // El contacto nunca se bloquea.
   const contactAvailable = true;
@@ -63,8 +88,8 @@ export function getContactEligibility(
   return {
     contactAvailable,
     status,
-    trialEndsAt: onTrial ? trialEnd : undefined,
-    onTrial,
+    trialEndsAt: onTrialWindow ? trialEnd : undefined,
+    onTrial: onTrialWindow,
     subscribed,
   };
 }

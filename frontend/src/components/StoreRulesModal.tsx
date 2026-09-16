@@ -1,4 +1,4 @@
-import { X, Check, Clock, MessageSquare, Store } from 'lucide-react';
+import { X, Check, Clock, MessageSquare, Store, Bot } from 'lucide-react';
 
 interface StoreRulesModalProps {
   open: boolean;
@@ -45,8 +45,8 @@ export function StoreRulesModal({ open, onAccept, onClose }: StoreRulesModalProp
               <p className="font-bold text-surface-900">Periodo de prueba gratis</p>
               <p className="text-surface-600 mt-1">
                 Este espacio de venta es <strong className="text-surface-800">solo para emprendedores y comerciantes</strong>.
-                Obtienes <strong className="text-brand-700">2 meses y 15 días de prueba</strong> totalmente gratis para publicar
-                tus productos y contactar con clientes.
+                Obtienes <strong className="text-brand-700">14 días de prueba</strong> con todo el plan abierto
+                (asistente IA, agenda y prestigio) para publicar tus productos y vender con tu cliente.
               </p>
             </div>
           </div>
@@ -58,21 +58,23 @@ export function StoreRulesModal({ open, onAccept, onClose }: StoreRulesModalProp
             <div>
               <p className="font-bold text-surface-900">Contacto con clientes</p>
               <p className="text-surface-600 mt-1">
-                El canal de <strong className="text-surface-800">contacto directo con tus clientes</strong> solo está
-                disponible durante la prueba gratis y mientras tengas una <strong className="text-surface-800">suscripción de espacio</strong> activa.
+                El canal de <strong className="text-surface-800">contacto directo con tus clientes</strong> está
+                siempre disponible: durante la prueba de 14 días la IA atiende por ti, y
+                después puedes seguir comunicándote tú mismo en modo manual.
               </p>
             </div>
           </div>
 
           <div className="p-3.5 bg-accent-50 rounded-xl border border-accent-200 flex gap-3">
             <div className="w-9 h-9 rounded-lg bg-accent-100 text-accent-600 flex items-center justify-center shrink-0">
-              <MessageSquare className="w-5 h-5" />
+              <Bot className="w-5 h-5" />
             </div>
             <div>
               <p className="font-bold text-surface-900">Después de la prueba</p>
               <p className="text-surface-600 mt-1">
-                Al finalizar el periodo de prueba, la opción de <strong className="text-surface-800">contactar con clientes se desactiva</strong>
-                hasta que contrates una suscripción de espacio para tu tienda. Tus productos seguirán visibles.
+                Al finalizar tus 14 días, la <strong className="text-surface-800">asistencia IA</strong> se apaga a
+                menos que elijas un plan de pago. Tu tienda sigue visible y tú atiendes el
+                chat manualmente; tus clientes no pierden el contacto.
               </p>
             </div>
           </div>
@@ -82,7 +84,7 @@ export function StoreRulesModal({ open, onAccept, onClose }: StoreRulesModalProp
           <div className="flex items-start gap-2 text-xs text-surface-500">
             <Check className="w-4 h-4 text-brand-500 shrink-0" />
             <span>
-              Al continuar aceptas que este espacio es para uso comercial y que el contacto directo dependerá del
+              Al continuar aceptas que este espacio es para uso comercial y que la asistencia IA depende del
               periodo de prueba o de una suscripción activa.
             </span>
           </div>

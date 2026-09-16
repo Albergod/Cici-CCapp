@@ -255,15 +255,15 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
               <div className="mt-3 space-y-2 text-sm">
                 <span className="flex items-center gap-2 text-surface-700">
                   <Check className="w-4 h-4 text-emerald-500" />
-                  Prueba de 30 días gratis
+                  Prueba de 14 días con todo el plan abierto
                 </span>
                 <span className="flex items-center gap-2 text-surface-700">
                   <Check className="w-4 h-4 text-emerald-500" />
-                  Contacto con clientes siempre disponible
+                  Contacto manual con clientes siempre disponible
                 </span>
                 <span className="flex items-center gap-2 text-surface-400">
                   <X className="w-4 h-4" />
-                  Sin sistema de prestigio ni referidos
+                  Sin asistente IA ni pedidos automáticos
                 </span>
                 <span className="flex items-center gap-2 text-surface-400">
                   <X className="w-4 h-4" />

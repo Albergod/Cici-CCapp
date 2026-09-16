@@ -24,6 +24,8 @@ function daysFrom(base: string, days: number): string {
 }
 
 // Agenda del comerciante: citas de su tienda entre [from, to].
+// Disponible en todos los planes: en FREE el modo es manual (el local atiende
+// su agenda personalmente; la IA solo está en planes de pago).
 router.get("/agenda", requireAuth, async (req: AuthRequest, res) => {
   const [store] = await db
     .select({ id: stores.id, businessType: stores.businessType })
@@ -118,6 +120,13 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       accountStatus: gate.status,
     });
   }
+
+  const [store] = await db
+    .select({ id: stores.id })
+    .from(stores)
+    .where(eq(stores.id, parsed.data.storeId))
+    .limit(1);
+  if (!store) return res.status(404).json({ error: "La tienda no existe." });
 
   const result = await createBooking({
     storeId: parsed.data.storeId,

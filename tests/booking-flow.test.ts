@@ -3,7 +3,7 @@ import request from "supertest";
 import type { Express } from "express";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../src/db/client";
-import { users, stores, storeServices, appointments, conversations, sales, saleItems } from "../src/db/schema";
+import { users, stores, storeServices, appointments, conversations, messages, sales, saleItems } from "../src/db/schema";
 import "dotenv/config";
 
 let app: Express;
@@ -57,12 +57,15 @@ describe("Agenda de citas (BELLEZA)", () => {
     tokenM = await registerUser(merchantEmail);
     tokenC = await registerUser(customerEmail);
 
-    const store = await request(app)
+const store = await request(app)
       .post("/api/stores")
       .set("Authorization", `Bearer ${tokenM}`)
-      .send({ name: storeName, description: "Salón", businessType: "BELLEZA" });
+      .send({ name: storeName, businessType: "BELLEZA" });
     expect(store.status).toBe(201);
     storeId = store.body.id;
+
+    // La agenda de citas es premium: subimos la tienda a PRO para probar el flujo.
+    await db.update(stores).set({ plan: "PRO" }).where(eq(stores.id, storeId));
 
     const svc = await request(app)
       .post("/api/services")
@@ -233,6 +236,9 @@ describe("Regresión: estados, moderación y contexto (BELLEZA)", () => {
     expect(store.status).toBe(201);
     storeId = store.body.id;
 
+    // La agenda de citas es premium: subimos la tienda a PRO para probar el flujo.
+    await db.update(stores).set({ plan: "PRO" }).where(eq(stores.id, storeId));
+
     const svc = await request(app)
       .post("/api/services")
       .set("Authorization", `Bearer ${tokenM}`)
@@ -248,9 +254,22 @@ describe("Regresión: estados, moderación y contexto (BELLEZA)", () => {
       .select({ id: storeServices.id })
       .from(storeServices)
       .where(inArray(storeServices.storeId, rows.map((r) => r.id)));
-    await db
-      .delete(conversations)
-      .where(inArray(conversations.assertedServiceId, svcRows.map((s) => s.id)));
+    // Las conversaciones creadas con contexto de servicio pueden tener el
+    // saludo IA (tienda en plan de pago): se borran sus mensajes primero.
+    const convRows = svcRows.length
+      ? await db
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(inArray(conversations.assertedServiceId, svcRows.map((s) => s.id)))
+      : [];
+    if (convRows.length) {
+      await db
+        .delete(messages)
+        .where(inArray(messages.conversationId, convRows.map((c) => c.id)));
+      await db
+        .delete(conversations)
+        .where(inArray(conversations.id, convRows.map((c) => c.id)));
+    }
     for (const s of rows) {
       await db.delete(appointments).where(eq(appointments.storeId, s.id));
       const storeSales = await db
@@ -353,6 +372,10 @@ describe("Regresión: estados, moderación y contexto (BELLEZA)", () => {
       .set("Authorization", `Bearer ${owner2Token}`)
       .send({ name: store2Name, businessType: "BELLEZA" });
     expect(store2.status).toBe(201);
+    await db
+      .update(stores)
+      .set({ plan: "PRO" })
+      .where(eq(stores.id, store2.body.id));
     const svc2 = await request(app)
       .post("/api/services")
       .set("Authorization", `Bearer ${owner2Token}`)
@@ -419,6 +442,9 @@ describe("Cita → venta: cerrar con 'Listo' / 'No vino' (BELLEZA)", () => {
       .send({ name: storeName, businessType: "BELLEZA" });
     expect(store.status).toBe(201);
     storeId = store.body.id;
+
+    // La agenda de citas es premium: subimos la tienda a PRO para probar el flujo.
+    await db.update(stores).set({ plan: "PRO" }).where(eq(stores.id, storeId));
 
     const svc = await request(app)
       .post("/api/services")
@@ -644,5 +670,106 @@ describe("Cita → venta: cerrar con 'Listo' / 'No vino' (BELLEZA)", () => {
       .where(eq(saleItems.saleId, saleId))
       .limit(1);
     expect(item.serviceId).toBeNull();
+  });
+});
+
+describe("Gates de plan: servicios, agenda y reservas solo PRO/BUSINESS", () => {
+  const tag = `free-${ts}`;
+  const ownerEmail = `belleza-free-owner-${tag}@example.com`;
+  const clientEmail = `belleza-free-client-${tag}@example.com`;
+  const storeName = `Belleza Free ${tag}`;
+  const dateStr = futureWorkday(2);
+  let storeId = "";
+  let tokenM = "";
+  let tokenC = "";
+  let svcId = "";
+
+  beforeAll(async () => {
+    const mod = await import("../src/index");
+    app = (mod as unknown as { default: Express }).default || (mod as unknown as Express);
+
+    tokenM = await registerUser(ownerEmail);
+    tokenC = await registerUser(clientEmail);
+
+    const store = await request(app)
+      .post("/api/stores")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ name: storeName, businessType: "BELLEZA" });
+    expect(store.status).toBe(201);
+    storeId = store.body.id;
+    // Nueva tienda = prueba gratis 14 días (plan abierto). Para probar el modo
+    // manual post-prueba, la simulamos expirada: plan FREE sin ciclo.
+    expect(store.body.onTrial).toBe(true);
+    await db
+      .update(stores)
+      .set({ plan: "FREE", subscriptionCycle: null })
+      .where(eq(stores.id, storeId));
+  });
+
+  afterAll(async () => {
+    const [store] = await db
+      .select({ id: stores.id })
+      .from(stores)
+      .where(eq(stores.name, storeName))
+      .limit(1);
+    if (store) {
+      await db.delete(appointments).where(eq(appointments.storeId, store.id));
+      const storeSales = await db
+        .select({ id: sales.id })
+        .from(sales)
+        .where(eq(sales.storeId, store.id));
+      if (storeSales.length) {
+        await db.delete(saleItems).where(
+          inArray(saleItems.saleId, storeSales.map((s) => s.id)),
+        );
+      }
+      await db.delete(sales).where(eq(sales.storeId, store.id));
+      await db.delete(storeServices).where(eq(storeServices.storeId, store.id));
+    }
+    await db.delete(stores).where(eq(stores.name, storeName));
+    await db
+      .delete(users)
+      .where(inArray(users.email, [ownerEmail, clientEmail]));
+  });
+
+  it("una tienda FREE gestiona servicios (modo manual)", async () => {
+    const create = await request(app)
+      .post("/api/services")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ name: "Manicura FREE", price: 30000, durationMinutes: 60 });
+    expect(create.status).toBe(201);
+    svcId = create.body.id;
+
+    const list = await request(app)
+      .get("/api/services")
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(list.status).toBe(200);
+    expect(list.body.some((s) => s.id === svcId)).toBe(true);
+  });
+
+  it("una tienda FREE ofrece agenda al comerciante", async () => {
+    const agenda = await request(app)
+      .get("/api/appointments/agenda")
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(agenda.status).toBe(200);
+  });
+
+  it("una tienda FREE acepta reservas de clientes (el local atiende su agenda)", async () => {
+    const book = await request(app)
+      .post("/api/appointments")
+      .set("Authorization", `Bearer ${tokenC}`)
+      .send({
+        storeId,
+        serviceId: svcId,
+        date: dateStr,
+        startTime: "10:00",
+      });
+    expect(book.status).toBe(201);
+  });
+
+  it("los servicios se muestran en el público aunque la tienda sea FREE", async () => {
+    const slug = await request(app).get(`/api/stores/${storeName.split(" ").join("-").toLowerCase()}`);
+    expect(slug.status).toBe(200);
+    expect(slug.body.services.some((s) => s.id === svcId)).toBe(true);
   });
 });

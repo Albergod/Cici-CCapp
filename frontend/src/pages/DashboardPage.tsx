@@ -11,6 +11,7 @@ import { PaymentResultModal, PaymentResultState } from '@/components/PaymentResu
 import { SalesDashboard } from '@/components/SalesDashboard';
 import { PrestigeCard } from '@/components/PrestigeCard';
 import { BeautyServicesPanel } from '@/components/BeautyServicesPanel';
+import { OrdersPanel } from '@/components/OrdersPanel';
 import { ShareStoreCard } from '@/components/ShareStoreCard';
 import { fieldsFor, attributesToTitledList } from '@/lib/categoryFields';
 import { formatCOP } from '@/lib/format';
@@ -790,6 +791,8 @@ export function DashboardPage() {
               />
             )}
 
+            <OrdersPanel isTrialPaywall={store.plan === 'FREE'} />
+
             <div className="card p-6">
               <div className="flex items-center justify-between mb-5">
                 <div>
@@ -1435,10 +1438,11 @@ function DashboardSubscription({ store, onUpgrade }: { store: Store; onUpgrade: 
           <AlertTriangle className="w-5 h-5" />
         </div>
         <div className="flex-1">
-          <p className="font-bold text-surface-900">Activa tu Espacio Premium</p>
+          <p className="font-bold text-surface-900">Tu prueba terminó: activa tu Espacio Premium</p>
           <p className="text-sm text-surface-600 mt-0.5">
-            El contacto con tus clientes sigue disponible. Al activar tu espacio desbloqueas el
-            sistema de prestigio, tu enlace de referidos y el límite ampliado de productos.
+            El contacto con tus clientes sigue disponible en modo manual. Al activar un plan
+            recuperas el asistente IA, el sistema de prestigio, tu enlace de referidos y el
+            límite ampliado de productos.
           </p>
           <button
             onClick={onUpgrade}
@@ -1453,24 +1457,31 @@ function DashboardSubscription({ store, onUpgrade }: { store: Store; onUpgrade: 
   }
 
   return (
-    <div className="card p-5 flex items-start gap-4">
-      <div className="w-11 h-11 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center shrink-0">
-        <Clock className="w-5 h-5" />
-      </div>
-      <div className="flex-1">
-        <p className="font-bold text-surface-900">Periodo de prueba gratis</p>
-        <p className="text-sm text-surface-600 mt-0.5">
-          Disfrutas de <strong>30 días</strong> de prueba. El contacto con tus clientes
-          está disponible siempre.{' '}
-          <span className="font-semibold text-brand-700">
-            Activa tu plan de pago para desbloquear el sistema de prestigio.
-          </span>
-          {trialEndsAt && (
-            <span className="font-semibold text-brand-700">
-              {' '}Te quedan {formatDaysLeft(trialEndsAt)}.
-            </span>
-          )}
-        </p>
+    <div className="card overflow-hidden">
+      <div className="p-5 flex items-start gap-4">
+        <div className="w-11 h-11 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center shrink-0">
+          <Clock className="w-5 h-5" />
+        </div>
+        <div className="flex-1">
+          <p className="font-bold text-surface-900">Periodo de prueba gratis</p>
+          <p className="text-sm text-surface-600 mt-0.5">
+            Disfrutas de <strong>14 días</strong> de prueba con todo el plan {store.plan}{' '}
+            abierto: asistente IA, agenda y prestigio ya activos. Si actives un plan antes de
+            que termine, lo que queda de tu prueba se suma a tu periodo de pago.
+            {trialEndsAt && (
+              <span className="font-semibold text-brand-700">
+                {' '}Te quedan {formatDaysLeft(trialEndsAt)}.
+              </span>
+            )}
+          </p>
+          <button
+            onClick={onUpgrade}
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-gradient-to-r from-brand-600 to-accent-500 text-white rounded-full hover:from-brand-700 hover:to-accent-600 transition-all"
+          >
+            <CreditCard className="w-3.5 h-3.5" />
+            ¿Quieres continuar? Elige plan
+          </button>
+        </div>
       </div>
     </div>
   );

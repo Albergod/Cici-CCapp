@@ -23,6 +23,7 @@ import paymentRoutes from "./routes/payments.routes";
 import wompiRoutes from "./routes/wompi.routes";
 import servicesRouter from "./routes/services.routes";
 import appointmentsRouter from "./routes/appointments.routes";
+import ordersRouter from "./routes/orders.routes";
 import { attachChatWebSocket } from "./ws/chatServer";
 import { globalLimiter } from "./middleware/rate-limit";
 import { expireStoresAndReturnCount } from "./routes/store.routes";
@@ -78,6 +79,7 @@ export function createApp() {
   app.use("/api/payments/wompi", wompiRoutes);
   app.use("/api/services", servicesRouter);
   app.use("/api/appointments", appointmentsRouter);
+  app.use("/api/orders", ordersRouter);
 
   const frontendDist = path.join(appRoot, "frontend", "dist");
   if (fs.existsSync(frontendDist)) {
@@ -169,6 +171,24 @@ if (isMainModule) {
     await db.execute(sql`ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS service_id uuid`);
     await db.execute(sql`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS sale_id uuid`);
     await db.execute(sql`ALTER TABLE sales ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT 'manual'`);
+    // ── Pedidos del chat (Fase 2): venta automática de productos ────────────
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS orders (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      status text DEFAULT 'pending' NOT NULL,
+      created_at timestamp DEFAULT now() NOT NULL,
+      store_id uuid NOT NULL REFERENCES stores(id),
+      customer_id uuid REFERENCES users(id),
+      note text,
+      sale_id uuid REFERENCES sales(id)
+    )`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS order_items (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      order_id uuid NOT NULL REFERENCES orders(id),
+      product_id uuid REFERENCES products(id),
+      name text NOT NULL,
+      unit_price numeric(10, 2) NOT NULL,
+      quantity numeric(10, 0) NOT NULL
+    )`);
   }
 
   async function runMigrations(): Promise<void> {
