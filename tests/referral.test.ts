@@ -57,8 +57,9 @@ describe("Prestigio por referidos", () => {
   });
 
   afterAll(async () => {
-    await db.delete(stores).where(eq(stores.name, `Ref A ${ts}`));
+    // Borrar primero el referido B (apunta a A) y luego el referidor A.
     await db.delete(stores).where(eq(stores.name, `Ref B ${ts}`));
+    await db.delete(stores).where(eq(stores.name, `Ref A ${ts}`));
     await db.delete(users).where(eq(users.email, `ref-a-${ts}@example.com`));
     await db.delete(users).where(eq(users.email, `ref-b-${ts}@example.com`));
   });
