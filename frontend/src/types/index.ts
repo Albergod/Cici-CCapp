@@ -121,7 +121,7 @@ export interface Conversation {
   storeId: string;
   createdAt: string;
   assertedProductId?: string;
-  store?: Pick<Store, "name" | "slug" | "logoUrl" | "plan" | "whatsapp">;
+  store?: Pick<Store, "name" | "slug" | "logoUrl" | "plan" | "whatsapp" | "businessType">;
   customer?: Pick<User, "name" | "avatarUrl">;
   lastMessage?: Message;
   messages?: Message[];

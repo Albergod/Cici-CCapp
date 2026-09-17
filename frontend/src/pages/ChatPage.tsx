@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/stores/authStore';
 import { api } from '@/services/api';
 import { Conversation, Message } from '@/types';
-import { Loader2, Send, ArrowLeft, MessageSquare, Bot, MessageCircle, Receipt } from 'lucide-react';
+import { Loader2, Send, ArrowLeft, MessageSquare, Bot, MessageCircle, Receipt, ShoppingBag } from 'lucide-react';
 
 const isInvoice = (content: string) =>
   content.includes('Pedido Confirmado') || content.includes('✅ *Pedido*');
@@ -15,6 +15,11 @@ const CHAT_HEIGHT =
   'h-[calc(100vh-var(--nav-h))] supports-[height:100dvh]:h-[calc(100dvh-var(--nav-h))]';
 
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches;
+
+// El aviso se muestra solo en chats de tiendas de pago con catálogo de
+// productos (donde la IA anota órdenes pendientes por confirmar).
+const isAiOrderChat = (c: Conversation | null) =>
+  !!c?.store && c.store.plan !== 'FREE' && c.store.businessType !== 'BELLEZA';
 
 export function ChatPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -460,6 +465,21 @@ export function ChatPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-50/50" ref={messagesEndRef}>
+              {messages.length === 0 && isAiOrderChat(activeConversation) && (
+                <div className="min-h-full flex flex-col items-center justify-center text-center py-10 px-4">
+                  <div className="w-12 h-12 rounded-2xl bg-brand-50 border border-brand-100 flex items-center justify-center mb-3">
+                    <ShoppingBag className="w-6 h-6 text-brand-600" />
+                  </div>
+                  <p className="text-sm font-bold text-surface-900">
+                    ¿Comprando? Confímalo al final
+                  </p>
+                  <p className="text-sm text-surface-600 mt-1 max-w-sm">
+                    Si no confirmas tu pedido, la orden <strong>no se generará</strong>. Cuando
+                    termines de pedir escribe «confirmo» o «listo»; el comerciante la confirmará y
+                    coordinará la entrega contigo.
+                  </p>
+                </div>
+              )}
               {messages.map((msg) => {
                 const isRetracted =
                   msg.removedAt != null || retractedIds.has(msg.id);
