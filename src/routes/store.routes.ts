@@ -11,7 +11,7 @@ import {
   getProductLimit,
   VERIFIED_THRESHOLD,
 } from "../lib/prestige";
-import { activatePaidPlan } from "../lib/plans";
+import { activatePaidPlan, ensureReferralCode } from "../lib/plans";
 import {
   getTrackedSalesCounts,
   isStoreVerified,
@@ -443,6 +443,21 @@ router.get("/", async (req, res) => {
   res.json(withCounts);
 });
 
+// Tienda del usuario autenticado (para su dashboard). Busca por dueño, NO por
+// el feed público paginado: así el comerciante siempre encuentra su tienda
+// aunque no quede en el top-50 del mall o esté suspendida/banneada (para ver
+// su sanción). Devuelve solo el identificador; el detalle completo lo trae
+// GET /:slug (que al dueño le muestra su estado y stock).
+router.get("/mine", requireAuth, async (req: AuthRequest, res) => {
+  const [store] = await db
+    .select({ id: stores.id, slug: stores.slug, name: stores.name })
+    .from(stores)
+    .where(eq(stores.ownerId, req.userId!))
+    .limit(1);
+  if (!store) return res.status(404).json({ error: "No tienes una tienda." });
+  res.json(store);
+});
+
 // Referido del negocio: devuelve el enlace y los puntos del emprendedor autenticado.
 // El sistema de prestigio SOLO está activo para tiendas con plan de pago REAL:
 // en modo trial (plan abierto sin ciclo) los referidos están bloqueados.
@@ -467,6 +482,12 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
   const prestige = Number(store.prestigePoints) || 0;
   const prestigeActive = store.plan !== "FREE";
   const goal = Number(store.prestigeGoal) || VERIFIED_THRESHOLD;
+  // Autosanación: la tienda SIEMPRE termina con un código válido (nunca ?ref=null),
+  // aunque su plan se haya escrito sin pasar por activatePaidPlan.
+  let referralCode = store.referralCode;
+  if (prestigeActive && !isOnTrial(store) && !referralCode) {
+    referralCode = await ensureReferralCode(store.id);
+  }
 
   if (!prestigeActive || isOnTrial(store)) {
     return res.json({
@@ -504,8 +525,8 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
 
   res.json({
     active: true,
-    referralCode: store.referralCode,
-    referralLink: `${req.protocol}://${req.get("host")}/register?ref=${store.referralCode}`,
+    referralCode,
+    referralLink: `${req.protocol}://${req.get("host")}/register?ref=${referralCode}`,
     prestigePoints: prestige,
     prestigeGoal: goal,
     required: goal,

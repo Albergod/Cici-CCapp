@@ -336,6 +336,38 @@ describe("Fase 2: pedidos del chat (venta automática)", () => {
     expect(oversold.ok).toBe(false);
   });
 
+  it("GET /api/stores/mine encuentra la tienda del dueño (no el feed paginado)", async () => {
+    const mine = await request(app)
+      .get("/api/stores/mine")
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(mine.status).toBe(200);
+    expect(mine.body.id).toBe(storeId);
+    expect(mine.body.slug).toBeTruthy();
+
+    // Un usuario sin tienda recibe 404 (el dashboard muestra el alta).
+    const tokenC = await loginUser(customer);
+    const none = await request(app)
+      .get("/api/stores/mine")
+      .set("Authorization", `Bearer ${tokenC}`);
+    expect(none.status).toBe(404);
+  });
+
+  it("publicar con stock 0 deja el producto desactivado; con stock>0 activo", async () => {
+    const zero = await request(app)
+      .post(`/api/stores/${storeId}/products`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ name: "Sin stock", price: 10000, stock: 0 });
+    expect(zero.status).toBe(201);
+    expect(zero.body.available).toBe(false);
+
+    const some = await request(app)
+      .post(`/api/stores/${storeId}/products`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ name: "Con stock", price: 10000, stock: 3 });
+    expect(some.status).toBe(201);
+    expect(some.body.available).toBe(true);
+  });
+
   it("parsea canastas multi-producto emitidas por la IA", () => {
     const single = parseOrderCommand("PEDIDO|Camisa Algodón|2");
     expect(single).toEqual({ items: [{ productName: "Camisa Algodón", quantity: 2 }] });

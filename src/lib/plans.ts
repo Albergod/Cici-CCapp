@@ -15,13 +15,35 @@ export function priceFor(plan: "PRO" | "BUSINESS", cycle: "MONTHLY" | "BI_MONTHL
   return getActivePrices()[cycle].amount;
 }
 
-function generateReferralCode(length = 6): string {
+export function generateReferralCode(length = 6): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
   for (let i = 0; i < length; i++) {
     code += chars[Math.floor(Math.random() * chars.length)];
   }
   return code;
+}
+
+/**
+ * Devuelve el código de referido de una tienda generándolo (único) y
+ * persistiéndolo si aún no tiene. Evita enlaces `?ref=null` aunque la tienda
+ * haya quedado con plan activo sin pasar por activatePaidPlan.
+ */
+export async function ensureReferralCode(storeId: string, current?: string | null): Promise<string> {
+  if (current) return current;
+  let referralCode = generateReferralCode();
+  let exists = true;
+  while (exists) {
+    const dup = await db
+      .select({ id: stores.id })
+      .from(stores)
+      .where(eq(stores.referralCode, referralCode))
+      .limit(1);
+    exists = dup.length > 0;
+    if (exists) referralCode = generateReferralCode();
+  }
+  await db.update(stores).set({ referralCode }).where(eq(stores.id, storeId));
+  return referralCode;
 }
 
 /**
@@ -48,20 +70,7 @@ export async function activatePaidPlan(
       store.subscriptionExpiresAt !== null &&
       new Date(store.subscriptionExpiresAt).getTime() > Date.now());
 
-  let referralCode = store.referralCode;
-  if (!referralCode) {
-    referralCode = generateReferralCode();
-    let exists = true;
-    while (exists) {
-      const dup = await db
-        .select({ id: stores.id })
-        .from(stores)
-        .where(eq(stores.referralCode, referralCode))
-        .limit(1);
-      exists = dup.length > 0;
-      if (exists) referralCode = generateReferralCode();
-    }
-  }
+  const referralCode = await ensureReferralCode(storeId, store.referralCode);
 
   await db
     .update(stores)

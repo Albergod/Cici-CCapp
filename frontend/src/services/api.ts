@@ -97,6 +97,7 @@ export const api = {
           s.products?.map((p) => ({ ...p, price: toNumber(p.price) })) ?? [],
       }));
     },
+    mine: () => request<{ id: string; slug: string; name: string }>('/stores/mine'),
     getBySlug: async (slug: string): Promise<Store> => {
       const data = await request<Store>(`/stores/${slug}`);
       return {

@@ -53,7 +53,7 @@ const EXPIRING_SOON_DAYS = 10;
 const URGENT_SOON_DAYS = 3;
 
 export function DashboardPage() {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [store, setStore] = useState<Store | null>(null);
@@ -181,10 +181,18 @@ export function DashboardPage() {
 
   const loadUserStore = async () => {
     try {
-      const stores = await api.stores.list(0, 100);
-      const userStore = stores.find((s: Store) => s.ownerId === user?.id);
-      if (userStore) {
-        const detail = await api.stores.getBySlug(userStore.slug);
+      // Buscamos la tienda propia por dueño (no por el feed público paginado,
+      // que solo trae el top-50 de tiendas ACTIVAS).
+      let slug: string | null = null;
+      try {
+        const mine = await api.stores.mine();
+        slug = mine.slug;
+      } catch {
+        // Sin tienda: el dashboard muestra el alta.
+        slug = null;
+      }
+      if (slug) {
+        const detail = await api.stores.getBySlug(slug);
         setStore(detail);
       } else {
         setStore(null);

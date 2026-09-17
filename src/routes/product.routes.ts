@@ -68,6 +68,8 @@ router.post("/stores/:storeId/products", requireAuth, async (req: AuthRequest, r
       ...parsed.data,
       price: parsed.data.price.toFixed(2),
       stock: String(parsed.data.stock ?? 0),
+      // Misma regla que PATCH: con stock 0 el producto nace desactivado.
+      available: (parsed.data.stock ?? 0) > 0,
       attributes: sanitizeAttributes(check.businessType, parsed.data.attributes),
       storeId: req.params.storeId,
     })

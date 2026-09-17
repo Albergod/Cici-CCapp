@@ -100,6 +100,10 @@ export function BeautyServicesPanel({ store, onStoreUpdated }: Props) {
   }, [agenda]);
 
   const saveSchedule = async () => {
+    if (schedule.workingDays.length === 0) {
+      setError('Selecciona al menos un día de atención.');
+      return;
+    }
     try {
       setSavingSchedule(true);
       const updated = await api.stores.update(store.id, { schedule });
