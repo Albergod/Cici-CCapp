@@ -6,7 +6,7 @@ import { Package, Check, X, Loader2, PackageCheck, Clock } from 'lucide-react';
 
 type Props = {
   /** true: la tienda está en modo FREE (sin IA): no llegan pedidos nuevos. */
-  isTrialPaywall?: boolean;
+  isFreePlan?: boolean;
 };
 
 function dateLabel(iso: string): string {
@@ -24,7 +24,7 @@ function itemsTotal(items: OrderItem[]): number {
   return items.reduce((acc, it) => acc + Number(it.quantity) * Number(it.unitPrice), 0);
 }
 
-export function OrdersPanel({ isTrialPaywall }: Props) {
+export function OrdersPanel({ isFreePlan }: Props) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +87,7 @@ export function OrdersPanel({ isTrialPaywall }: Props) {
         registrar la venta y descontar stock automáticamente.
       </p>
 
-      {isTrialPaywall && (
+      {isFreePlan && (
         <div className="mb-4 p-3 rounded-xl bg-accent-50 border border-accent-100 text-sm text-accent-700">
           Tu plan gratuito no genera pedidos nuevos (el asistente IA está apagado). Los pedidos
           pendientes de tu prueba anterior sí puedes confirmarlos o cancelarlos aquí.

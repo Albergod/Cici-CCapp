@@ -818,7 +818,7 @@ export function DashboardPage() {
               />
             )}
 
-            <OrdersPanel isTrialPaywall={store.plan === 'FREE'} />
+            <OrdersPanel isFreePlan={store.plan === 'FREE'} />
 
             <div className="card p-6">
               <div className="flex items-center justify-between mb-5">
