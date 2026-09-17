@@ -258,13 +258,47 @@ export function parseBookingCommand(text: string | null | undefined): { serviceN
   return { serviceName: m[1].trim().slice(0, 120), date: m[2], time: m[3] };
 }
 
-/** Parsea el pedido que emite la IA (MVP: 1 producto): PEDIDO|<producto>|<cantidad> */
-export function parseOrderCommand(text: string | null | undefined): { productName: string; quantity: number } | null {
-  const m = /^PEDIDO\|(.+?)\|(\d{1,4})$/.exec((text ?? "").trim());
-  if (!m) return null;
-  const quantity = Number(m[2]);
-  if (!Number.isFinite(quantity) || quantity < 1) return null;
-  return { productName: m[1].trim().slice(0, 120), quantity };
+export interface AiOrderLine {
+  productName: string;
+  quantity: number;
+}
+
+/**
+ * Parsea el pedido que emite la IA. Acepta el formato simple de 1 producto
+ * (`PEDIDO|<producto>|<cantidad>`) y el formato de canasta para varios ítems:
+ * `PEDIDO|[{"nombre":"…","cantidad":n},...]`. Nunca toca la DB: la ejecución
+ * siempre es determinística en createPendingOrder.
+ */
+export function parseOrderCommand(text: string | null | undefined): { items: AiOrderLine[] } | null {
+  const raw = (text ?? "").trim();
+
+  const single = /^PEDIDO\|(.+?)\|(\d{1,4})$/.exec(raw);
+  if (single) {
+    const quantity = Number(single[2]);
+    if (!Number.isFinite(quantity) || quantity < 1 || quantity > 1000) return null;
+    return { items: [{ productName: single[1].trim().slice(0, 120), quantity }] };
+  }
+
+  const multi = /^PEDIDO\|(\[.*\])$/s.exec(raw);
+  if (multi) {
+    try {
+      const arr: unknown = JSON.parse(multi[1]);
+      if (Array.isArray(arr)) {
+        const items: AiOrderLine[] = [];
+        for (const it of arr) {
+          const productName = String((it as { nombre?: unknown })?.nombre ?? "").trim();
+          const qty = Math.floor(Number((it as { cantidad?: unknown })?.cantidad));
+          if (!productName || !Number.isFinite(qty) || qty < 1 || qty > 1000) continue;
+          items.push({ productName: productName.slice(0, 120), quantity: qty });
+        }
+        if (items.length) return { items };
+      }
+    } catch {
+      // JSON inválido: no es una orden multítem.
+    }
+  }
+
+  return null;
 }
 
 export async function getIAStoreReply({
@@ -373,12 +407,13 @@ Cuando el cliente quiera reservar un servicio:
 No generes facturas (Pedido Confirmado) por servicios: una cita solo se reserva.`
       : pedidosEnabled
         ? `
-Tu tienda vende productos con pedido automático. Cuando el cliente confirme que quiere comprar un producto del catálogo:
-1. Ubica el producto exacto del catálogo (nunca inventes precios ni productos).
-2. Si el cliente no dijo la cantidad, pregúntala; si no es clara, asume 1. Verifica antes que haya stock [solo quedan X / AGOTADO].
-3. Cuando tengas producto + cantidad claramente elegidos por el cliente, responde SOLO con la línea:
-   PEDIDO|<nombre exacto del producto>|<cantidad>
-   Sin nada más: sin saludos, markdown, comillas, explicaciones ni despedidas.
+Tu tienda vende productos con pedido automático. Cuando el cliente confirme que quiere comprar productos del catálogo:
+1. Ubica cada producto exacto del catálogo (nunca inventes precios ni productos).
+2. Si el cliente no dijo la cantidad de un producto, pregúntala; si no es clara, asume 1. Verifica antes que haya stock [solo quedan X / AGOTADO].
+3. Acumula TODOS los productos que el cliente pida a lo largo de la conversación (canasta). Cuando el cliente confirme la compra, responde SOLO con UNA línea que incluya todos los ítems:
+   PEDIDO|[{"nombre":"<nombre exacto del producto>","cantidad":<cantidad>},{"nombre":"<otro producto>","cantidad":<cantidad>}]
+   (Si es un solo producto, también puedes usar: PEDIDO|<nombre exacto del producto>|<cantidad>)
+   Trabaja solo con nombres exactos del catálogo. Sin nada más: sin saludos, markdown, comillas, explicaciones ni despedidas.
 
 No generes facturas (Pedido Confirmado): el pedido queda anotado automáticamente y el comerciante lo confirma para coordinar la entrega.`
         : `

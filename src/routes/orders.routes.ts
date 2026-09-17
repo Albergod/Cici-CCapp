@@ -62,9 +62,12 @@ router.post("/:id/confirm", requireAuth, async (req: AuthRequest, res) => {
     return res.status(409).json({ error: order.status === "sold" ? "Este pedido ya fue confirmado." : "Este pedido ya fue cancelado." });
   }
 
-  const item = order.items[0];
-  if (!item || item.productId == null) {
-    return res.status(409).json({ error: "Este pedido no tiene un producto válido." });
+  // Todos los ítems del pedido (canasta de varios productos del chat).
+  const items = (order.items ?? [])
+    .filter((it) => it.productId != null)
+    .map((it) => ({ productId: it.productId!, quantity: Number(it.quantity) }));
+  if (!items.length) {
+    return res.status(409).json({ error: "Este pedido no tiene productos válidos." });
   }
 
   const result = await createSale({
@@ -72,7 +75,7 @@ router.post("/:id/confirm", requireAuth, async (req: AuthRequest, res) => {
     customerId: order.customerId ?? null,
     origin: "order",
     note: order.note ?? null,
-    items: [{ productId: item.productId, quantity: Number(item.quantity) }],
+    items,
   });
   if (!result.ok) {
     return res.status(result.status).json({ error: result.error });

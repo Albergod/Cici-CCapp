@@ -7,6 +7,7 @@ import { users, stores, products, orders, orderItems, sales, saleItems } from ".
 import { expireStoresAndReturnCount } from "../src/routes/store.routes";
 import { awardReferralPrestige } from "../src/lib/prestige";
 import { createPendingOrder } from "../src/lib/orders";
+import { parseOrderCommand } from "../src/lib/ai";
 import "dotenv/config";
 
 let app: Express;
@@ -224,6 +225,7 @@ describe("Fase 2: pedidos del chat (venta automática)", () => {
   let productId = "";
   let pendingOrderId = "";
   let customerId = "";
+  let product2Id = "";
 
   beforeAll(async () => {
     const mod = await import("../src/index");
@@ -248,6 +250,13 @@ describe("Fase 2: pedidos del chat (venta automática)", () => {
       .send({ name: "Camisa Algodón", price: 45000, stock: 10 });
     expect(product.status).toBe(201);
     productId = product.body.id;
+
+    const product2 = await request(app)
+      .post(`/api/stores/${storeId}/products`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ name: "Pantalón", price: 38000, stock: 6 });
+    expect(product2.status).toBe(201);
+    product2Id = product2.body.id;
   });
 
   afterAll(async () => {
@@ -327,6 +336,92 @@ describe("Fase 2: pedidos del chat (venta automática)", () => {
     expect(oversold.ok).toBe(false);
   });
 
+  it("parsea canastas multi-producto emitidas por la IA", () => {
+    const single = parseOrderCommand("PEDIDO|Camisa Algodón|2");
+    expect(single).toEqual({ items: [{ productName: "Camisa Algodón", quantity: 2 }] });
+
+    const multi = parseOrderCommand(
+      'PEDIDO|[{"nombre":"Camisa Algodón","cantidad":2},{"nombre":"Pantalón","cantidad":3}]',
+    );
+    expect(multi).toEqual({
+      items: [
+        { productName: "Camisa Algodón", quantity: 2 },
+        { productName: "Pantalón", quantity: 3 },
+      ],
+    });
+
+    // Descarta ítems inválidos dentro del JSON; si no queda ninguno → null.
+    const bad = parseOrderCommand('PEDIDO|[{"cantidad":5}]');
+    expect(bad).toBeNull();
+    // Un texto cualquiera no es una orden.
+    expect(parseOrderCommand("hola")).toBeNull();
+  });
+
+  it("crea un pedido pendiente multi-producto: valida stock y no descuenta", async () => {
+    const res = await createPendingOrder({
+      storeId,
+      customerId,
+      items: [
+        { productName: "Camisa Algodón", quantity: 1 },
+        { productName: "Pantalón", quantity: 2 },
+      ],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.items).toHaveLength(2);
+    if (res.ok && res.items.length === 2) {
+      expect(res.items[0].productName).toBe("Camisa Algodón");
+      expect(res.items[0].lineTotal).toBe(45000);
+      expect(res.items[1].productName).toBe("Pantalón");
+      expect(res.items[1].lineTotal).toBe(76000);
+    }
+    expect(res.total).toBe(121000);
+
+    // Ningún stock se tocó al anotar el pedido.
+    const [p1] = await db
+      .select({ stock: products.stock })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    const [p2] = await db
+      .select({ stock: products.stock })
+      .from(products)
+      .where(eq(products.id, product2Id))
+      .limit(1);
+    expect(Number(p1.stock)).toBe(10);
+    expect(Number(p2.stock)).toBe(6);
+  });
+
+  it("rechaza canasta con un producto sin stock suficiente", async () => {
+    const oversold = await createPendingOrder({
+      storeId,
+      customerId,
+      items: [
+        { productName: "Camisa Algodón", quantity: 1 },
+        { productName: "Pantalón", quantity: 500 },
+      ],
+    });
+    expect(oversold.ok).toBe(false);
+    if (!oversold.ok) expect(oversold.code).toBe("insufficient_stock");
+  });
+
+  it("mezcla cantidades de un mismo producto repetido en la canasta", async () => {
+    const res = await createPendingOrder({
+      storeId,
+      customerId,
+      items: [
+        { productName: "Pantalón", quantity: 1 },
+        { productName: "Pantalón", quantity: 2 },
+      ],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // Líneas agregadas: un solo ítem por producto repetido.
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0].quantity).toBe(3);
+    expect(res.total).toBe(38000 * 3);
+  });
+
   it("el comerciante ve el pedido y lo confirma → venta origin=order y stock descontado", async () => {
     const list = await request(app).get("/api/orders").set("Authorization", `Bearer ${tokenM}`);
     expect(list.status).toBe(200);
@@ -353,6 +448,48 @@ describe("Fase 2: pedidos del chat (venta automática)", () => {
       .limit(1);
     expect(sale.origin).toBe("order");
     expect(Number(sale.total)).toBe(90000);
+  });
+
+  it("confirma una canasta multi-producto → venta origin=order con ambos productos", async () => {
+    const res = await createPendingOrder({
+      storeId,
+      customerId,
+      items: [
+        { productName: "Camisa Algodón", quantity: 1 },
+        { productName: "Pantalón", quantity: 2 },
+      ],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    const confirm = await request(app)
+      .post(`/api/orders/${res.orderId}/confirm`)
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(confirm.status).toBe(200);
+    expect(confirm.body.status).toBe("sold");
+    expect(confirm.body.saleId).toBeTruthy();
+
+    const [sale] = await db
+      .select({ origin: sales.origin, total: sales.total })
+      .from(sales)
+      .where(eq(sales.id, confirm.body.saleId))
+      .limit(1);
+    expect(sale.origin).toBe("order");
+    expect(Number(sale.total)).toBe(121000);
+
+    const [p1] = await db
+      .select({ stock: products.stock })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    const [p2] = await db
+      .select({ stock: products.stock })
+      .from(products)
+      .where(eq(products.id, product2Id))
+      .limit(1);
+    // Tras la venta simple (Camisa 10→8) la canasta descontó 1 de Camisa (7) y 2 de Pantalón (6→4).
+    expect(Number(p1.stock)).toBe(7);
+    expect(Number(p2.stock)).toBe(4);
   });
 
   it("un pedido no se puede confirmar dos veces", async () => {

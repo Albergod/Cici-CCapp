@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Order } from '@/types';
+import { Order, OrderItem } from '@/types';
 import { api } from '@/services/api';
 import { formatCOP } from '@/lib/format';
 import { Package, Check, X, Loader2, PackageCheck, Clock } from 'lucide-react';
@@ -12,6 +12,16 @@ type Props = {
 function dateLabel(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function itemsLabel(items: OrderItem[]): string {
+  return items
+    .map((it) => `${it.name}${Number(it.quantity) > 1 ? ` ×${it.quantity}` : ''}`)
+    .join(', ');
+}
+
+function itemsTotal(items: OrderItem[]): number {
+  return items.reduce((acc, it) => acc + Number(it.quantity) * Number(it.unitPrice), 0);
 }
 
 export function OrdersPanel({ isTrialPaywall }: Props) {
@@ -106,40 +116,36 @@ export function OrdersPanel({ isTrialPaywall }: Props) {
         </div>
       ) : (
         <ul className="space-y-3">
-          {pending.map((o) => {
-            const item = o.items[0];
-            return (
-              <li key={o.id} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-surface-50 border border-surface-100">
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-surface-900 truncate">
-                    {item?.name ?? 'Producto'}
-                    {item?.quantity ? <span className="text-surface-500"> × {item.quantity}</span> : null}
-                  </p>
-                  <p className="text-xs text-surface-500 mt-0.5">
-                    {o.customer?.name ?? 'Cliente'}{o.customer ? ' · ' : ''}
-                    {formatCOP((item?.quantity ?? 0) * Number(item?.unitPrice ?? 0))}
-                  </p>
-                  <p className="text-[11px] text-surface-400">{dateLabel(o.createdAt)}</p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => act(o.id, 'confirm')}
-                    disabled={busy === o.id}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50"
-                  >
-                    <Check className="w-3.5 h-3.5" /> Confirmar
-                  </button>
-                  <button
-                    onClick={() => act(o.id, 'cancel')}
-                    disabled={busy === o.id}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface-200 text-surface-700 text-xs font-bold hover:bg-surface-300 disabled:opacity-50"
-                  >
-                    <X className="w-3.5 h-3.5" /> Cancelar
-                  </button>
-                </div>
-              </li>
-            );
-          })}
+          {pending.map((o) => (
+            <li key={o.id} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-surface-50 border border-surface-100">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-surface-900 truncate">
+                  {itemsLabel(o.items)}
+                </p>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  {o.customer?.name ?? 'Cliente'}{o.customer ? ' · ' : ''}
+                  {o.items.length} producto{o.items.length !== 1 ? 's' : ''} · {formatCOP(itemsTotal(o.items))}
+                </p>
+                <p className="text-[11px] text-surface-400">{dateLabel(o.createdAt)}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => act(o.id, 'confirm')}
+                  disabled={busy === o.id}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <Check className="w-3.5 h-3.5" /> Confirmar
+                </button>
+                <button
+                  onClick={() => act(o.id, 'cancel')}
+                  disabled={busy === o.id}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface-200 text-surface-700 text-xs font-bold hover:bg-surface-300 disabled:opacity-50"
+                >
+                  <X className="w-3.5 h-3.5" /> Cancelar
+                </button>
+              </div>
+            </li>
+          ))}
         </ul>
       )}
 
@@ -149,28 +155,24 @@ export function OrdersPanel({ isTrialPaywall }: Props) {
             <Clock className="w-3.5 h-3.5" /> Historial reciente
           </p>
           <ul className="space-y-2">
-            {history.map((o) => {
-              const item = o.items[0];
-              return (
-                <li key={o.id} className="flex items-center justify-between gap-3 text-sm">
-                  <div className="min-w-0">
-                    <p className="text-sm text-surface-700 truncate">
-                      {item?.name ?? 'Producto'}
-                      {item?.quantity ? <span className="text-surface-400"> × {item.quantity}</span> : null}
-                    </p>
-                    <p className="text-xs text-surface-400">{dateLabel(o.createdAt)}</p>
-                  </div>
-                  <span
-                    className={`shrink-0 text-xs font-bold ${
-                      o.status === 'sold' ? 'text-emerald-600' : 'text-accent-500'
-                    }`}
-                  >
-                    {o.status === 'sold' ? 'Vendido' : 'Cancelado'}
-                    {o.sale ? ` · ${formatCOP(o.sale.total)}` : ''}
-                  </span>
-                </li>
-              );
-            })}
+            {history.map((o) => (
+              <li key={o.id} className="flex items-center justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <p className="text-sm text-surface-700 truncate">
+                    {itemsLabel(o.items)}
+                  </p>
+                  <p className="text-xs text-surface-400">{dateLabel(o.createdAt)}</p>
+                </div>
+                <span
+                  className={`shrink-0 text-xs font-bold ${
+                    o.status === 'sold' ? 'text-emerald-600' : 'text-accent-500'
+                  }`}
+                >
+                  {o.status === 'sold' ? 'Vendido' : 'Cancelado'}
+                  {o.sale ? ` · ${formatCOP(o.sale.total)}` : ''}
+                </span>
+              </li>
+            ))}
           </ul>
         </div>
       )}

@@ -7,7 +7,7 @@ import { db } from "../db/client";
 import { conversations, messages, products, storeServices, appointments, stores } from "../db/schema";
 import { getIAStoreReply, buildInvoiceVersions, parseBookingCommand, parseOrderCommand } from "./ai";
 import { createBooking } from "./appointments";
-import { createPendingOrder } from "./orders";
+import { createPendingOrder, type PendingOrderItem } from "./orders";
 import {
   normalizeSchedule,
   nowInTimezone,
@@ -216,8 +216,7 @@ export async function generateAssistantReply(
       const result = await createPendingOrder({
         storeId: store.id,
         customerId: ctx.conversation.customerId,
-        productName: orderReq.productName,
-        quantity: orderReq.quantity,
+        items: orderReq.items,
       });
       if (!result.ok) {
         return {
@@ -258,12 +257,15 @@ function confirmAppointment(
 }
 
 function confirmOrder(
-  order: { orderId: string; productName: string; unitPrice: number; quantity: number; total: number },
+  order: { orderId: string; items: PendingOrderItem[]; total: number },
 ): AssistantResult {
   const money = (n: number) => `$${n.toLocaleString("es-CL")}`;
+  const lines = order.items
+    .map((it) => `• ${it.productName} x${it.quantity} = ${money(it.lineTotal)}`)
+    .join("\n");
   return {
-    content: `🛍️ Pedido anotado\n\n*Producto:* ${order.productName} x${order.quantity}\n*Total:* ${money(order.total)}\n\nEl comerciante lo confirmará y te escribirá para coordinar la entrega.`,
-    waText: `🛍️ Nuevo pedido por confirmar:\n\n*Producto:* ${order.productName} x${order.quantity}\n*Total:* ${money(order.total)}\n\nRevísalo en "Pedidos" de tu panel.`,
+    content: `🛍️ Pedido anotado\n\n${lines}\n*Total:* ${money(order.total)}\n\nEl comerciante lo confirmará y te escribirá para coordinar la entrega.`,
+    waText: `🛍️ Nuevo pedido por confirmar:\n\n${lines}\n*Total:* ${money(order.total)}\n\nRevísalo en "Pedidos" de tu panel.`,
     appointmentId: null,
     orderId: order.orderId,
   };
