@@ -23,7 +23,10 @@ export interface ServiceInfo {
 export interface BookingInput {
   storeId: string;
   serviceId: string;
-  customerId: string;
+  // Una reserva la hace un cliente con cuenta (customerId) o la agenda el
+  // comerciante a mano para un cliente sin cuenta (manualCustomerName).
+  customerId?: string | null;
+  manualCustomerName?: string | null;
   storeBusinessType?: string;
   dateStr: string; // "YYYY-MM-DD" local
   startTime: string; // "HH:MM" local
@@ -72,6 +75,11 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
     return { ok: false, code: "not_booking_store", message: "Esta tienda no agenda citas." };
   }
 
+  const manualName = input.manualCustomerName?.trim() || null;
+  if (!input.customerId && !manualName) {
+    return { ok: false, code: "customer_required", message: "Falta el cliente de la cita." };
+  }
+
   const [service] = await db
     .select({ id: storeServices.id, name: storeServices.name, price: storeServices.price, durationMinutes: storeServices.durationMinutes })
     .from(storeServices)
@@ -99,7 +107,8 @@ export async function createBooking(input: BookingInput): Promise<BookingResult>
     .values({
       storeId: input.storeId,
       serviceId: service.id,
-      customerId: input.customerId,
+      customerId: input.customerId ?? null,
+      manualCustomerName: manualName,
       appointmentDate: localDateStr(input.dateStr),
       startTime: input.startTime,
       endTime: minutesToTime(end),

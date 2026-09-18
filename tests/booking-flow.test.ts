@@ -774,3 +774,144 @@ describe("Gates de plan: servicios, agenda y reservas solo PRO/BUSINESS", () => 
     expect(slug.body.services.some((s) => s.id === svcId)).toBe(true);
   });
 });
+
+describe("Citas manuales del comerciante (modo manual FREE)", () => {
+  const tag = `manual-${ts}`;
+  const ownerEmail = `beauty-manual-owner-${tag}@example.com`;
+  const otherEmail = `beauty-manual-other-${tag}@example.com`;
+  const storeName = `Belleza Manual ${tag}`;
+  const dateStr = futureWorkday();
+  let storeId = "";
+  let serviceId = "";
+  let tokenM = "";
+  let tokenO = "";
+
+  beforeAll(async () => {
+    const mod = await import("../src/index");
+    app = (mod as unknown as { default: Express }).default || (mod as unknown as Express);
+
+    tokenM = await registerUser(ownerEmail);
+    tokenO = await registerUser(otherEmail);
+
+    const store = await request(app)
+      .post("/api/stores")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ name: storeName, businessType: "BELLEZA" });
+    expect(store.status).toBe(201);
+    storeId = store.body.id;
+    // Sin precio de plan: la tienda queda FREE y aun así debe poder agendar a mano.
+    await db
+      .update(stores)
+      .set({ plan: "FREE", subscriptionCycle: null })
+      .where(eq(stores.id, storeId));
+
+    const svc = await request(app)
+      .post("/api/services")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ name: "Manicura manual", price: 30000, durationMinutes: 60 });
+    expect(svc.status).toBe(201);
+    serviceId = svc.body.id;
+  });
+
+  afterAll(async () => {
+    const [store] = await db
+      .select({ id: stores.id })
+      .from(stores)
+      .where(eq(stores.name, storeName))
+      .limit(1);
+    if (store) {
+      await db.delete(appointments).where(eq(appointments.storeId, store.id));
+      const storeSales = await db
+        .select({ id: sales.id })
+        .from(sales)
+        .where(eq(sales.storeId, store.id));
+      if (storeSales.length) {
+        await db.delete(saleItems).where(inArray(saleItems.saleId, storeSales.map((s) => s.id)));
+      }
+      await db.delete(sales).where(eq(sales.storeId, store.id));
+      await db.delete(storeServices).where(eq(storeServices.storeId, store.id));
+    }
+    await db.delete(stores).where(eq(stores.name, storeName));
+    await db.delete(users).where(inArray(users.email, [ownerEmail, otherEmail]));
+  });
+
+  it("el comerciante agenda a mano para un cliente sin cuenta", async () => {
+    const r = await request(app)
+      .post("/api/appointments/manual")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ serviceId, date: dateStr, startTime: "09:00", customerName: "Ana Pérez" });
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.appointment.customerId).toBeNull();
+    expect(r.body.appointment.manualCustomerName).toBe("Ana Pérez");
+    expect(r.body.appointment.endTime).toBe("10:00"); // 60 min
+  });
+
+  it("la agenda del comerciante muestra el nombre manual", async () => {
+    const agenda = await request(app)
+      .get("/api/appointments/agenda")
+      .set("Authorization", `Bearer ${tokenM}`);
+    expect(agenda.status).toBe(200);
+    const row = agenda.body.find((a: any) => a.startTime === "09:00");
+    expect(row).toBeTruthy();
+    expect(row.customerName).toBe("Ana Pérez");
+    expect(row.customer).toBeNull();
+  });
+
+  it("valida horario/almuerzo/solape y nombre obligatorio", async () => {
+    const lunch = await request(app)
+      .post("/api/appointments/manual")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ serviceId, date: dateStr, startTime: "12:30", customerName: "Lunch" });
+    expect(lunch.status).toBe(409);
+    expect(lunch.body.code).toBe("lunch");
+
+    const clash = await request(app)
+      .post("/api/appointments/manual")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ serviceId, date: dateStr, startTime: "09:30", customerName: "Clash" });
+    expect(clash.status).toBe(409);
+    expect(clash.body.code).toBe("busy_slot");
+
+    const closed = await request(app)
+      .post("/api/appointments/manual")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ serviceId, date: nextSunday(dateStr), startTime: "09:00", customerName: "Domingo" });
+    expect(closed.status).toBe(409);
+    expect(closed.body.code).toBe("closed_day");
+
+    const noName = await request(app)
+      .post("/api/appointments/manual")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ serviceId, date: dateStr, startTime: "15:00", customerName: "   " });
+    expect(noName.status).toBe(400);
+  });
+
+  it("un usuario sin tienda no puede agendar a mano", async () => {
+    const r = await request(app)
+      .post("/api/appointments/manual")
+      .set("Authorization", `Bearer ${tokenO}`)
+      .send({ serviceId, date: dateStr, startTime: "16:00", customerName: "Intruso" });
+    expect(r.status).toBe(404);
+  });
+
+  it("cerrar 'Listo' una cita manual registra la venta (sin cliente con cuenta)", async () => {
+    const book = await request(app)
+      .post("/api/appointments/manual")
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ serviceId, date: dateStr, startTime: "17:00", customerName: "Mostrador" });
+    expect(book.status).toBe(201);
+    const apptId = book.body.appointment.id;
+
+    const close = await request(app)
+      .post(`/api/appointments/${apptId}/close`)
+      .set("Authorization", `Bearer ${tokenM}`)
+      .send({ outcome: "done" });
+    expect(close.status).toBe(200);
+    expect(close.body.sale.total).toBe(30000);
+    expect(close.body.sale.origin).toBe("appointment");
+
+    const [sale] = await db.select().from(sales).where(eq(sales.id, close.body.sale.id)).limit(1);
+    expect(sale.customerId).toBeNull();
+  });
+});

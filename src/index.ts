@@ -173,11 +173,16 @@ if (isMainModule) {
       created_at timestamp DEFAULT now() NOT NULL,
       store_id uuid NOT NULL REFERENCES stores(id),
       service_id uuid NOT NULL REFERENCES store_services(id),
-      customer_id uuid NOT NULL REFERENCES users(id)
+      customer_id uuid REFERENCES users(id),
+      manual_customer_name text
     )`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS appointments_store_date_unique
       ON appointments (store_id, appointment_date, start_time)
       WHERE status <> 'cancelled'`);
+    // Citas manuales (modo manual de las tiendas FREE): el comerciante agenda
+    // para un cliente sin cuenta, así que customer_id ya no es obligatorio.
+    await db.execute(sql`ALTER TABLE appointments ALTER COLUMN customer_id DROP NOT NULL`);
+    await db.execute(sql`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS manual_customer_name text`);
     // ── Cita → venta ────────────────────────────────────────────────────────
     await db.execute(sql`ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS service_id uuid`);
     await db.execute(sql`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS sale_id uuid`);

@@ -161,9 +161,11 @@ export const appointments = pgTable(
     serviceId: uuid("service_id")
       .notNull()
       .references(() => storeServices.id),
-    customerId: uuid("customer_id")
-      .notNull()
-      .references(() => users.id),
+    // Una cita la reserva el cliente (customer_id) o la agenda el comerciante
+    // a mano para un cliente sin cuenta (manual_customer_name). Por eso
+    // customer_id es nullable.
+    customerId: uuid("customer_id").references(() => users.id),
+    manualCustomerName: text("manual_customer_name"),
     // Venta generada al cerrar la cita ("Listo"). Garantiza idempotencia:
     // una cita produce como máximo una venta.
     saleId: uuid("sale_id").references(() => sales.id),

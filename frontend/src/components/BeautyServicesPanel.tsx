@@ -39,6 +39,11 @@ function weekdayName(dateStr: string): string {
   return days[d.getDay()];
 }
 
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function BeautyServicesPanel({ store, onStoreUpdated }: Props) {
   const [services, setServices] = useState<StoreService[]>([]);
   const [templates, setTemplates] = useState<{ name: string; durationMinutes: number }[]>([]);
@@ -66,6 +71,15 @@ export function BeautyServicesPanel({ store, onStoreUpdated }: Props) {
   const [svcPrice, setSvcPrice] = useState('');
   const [svcHours, setSvcHours] = useState(0);
   const [svcMins, setSvcMins] = useState(30);
+
+  // Formulario de cita manual (agendar para un cliente sin cuenta)
+  const [showManual, setShowManual] = useState(false);
+  const [savingManual, setSavingManual] = useState(false);
+  const [mServiceId, setMServiceId] = useState('');
+  const [mDate, setMDate] = useState('');
+  const [mTime, setMTime] = useState('09:00');
+  const [mName, setMName] = useState('');
+  const [mNote, setMNote] = useState('');
 
   const load = async () => {
     try {
@@ -161,6 +175,49 @@ export function BeautyServicesPanel({ store, onStoreUpdated }: Props) {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo eliminar');
+    }
+  };
+
+  const openManual = () => {
+    setMServiceId(services[0]?.id ?? '');
+    setMDate(todayStr());
+    setMTime('09:00');
+    setMName('');
+    setMNote('');
+    setError(null);
+    setNotice(null);
+    setShowManual(true);
+  };
+
+  const submitManual = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mServiceId) {
+      setError('Elige un servicio.');
+      return;
+    }
+    if (!mName.trim()) {
+      setError('Escribe el nombre del cliente.');
+      return;
+    }
+    try {
+      setSavingManual(true);
+      await api.appointments.manual({
+        serviceId: mServiceId,
+        date: mDate,
+        startTime: mTime,
+        customerName: mName.trim(),
+        note: mNote.trim() || undefined,
+      });
+      setShowManual(false);
+      setMName('');
+      setMNote('');
+      setError(null);
+      setNotice('Cita agendada.');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo agendar la cita');
+    } finally {
+      setSavingManual(false);
     }
   };
 
@@ -473,15 +530,104 @@ export function BeautyServicesPanel({ store, onStoreUpdated }: Props) {
 
       {/* ── Agenda ──────────────────────────────────────────── */}
       <div className="card p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-display text-lg font-bold text-surface-900 flex items-center gap-2">
-            <CalendarClock className="w-5 h-5 text-emerald-500" />
-            Agenda de citas
-          </h3>
-          <span className="text-xs text-surface-400 font-medium">
-            Próximos 7 días · la venta la registras tú al prestar el servicio
-          </span>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="font-display text-lg font-bold text-surface-900 flex items-center gap-2">
+              <CalendarClock className="w-5 h-5 text-emerald-500" />
+              Agenda de citas
+            </h3>
+            <p className="text-xs text-surface-400 font-medium">
+              Próximos 7 días · la venta la registras tú al prestar el servicio
+            </p>
+          </div>
+          {services.length > 0 && (
+            <button
+              onClick={() => (showManual ? setShowManual(false) : openManual())}
+              className={showManual ? 'btn-ghost text-sm' : 'btn-primary text-sm inline-flex items-center gap-1.5 shrink-0'}
+            >
+              {showManual ? (
+                <>
+                  <X className="w-4 h-4" /> Cancelar
+                </>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4" /> Agregar cita
+                </>
+              )}
+            </button>
+          )}
         </div>
+
+        {showManual && (
+          <form onSubmit={submitManual} className="mb-5 p-5 bg-surface-50 rounded-2xl border border-surface-200 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-surface-700 mb-1.5">Servicio</label>
+                <select
+                  value={mServiceId}
+                  onChange={(e) => setMServiceId(e.target.value)}
+                  required
+                  className="input"
+                >
+                  {services.map((svc) => (
+                    <option key={svc.id} value={svc.id}>
+                      {svc.name} · {minutesLabel(svc.durationMinutes)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-surface-700 mb-1.5">Fecha</label>
+                <input
+                  type="date"
+                  value={mDate}
+                  min={todayStr()}
+                  onChange={(e) => setMDate(e.target.value)}
+                  required
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-surface-700 mb-1.5">Hora</label>
+                <input
+                  type="time"
+                  value={mTime}
+                  onChange={(e) => setMTime(e.target.value)}
+                  required
+                  className="input"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-surface-700 mb-1.5">Cliente</label>
+                <input
+                  value={mName}
+                  onChange={(e) => setMName(e.target.value)}
+                  required
+                  maxLength={80}
+                  className="input"
+                  placeholder="Ej: Ana Pérez (o 'Cliente mostrador')"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-surface-700 mb-1.5">Nota (opcional)</label>
+                <input
+                  value={mNote}
+                  onChange={(e) => setMNote(e.target.value)}
+                  maxLength={300}
+                  className="input"
+                  placeholder="Ej: viene con su hija"
+                />
+              </div>
+            </div>
+
+            <button type="submit" disabled={savingManual} className="btn-primary">
+              {savingManual ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Agendar cita'}
+            </button>
+          </form>
+        )}
 
         {groupedByDate.length === 0 ? (
           <p className="text-center text-sm text-surface-400 py-6">
@@ -512,7 +658,7 @@ export function BeautyServicesPanel({ store, onStoreUpdated }: Props) {
                               {a.service.name}
                             </p>
                             <p className="text-xs text-surface-500 truncate">
-                              {a.customer?.name ?? 'Cliente'} · {minutesLabel(a.service.durationMinutes)}
+                              {a.customerName ?? a.customer?.name ?? 'Cliente'} · {minutesLabel(a.service.durationMinutes)}
                             </p>
                           </div>
                         </div>

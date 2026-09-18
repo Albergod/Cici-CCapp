@@ -41,7 +41,8 @@ export interface Appointment {
   note?: string | null;
   saleId?: string | null;
   service: { name: string; price: number; durationMinutes: number };
-  customer?: { id: string; name: string };
+  customerName?: string;
+  customer?: { id: string; name: string } | null;
 }
 
 export interface User {

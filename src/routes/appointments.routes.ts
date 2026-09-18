@@ -60,11 +60,12 @@ router.get("/agenda", requireAuth, async (req: AuthRequest, res) => {
       servicePrice: storeServices.price,
       serviceDurationMinutes: storeServices.durationMinutes,
       customerName: users.name,
-      customerId: users.id,
+      customerId: appointments.customerId,
+      manualCustomerName: appointments.manualCustomerName,
     })
     .from(appointments)
     .innerJoin(storeServices, eq(storeServices.id, appointments.serviceId))
-    .innerJoin(users, eq(users.id, appointments.customerId))
+    .leftJoin(users, eq(users.id, appointments.customerId))
     .where(
       and(
         eq(appointments.storeId, store.id),
@@ -76,14 +77,21 @@ router.get("/agenda", requireAuth, async (req: AuthRequest, res) => {
 
   res.json(
     rows.map((r) => ({
-      ...r,
+      id: r.id,
       appointmentDate: dateFromDb(String(r.appointmentDate)),
+      startTime: r.startTime,
+      endTime: r.endTime,
+      status: r.status,
+      note: r.note,
+      saleId: r.saleId,
       service: {
         name: r.serviceName,
         price: Number(r.servicePrice),
         durationMinutes: r.serviceDurationMinutes,
       },
-      customer: { id: r.customerId, name: r.customerName },
+      // Cita del cliente (con cuenta) o agendada a mano por el comerciante.
+      customerName: r.customerName ?? r.manualCustomerName ?? "Cliente",
+      customer: r.customerId ? { id: r.customerId, name: r.customerName ?? "Cliente" } : null,
     })),
   );
 });
@@ -132,6 +140,46 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     storeId: parsed.data.storeId,
     serviceId: parsed.data.serviceId,
     customerId: req.userId!,
+    dateStr: parsed.data.date,
+    startTime: parsed.data.startTime,
+    note: parsed.data.note ?? null,
+  });
+
+  if (!result.ok) {
+    return res.status(409).json({ error: result.message, code: result.code });
+  }
+  res.status(201).json({ ok: true, appointment: result.appointment });
+});
+
+const manualBookSchema = z.object({
+  serviceId: z.string().uuid(),
+  date: z.string().regex(DATE_RX, "Fecha inválida (YYYY-MM-DD)"),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Hora inválida (HH:MM)"),
+  customerName: z.string().trim().min(1, "El nombre del cliente es obligatorio").max(80),
+  note: z.string().max(300).optional(),
+});
+
+// El comerciante agenda una cita a mano para un cliente sin cuenta (walk-in o
+// reserva por teléfono). Es el "modo manual" de la agenda: disponible en todos
+// los planes, incluido FREE (donde la IA está apagada). Reutiliza la misma
+// validación determinística que la reserva del cliente.
+router.post("/manual", requireAuth, async (req: AuthRequest, res) => {
+  const parsed = manualBookSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const [store] = await db
+    .select({ id: stores.id, businessType: stores.businessType })
+    .from(stores)
+    .where(eq(stores.ownerId, req.userId!))
+    .limit(1);
+  if (!store) return res.status(404).json({ error: "No tienes una tienda." });
+
+  const result = await createBooking({
+    storeId: store.id,
+    serviceId: parsed.data.serviceId,
+    customerId: null,
+    manualCustomerName: parsed.data.customerName,
+    storeBusinessType: store.businessType as string,
     dateStr: parsed.data.date,
     startTime: parsed.data.startTime,
     note: parsed.data.note ?? null,

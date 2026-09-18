@@ -287,6 +287,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    manual: (data: { serviceId: string; date: string; startTime: string; customerName: string; note?: string }) =>
+      request<{ ok: true; appointment: Appointment }>('/appointments/manual', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
     cancel: (id: string) =>
       request<{ ok: boolean }>(`/appointments/${id}/cancel`, { method: 'PATCH' }),
     complete: (id: string) =>
