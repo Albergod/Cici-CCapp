@@ -10,6 +10,7 @@ import {
   Rocket,
   ShieldCheck,
   Send,
+  Bot,
 } from 'lucide-react';
 
 type Step = {
@@ -47,20 +48,33 @@ const STEPS: Step[] = [
     tag: 'Elige tu plan',
     title: 'Planes y ventajas',
     points: [
-      'El plan Gratis siempre está ahí: con él puedes empezar y probar tu tienda.',
-      'Con Premium destacas más y no pagas comisión por tus ventas.',
+      'El plan Gratis siempre está ahí: creas tu espacio, recibes clientes por el chat y agendas tus citas de forma manual, sin pagar nada.',
+      'Con Premium (PRO) se activa el asistente IA que atiende y vende por ti, los pedidos automáticos, el prestigio y los referidos, el check verificado, hasta 100 productos y tus métricas de ventas.',
+      'Con Business tienes lo mismo con más espacio: hasta 500 productos y la máxima visibilidad (tu local aparece primero en el centro comercial).',
+      'El asistente IA es un servicio de los planes de pago: con el plan Gratis el chat queda en modo manual.',
       'Puedes pagar tu plan con Nequi o Mercado Pago, como más te guste.',
-      'Invita a otros emprendedores con tu enlace de referidos: por cada uno que pague su plan ganas 25 pts de prestigio hacia tu check verificado.',
-      'Y un bonus: cada referido que paga su plan te suma 3 días más a la vigencia del tuyo.',
+      'Invita a otros emprendedores con tu enlace de referidos: por cada uno que pague su plan ganas 25 pts de prestigio hacia tu check verificado, y te suma 3 días más a la vigencia del tuyo.',
     ],
-    tip: 'Por cada referido que paga su plan: +25 pts de prestigio y +3 días de tu plan.',
+    tip: 'Sin comisión por tus ventas en ningún plan: solo pagas el arriendo de tu espacio.',
+  },
+  {
+    icon: Bot,
+    tag: 'Servicio de pago',
+    title: 'El asistente IA',
+    points: [
+      'Con un plan de pago tu tienda tiene un asistente IA que responde solo en el chat: saluda, da precios, resuelve dudas del producto y guía al cliente hasta tu WhatsApp para cerrar la venta.',
+      'Cuando el cliente confirma un pedido, la IA lo anota en tus pedidos y el stock se descuenta al confirmarlo.',
+      'Si tu negocio es de servicios, la IA también agenda tus citas por ti.',
+      'En el plan Gratis el chat queda en modo manual (tú respondes): la IA se activa con tu prueba PRO o con cualquier plan de pago.',
+    ],
+    tip: 'Tu tienda atendiendo y vendiendo 24/7, incluso cuando no estás conectado.',
   },
   {
     icon: CreditCard,
     tag: 'El pago de tu plan',
     title: 'Los pagos',
     points: [
-      'En la app el pago es para activar tu plan: Gratis para empezar y Premium cuando quieras crecer.',
+      'En la app el pago es para activar tu plan: Gratis para empezar, y Premium o Business cuando quieras crecer.',
       'Pagas fácil con Nequi o Mercado Pago y tu plan se activa al instante.',
       'Tus ventas se cierran por WhatsApp con tus clientes; tu plan te ayuda a hacerlo más fácil.',
     ],

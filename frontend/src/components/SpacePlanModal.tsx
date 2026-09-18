@@ -4,6 +4,7 @@ import {
   Check,
   Store,
   Star,
+  Crown,
   ShoppingBag,
   ChevronRight,
   Timer,
@@ -33,6 +34,25 @@ interface SpacePlanModalProps {
   onUpgrade?: (selection: UpgradeSelection) => void;
   mode?: 'create' | 'upgrade';
 }
+
+// Lo que desbloquea cada plan de pago. El asistente IA, los pedidos
+// automáticos y las métricas son servicios exclusivos de pago: por eso van
+// primero en la lista, para que quede claro qué se recibe a cambio.
+const PRO_FEATURES: { text: string; included: boolean }[] = [
+  { text: 'Asistente IA que atiende y vende por ti', included: true },
+  { text: 'Pedidos automáticos desde el chat', included: true },
+  { text: 'Sistema de prestigio y referidos', included: true },
+  { text: 'Check verificado al llegar a 100 puntos', included: true },
+  { text: 'Hasta 100 productos', included: true },
+  { text: 'Métricas de ventas y conversión', included: true },
+];
+
+const BUSINESS_FEATURES: { text: string; included: boolean }[] = [
+  { text: 'Todo lo del plan Premium', included: true },
+  { text: 'Asistente IA y pedidos automáticos', included: true },
+  { text: 'Hasta 500 productos', included: true },
+  { text: 'Máxima visibilidad: primero en el mall', included: true },
+];
 
 function PaidPlanCard({
   plan,
@@ -214,7 +234,7 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
         className="fixed inset-0 bg-surface-900/50 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="card p-4 md:p-8 w-full max-w-2xl relative shadow-lift m-auto">
+      <div className={`card p-4 md:p-8 w-full relative shadow-lift m-auto ${isUpgrade ? 'max-w-2xl' : 'max-w-4xl'}`}>
         <button
           onClick={onClose}
           aria-label="Cerrar"
@@ -233,13 +253,13 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
             </h2>
             <p className="text-sm text-surface-500">
               {isUpgrade
-                ? 'Desbloquea los beneficios del plan de pago'
+                ? 'Desbloquea el asistente IA que atiende y vende por ti'
                 : 'Arriendo del espacio dentro del centro comercial digital'}
             </p>
           </div>
         </div>
 
-        <div className={`mt-6 ${isUpgrade ? 'max-w-md mx-auto' : 'grid grid-cols-1 md:grid-cols-2 gap-4'}`}>
+        <div className={`mt-6 grid gap-4 ${isUpgrade ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3'}`}>
           {!isUpgrade && (
             <button
               onClick={() => onSelect?.({ type: 'free' })}
@@ -280,18 +300,27 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
           <PaidPlanCard
             plan="PRO"
             title="Espacio Premium"
-            desc="Contacto con clientes garantizado y espacio permanente."
+            desc="La IA atiende y vende por ti, con contacto garantizado y espacio permanente."
             icon={<Star className="w-5 h-5" />}
             badge={isUpgrade ? null : 'RECOMENDADO'}
             badgeClass="bg-gradient-to-r from-brand-600 to-accent-500"
             isHighlight={true}
-            features={[
-              { text: 'Sistema de prestigio y referidos', included: true },
-              { text: 'Check verificado al llegar a 100 puntos', included: true },
-              { text: 'Hasta 100 productos', included: true },
-              { text: 'Métricas de ventas y tasa de conversión', included: true },
-            ]}
+            features={PRO_FEATURES}
             buttonLabel="Elegir este espacio"
+            onUpgrade={(sel) => (isUpgrade ? onUpgrade?.(sel) : onSelect?.({ type: 'paid', plan: sel.plan, cycle: sel.cycle }))}
+            promoActive={promoActive}
+            countdown={countdown}
+          />
+
+          <PaidPlanCard
+            plan="BUSINESS"
+            title="Espacio Business"
+            desc="El mayor espacio y la mejor ubicación del centro comercial digital."
+            icon={<Crown className="w-5 h-5" />}
+            badge={isUpgrade ? null : 'MÁXIMA VISIBILIDAD'}
+            badgeClass="bg-surface-900"
+            features={BUSINESS_FEATURES}
+            buttonLabel="Elegir Business"
             onUpgrade={(sel) => (isUpgrade ? onUpgrade?.(sel) : onSelect?.({ type: 'paid', plan: sel.plan, cycle: sel.cycle }))}
             promoActive={promoActive}
             countdown={countdown}
@@ -300,8 +329,8 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
 
         <p className="mt-5 text-xs text-surface-400 text-center">
           {isUpgrade
-            ? 'Al elegir un plan de pago se desbloquea el sistema de prestigio, tu enlace de referidos y toda la suite de métricas exclusivas.'
-            : 'Al continuar puedes cambiar tu decisión después desde el dashboard. Con el espacio Premium se desbloquea tu sistema de prestigio y tu enlace de referidos.'}
+            ? 'Al elegir un plan de pago se activan el asistente IA que atiende y vende por ti, los pedidos automáticos, el sistema de prestigio, tu enlace de referidos y las métricas exclusivas.'
+            : 'Al continuar puedes cambiar tu decisión después desde el dashboard. Con el espacio Premium se desbloquean el asistente IA, los pedidos automáticos, tu sistema de prestigio y tu enlace de referidos.'}
         </p>
       </div>
     </div>

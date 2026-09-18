@@ -1565,6 +1565,75 @@ function DashboardSubscription({
     );
   }
 
+  // Recordatorios de la prueba: a mitad (día 7) y último día (día 13). Muestran
+  // el recap de lo que se apaga si no se continúa, para empujar la conversión.
+  const trialDaysLeft = trialEndsAt
+    ? Math.max(0, Math.ceil((trialEndsAt - Date.now()) / (24 * 60 * 60 * 1000)))
+    : null;
+  const trialHalfway = trialDaysLeft !== null && trialDaysLeft <= 7;
+  const trialLastDay = trialDaysLeft !== null && trialDaysLeft <= 1;
+
+  if (trialHalfway) {
+    const losing = [
+      { icon: <Bot className="w-4 h-4" />, text: 'El asistente IA deja de responder y vender en tu chat' },
+      { icon: <Package className="w-4 h-4" />, text: 'Dejan de entrar los pedidos automáticos del chat' },
+      { icon: <Users className="w-4 h-4" />, text: 'Se pausan el prestigio, los referidos y el check verificado' },
+      { icon: <TrendingUp className="w-4 h-4" />, text: 'Tu catálogo baja de 100 a 20 productos' },
+      { icon: <BadgeCheck className="w-4 h-4" />, text: 'Se bloquean tus métricas de ventas' },
+    ];
+    return (
+      <div
+        className={`card overflow-hidden border-2 ${
+          trialLastDay ? 'border-accent-300 bg-accent-50/60' : 'border-amber-200 bg-amber-50/60'
+        }`}
+      >
+        <div className="p-5 flex items-start gap-4">
+          <div
+            className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+              trialLastDay ? 'bg-accent-100 text-accent-600' : 'bg-amber-100 text-amber-600'
+            }`}
+          >
+            <Clock className="w-5 h-5" />
+          </div>
+          <div className="flex-1">
+            <p className="font-bold text-surface-900">
+              {trialLastDay
+                ? `Última llamada: tu prueba ${trialDaysLeft === 0 ? 'termina hoy' : 'termina mañana'}`
+                : `Te quedan ${trialDaysLeft} días de prueba ${store.plan}`}
+            </p>
+            <p className="text-sm text-surface-600 mt-0.5">
+              {trialLastDay
+                ? 'Si no continúas, esto se apaga en tu espacio:'
+                : 'Estás en la segunda mitad de tu prueba. Si no continúas, esto se apaga al terminar:'}
+            </p>
+            <ul className="mt-3 space-y-2">
+              {losing.map((l) => (
+                <li key={l.text} className="flex items-start gap-2 text-sm text-surface-700">
+                  <span className="mt-0.5 w-6 h-6 rounded-lg bg-white border border-surface-200 text-surface-500 flex items-center justify-center shrink-0">
+                    {l.icon}
+                  </span>
+                  {l.text}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                onClick={onUpgrade}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-gradient-to-r from-brand-600 to-accent-500 text-white rounded-full hover:from-brand-700 hover:to-accent-600 transition-all"
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                Continuar con mi plan
+              </button>
+              <span className="text-xs text-surface-500">
+                Lo que te queda de prueba se suma a tu periodo de pago.
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="card overflow-hidden">
       <div className="p-5 flex items-start gap-4">

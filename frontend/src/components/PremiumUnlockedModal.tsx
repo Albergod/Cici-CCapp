@@ -9,6 +9,8 @@ import {
   Share2,
   X,
   Crown,
+  Bot,
+  ShoppingCart,
 } from 'lucide-react';
 
 export interface UnlockedPlanInfo {
@@ -19,6 +21,16 @@ export interface UnlockedPlanInfo {
 // Características que desbloquea cada plan de pago.
 const PLAN_FEATURES: Record<'PRO' | 'BUSINESS', { title: string; desc: string; icon: React.ReactNode }[]> = {
   PRO: [
+    {
+      title: 'Asistente IA que atiende y vende por ti',
+      desc: 'Tu chat responde solo: atiende a los clientes, da precios y los lleva a tu WhatsApp.',
+      icon: <Bot className="w-5 h-5" />,
+    },
+    {
+      title: 'Pedidos automáticos',
+      desc: 'La IA anota los pedidos de tus clientes y el stock se descuenta al confirmarlos.',
+      icon: <ShoppingCart className="w-5 h-5" />,
+    },
     {
       title: 'Sistema de prestigio activado',
       desc: 'Acumula puntos y sube en el centro comercial digital.',
@@ -36,7 +48,7 @@ const PLAN_FEATURES: Record<'PRO' | 'BUSINESS', { title: string; desc: string; i
     },
     {
       title: 'Hasta 100 productos',
-      desc: 'Publica sin tope el catálogo completo de tu local.',
+      desc: 'Publica hasta 100 productos del catálogo de tu local.',
       icon: <Package className="w-5 h-5" />,
     },
     {
@@ -48,7 +60,7 @@ const PLAN_FEATURES: Record<'PRO' | 'BUSINESS', { title: string; desc: string; i
   BUSINESS: [
     {
       title: 'Todo lo del plan Premium',
-      desc: 'Prestigio, referidos, check verificado y métricas incluidas.',
+      desc: 'Asistente IA, pedidos automáticos, prestigio, referidos, check verificado y métricas.',
       icon: <Sparkles className="w-5 h-5" />,
     },
     {

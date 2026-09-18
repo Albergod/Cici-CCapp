@@ -41,13 +41,15 @@ export const PLAN_FEATURES: Record<
   { title: string; description: string }[]
 > = {
   PRO: [
+    { title: "Asistente IA que vende por ti", description: "Atiende a tus clientes y cierra la venta por WhatsApp." },
+    { title: "Pedidos automáticos", description: "La IA anota los pedidos y descuenta el stock al confirmarlos." },
     { title: "Sistema de prestigio y referidos", description: "Gana puntos citando a otros emprendedores." },
     { title: "Check verificado", description: "Al llegar a 100 puntos obtienes el check oficial." },
-    { title: "Hasta 100 productos", description: "Publica tu catálogo completo." },
+    { title: "Hasta 100 productos", description: "Publica hasta 100 productos de tu catálogo." },
     { title: "Métricas de ventas", description: "Tasa de conversión y estadísticas detalladas." },
   ],
   BUSINESS: [
-    { title: "Todo lo del plan Premium+", description: "Sin límite de productos." },
+    { title: "Todo lo del plan Premium", description: "Incluye asistente IA, pedidos automáticos, prestigio y métricas." },
     { title: "Hasta 500 productos", description: "El mayor espacio del centro comercial." },
     { title: "Máxima visibilidad", description: "Tu local aparece primero en el feed." },
   ],
