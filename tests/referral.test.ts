@@ -3,7 +3,7 @@ import request from "supertest";
 import type { Express } from "express";
 import { eq } from "drizzle-orm";
 import { db } from "../src/db/client";
-import { users, stores } from "../src/db/schema";
+import { users, stores, sales } from "../src/db/schema";
 import { awardReferralPrestige } from "../src/lib/prestige";
 import { activatePaidPlan } from "../src/lib/plans";
 import "dotenv/config";
@@ -64,12 +64,31 @@ describe("Prestigio por referidos", () => {
     await db.delete(stores).where(eq(stores.name, `Ref Pending A ${ts}`));
     await db.delete(stores).where(eq(stores.name, `Ref Free ${ts}`));
     await db.delete(stores).where(eq(stores.name, `Ref Free B ${ts}`));
+    await db.delete(stores).where(eq(stores.name, `Ref Acc A ${ts}`));
+    await db.delete(stores).where(eq(stores.name, `Ref Acc B ${ts}`));
+    await db.delete(stores).where(eq(stores.name, `Ref Acc C ${ts}`));
+    await db.delete(stores).where(eq(stores.name, `Ref Acc R ${ts}`));
+    await db.delete(stores).where(eq(stores.name, `Ref Cap ${ts}`));
+    const checkStore = await db
+      .select({ id: stores.id })
+      .from(stores)
+      .where(eq(stores.name, `Ref Check ${ts}`));
+    if (checkStore.length) {
+      await db.delete(sales).where(eq(sales.storeId, checkStore[0].id));
+    }
+    await db.delete(stores).where(eq(stores.name, `Ref Check ${ts}`));
     await db.delete(users).where(eq(users.email, `ref-a-${ts}@example.com`));
     await db.delete(users).where(eq(users.email, `ref-b-${ts}@example.com`));
     await db.delete(users).where(eq(users.email, `ref-pend-a-${ts}@example.com`));
     await db.delete(users).where(eq(users.email, `ref-pend-b-${ts}@example.com`));
     await db.delete(users).where(eq(users.email, `ref-free-${ts}@example.com`));
     await db.delete(users).where(eq(users.email, `ref-free-b-${ts}@example.com`));
+    await db.delete(users).where(eq(users.email, `ref-acc-r-${ts}@example.com`));
+    await db.delete(users).where(eq(users.email, `ref-acc-a-${ts}@example.com`));
+    await db.delete(users).where(eq(users.email, `ref-acc-b-${ts}@example.com`));
+    await db.delete(users).where(eq(users.email, `ref-acc-c-${ts}@example.com`));
+    await db.delete(users).where(eq(users.email, `ref-cap-${ts}@example.com`));
+    await db.delete(users).where(eq(users.email, `ref-check-${ts}@example.com`));
   });
 
   it("un referido FREE NO suma prestigio; solo suma al activar su plan, una sola vez", async () => {
@@ -183,5 +202,107 @@ describe("Prestigio por referidos", () => {
     // Sigue idempotente.
     const again = await awardReferralPrestige(b.id);
     expect(again).toBe(0);
+  });
+
+  it("acumula +25 por CADA referido que paga su plan (3 pagos → 75)", async () => {
+    const tokenR = await registerUser(`ref-acc-r-${ts}@example.com`);
+    const storeR = await createStore(tokenR, `Ref Acc R ${ts}`);
+    await activatePaidPlan(storeR.body.id, "PRO", "MONTHLY");
+    const r = await storeByOwnerEmail(`ref-acc-r-${ts}@example.com`);
+    expect(r.referralCode).toBeTruthy();
+
+    const referidos = [
+      { tag: "a", email: `ref-acc-a-${ts}@example.com`, name: `Ref Acc A ${ts}` },
+      { tag: "b", email: `ref-acc-b-${ts}@example.com`, name: `Ref Acc B ${ts}` },
+      { tag: "c", email: `ref-acc-c-${ts}@example.com`, name: `Ref Acc C ${ts}` },
+    ];
+
+    for (let i = 0; i < referidos.length; i++) {
+      const { email, name } = referidos[i];
+      const token = await registerUser(email, r.referralCode!);
+      const store = await createStore(token, name);
+      expect(store.status).toBe(201);
+      const ref = await storeByOwnerEmail(email);
+      expect(ref.referredByStoreId).toBe(storeR.body.id);
+
+      await activatePaidPlan(ref.id, "PRO", "MONTHLY");
+      const awarded = await awardReferralPrestige(ref.id);
+      expect(awarded).toBe(25);
+
+      const rNow = await storeByOwnerEmail(`ref-acc-r-${ts}@example.com`);
+      expect(Number(rNow.prestigePoints)).toBe(25 * (i + 1));
+    }
+
+    // Renovar el plan de un referido no vuelve a sumar (idempotente por referido).
+    const refA = await storeByOwnerEmail(`ref-acc-a-${ts}@example.com`);
+    await activatePaidPlan(refA.id, "PRO", "MONTHLY");
+    const again = await awardReferralPrestige(refA.id);
+    expect(again).toBe(0);
+    const rFinal = await storeByOwnerEmail(`ref-acc-r-${ts}@example.com`);
+    expect(Number(rFinal.prestigePoints)).toBe(75);
+  });
+
+  it("la meta sube +100 al hacer UPGRADE y respeta el tope de 1000", async () => {
+    const token = await registerUser(`ref-cap-${ts}@example.com`);
+    const store = await createStore(token, `Ref Cap ${ts}`);
+    const id = store.body.id;
+
+    // Activación inicial: base 100 + 100 = 200.
+    await activatePaidPlan(id, "PRO", "MONTHLY");
+    let s = await storeByOwnerEmail(`ref-cap-${ts}@example.com`);
+    expect(Number(s.prestigeGoal)).toBe(200);
+
+    // UPGRADE de plan (mejora): +100 → 300.
+    await activatePaidPlan(id, "BUSINESS", "MONTHLY");
+    s = await storeByOwnerEmail(`ref-cap-${ts}@example.com`);
+    expect(s.plan).toBe("BUSINESS");
+    expect(Number(s.prestigeGoal)).toBe(300);
+
+    // Renovaciones/mejoras sucesivas: sigue subiendo +100 hasta el tope 1000.
+    for (let i = 0; i < 20; i++) {
+      await activatePaidPlan(id, "BUSINESS", "MONTHLY");
+    }
+    s = await storeByOwnerEmail(`ref-cap-${ts}@example.com`);
+    expect(Number(s.prestigeGoal)).toBe(1000); // nunca pasa de 1000
+  });
+
+  it("concede el check cuando puntos>=meta, 7+ días y 1 venta rastreable (y es sticky)", async () => {
+    const token = await registerUser(`ref-check-${ts}@example.com`);
+    const store = await createStore(token, `Ref Check ${ts}`);
+    const id = store.body.id;
+    await activatePaidPlan(id, "PRO", "MONTHLY"); // meta 200
+
+    // Puntos suficientes para la meta, pero tienda recién creada y sin ventas.
+    await db.update(stores).set({ prestigePoints: "200" }).where(eq(stores.id, id));
+    let res = await request(app)
+      .get("/api/stores/referral")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.verified).toBe(false);
+    expect(res.body.criteria.minAgeDays).toBe(7);
+    expect(res.body.criteria.minSales).toBe(1);
+    expect(res.body.criteria.trackedSales).toBe(0);
+    expect(res.body.criteria.storeAgeDays).toBeLessThan(7);
+
+    // Antigüedad de 8 días + una venta rastreable → se concede el check.
+    await db
+      .update(stores)
+      .set({ createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000) })
+      .where(eq(stores.id, id));
+    await db
+      .insert(sales)
+      .values({ storeId: id, total: "50000", paymentMethod: "MP", origin: "manual" });
+
+    res = await request(app)
+      .get("/api/stores/referral")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.body.verified).toBe(true);
+
+    // Sticky: aunque luego baje los puntos, sigue verificado.
+    await db.update(stores).set({ prestigePoints: "0" }).where(eq(stores.id, id));
+    res = await request(app)
+      .get("/api/stores/referral")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.body.verified).toBe(true);
   });
 });
