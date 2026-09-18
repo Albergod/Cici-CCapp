@@ -37,7 +37,7 @@ export function PaymentResultModal({ open, onClose, onRetry }: PaymentResultModa
   if (open.kind === 'success') {
     const features =
       open.plan === 'PRO'
-        ? ['Sistema de prestigio y referidos', 'Check verificado', 'Hasta 100 productos', 'Métricas de ventas']
+        ? ['Sistema de prestigio y referidos', 'Check verificado', 'Hasta 100 productos']
         : ['Todo lo del plan Premium+', 'Hasta 500 productos', 'Máxima visibilidad'];
     return (
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 overflow-y-auto">

@@ -49,7 +49,7 @@ const STEPS: Step[] = [
     title: 'Planes y ventajas',
     points: [
       'El plan Gratis siempre está ahí: creas tu espacio, recibes clientes por el chat y agendas tus citas de forma manual, sin pagar nada.',
-      'Con Premium (PRO) se activa el asistente IA que atiende y vende por ti, los pedidos automáticos, el prestigio y los referidos, el check verificado, hasta 100 productos y tus métricas de ventas.',
+      'Con Premium (PRO) se activa el asistente IA que atiende y vende por ti, los pedidos automáticos, el prestigio y los referidos, el check verificado y hasta 100 productos.',
       'Con Business tienes lo mismo con más espacio: hasta 500 productos y la máxima visibilidad (tu local aparece primero en el centro comercial).',
       'El asistente IA es un servicio de los planes de pago: con el plan Gratis el chat queda en modo manual.',
       'Puedes pagar tu plan con Nequi o Mercado Pago, como más te guste.',

@@ -51,16 +51,11 @@ const PLAN_FEATURES: Record<'PRO' | 'BUSINESS', { title: string; desc: string; i
       desc: 'Publica hasta 100 productos del catálogo de tu local.',
       icon: <Package className="w-5 h-5" />,
     },
-    {
-      title: 'Métricas de ventas',
-      desc: 'Sigue tu tasa de conversión y rendimiento de tu tienda.',
-      icon: <TrendingUp className="w-5 h-5" />,
-    },
   ],
   BUSINESS: [
     {
       title: 'Todo lo del plan Premium',
-      desc: 'Asistente IA, pedidos automáticos, prestigio, referidos, check verificado y métricas.',
+      desc: 'Asistente IA, pedidos automáticos, prestigio, referidos y check verificado.',
       icon: <Sparkles className="w-5 h-5" />,
     },
     {

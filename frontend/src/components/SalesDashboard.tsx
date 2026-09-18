@@ -12,42 +12,12 @@ import {
   Trophy,
   Eye,
   Percent,
-  Lock,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
 import { RecentSale, SaleStats, Store } from '@/types';
 import { api } from '@/services/api';
 import { formatCOP } from '@/lib/format';
-
-function PremiumLock({
-  title,
-  desc,
-  onUpgrade,
-}: {
-  title: string;
-  desc: string;
-  onUpgrade: () => void;
-}) {
-  return (
-    <div className="card p-6 border-dashed border-2 border-surface-200">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-7 h-7 rounded-lg bg-surface-100 text-surface-400 flex items-center justify-center">
-          <Lock className="w-4 h-4" />
-        </div>
-        <h4 className="font-extrabold text-surface-900">{title}</h4>
-      </div>
-      <p className="text-sm text-surface-500 leading-relaxed">{desc}</p>
-      <p className="mt-2 text-xs text-surface-400 font-medium">
-        Exclusivo de planes de pago (PRO y BUSINESS)
-      </p>
-      <button onClick={onUpgrade} className="btn-primary mt-4 text-sm">
-        <Lock className="w-4 h-4" />
-        Activar Espacio Premium
-      </button>
-    </div>
-  );
-}
 
 function fmt(n: number): string {
   return formatCOP(n);
@@ -57,7 +27,7 @@ function fmtPct(n: number): string {
   return `${(n * 100).toFixed(2)}%`;
 }
 
-export function SalesDashboard({ store, onUpgrade }: { store: Store; onUpgrade: () => void }) {
+export function SalesDashboard({ store }: { store: Store }) {
   const products = store.products ?? [];
   const [stats, setStats] = useState<SaleStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -350,13 +320,7 @@ export function SalesDashboard({ store, onUpgrade }: { store: Store; onUpgrade: 
             <Eye className="w-5 h-5 text-brand-500" />
             <h4 className="font-extrabold text-surface-900">Productos más vistos</h4>
           </div>
-          {store.plan === 'FREE' ? (
-            <PremiumLock
-              title="Productos más vistos"
-              onUpgrade={onUpgrade}
-              desc="Descubre qué productos atraen más atención de tus clientes y enfoca tu catálogo en los favoritos."
-            />
-          ) : !stats || stats.topViewed.length === 0 ? (
+          {!stats || stats.topViewed.length === 0 ? (
             <p className="text-sm text-surface-400 text-center py-6">
               Comparte tu tienda para que los clientes vean tus productos.
             </p>
@@ -399,14 +363,7 @@ export function SalesDashboard({ store, onUpgrade }: { store: Store; onUpgrade: 
             <Percent className="w-5 h-5 text-accent-500" />
             <h4 className="font-extrabold text-surface-900">Tasa de conversión</h4>
           </div>
-          {store.plan === 'FREE' ? (
-            <PremiumLock
-              title="Tasa de conversión"
-              onUpgrade={onUpgrade}
-              desc="Mide cuántas visitas a tus productos se convierten en ventas y optimiza lo que más convierte."
-            />
-          ) : (
-            <>
+          <>
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-surface-50 rounded-2xl p-5 text-center">
                   <p className="text-3xl font-extrabold text-accent-600">
@@ -430,7 +387,6 @@ export function SalesDashboard({ store, onUpgrade }: { store: Store; onUpgrade: 
                 La conversión mide cuántas de esas vistas terminan en venta.
               </p>
             </>
-          )}
         </div>
 
         <div className="card p-6">

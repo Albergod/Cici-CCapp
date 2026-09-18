@@ -35,16 +35,15 @@ interface SpacePlanModalProps {
   mode?: 'create' | 'upgrade';
 }
 
-// Lo que desbloquea cada plan de pago. El asistente IA, los pedidos
-// automáticos y las métricas son servicios exclusivos de pago: por eso van
-// primero en la lista, para que quede claro qué se recibe a cambio.
+// Lo que desbloquea cada plan de pago. El asistente IA y los pedidos
+// automáticos son servicios exclusivos de pago: por eso van primero en la
+// lista, para que quede claro qué se recibe a cambio.
 const PRO_FEATURES: { text: string; included: boolean }[] = [
   { text: 'Asistente IA que atiende y vende por ti', included: true },
   { text: 'Pedidos automáticos desde el chat', included: true },
   { text: 'Sistema de prestigio y referidos', included: true },
   { text: 'Check verificado al llegar a 100 puntos', included: true },
   { text: 'Hasta 100 productos', included: true },
-  { text: 'Métricas de ventas y conversión', included: true },
 ];
 
 const BUSINESS_FEATURES: { text: string; included: boolean }[] = [
@@ -329,7 +328,7 @@ export function SpacePlanModal({ open, onClose, onSelect, onUpgrade, mode = 'cre
 
         <p className="mt-5 text-xs text-surface-400 text-center">
           {isUpgrade
-            ? 'Al elegir un plan de pago se activan el asistente IA que atiende y vende por ti, los pedidos automáticos, el sistema de prestigio, tu enlace de referidos y las métricas exclusivas.'
+            ? 'Al elegir un plan de pago se activan el asistente IA que atiende y vende por ti, los pedidos automáticos, el sistema de prestigio y tu enlace de referidos.'
             : 'Al continuar puedes cambiar tu decisión después desde el dashboard. Con el espacio Premium se desbloquean el asistente IA, los pedidos automáticos, tu sistema de prestigio y tu enlace de referidos.'}
         </p>
       </div>

@@ -825,7 +825,7 @@ export function DashboardPage() {
 
             <PrestigeCard onUpgrade={openUpgrade} />
 
-            <SalesDashboard store={store} onUpgrade={openUpgrade} />
+            <SalesDashboard store={store} />
 
             {store.businessType === 'BELLEZA' && (
               <BeautyServicesPanel
@@ -1405,11 +1405,6 @@ function DashboardSubscription({
         desc: 'Desde aquí controlas todo tu negocio en un solo lugar: tu vitrina, tus ventas, tu stock y tu prestigio.',
       },
       {
-        icon: <TrendingUp className="w-4 h-4" />,
-        title: 'Métricas en tiempo real',
-        desc: 'Mira tus ventas de hoy, tus ingresos totales, los productos más vistos y tu tasa de conversión. Sabes cómo va tu negocio sin salir del panel.',
-      },
-      {
         icon: <Package className="w-4 h-4" />,
         title: `Catálogo de hasta ${store.plan === 'BUSINESS' ? 500 : 100} productos`,
         desc: 'Publica, edita y controla el stock de todo tu catálogo. Cuando algo se agota, la plataforma lo desactiva sola para que no overvendas.',
@@ -1579,7 +1574,7 @@ function DashboardSubscription({
       { icon: <Package className="w-4 h-4" />, text: 'Dejan de entrar los pedidos automáticos del chat' },
       { icon: <Users className="w-4 h-4" />, text: 'Se pausan el prestigio, los referidos y el check verificado' },
       { icon: <TrendingUp className="w-4 h-4" />, text: 'Tu catálogo baja de 100 a 20 productos' },
-      { icon: <BadgeCheck className="w-4 h-4" />, text: 'Se bloquean tus métricas de ventas' },
+      { icon: <BadgeCheck className="w-4 h-4" />, text: 'Tu local pierde la prioridad en el feed del centro comercial' },
     ];
     return (
       <div
