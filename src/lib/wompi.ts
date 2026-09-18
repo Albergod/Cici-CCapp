@@ -6,7 +6,10 @@
 //   WOMPI_PRIVATE_KEY    → prv_prod_... o prv_test_... (solo servidor)
 //   WOMPI_INTEGRITY_KEY  → prod_integrity_... o test_integrity_...
 //   WOMPI_EVENTS_KEY     → prod_events_... o test_events_...
-//   WOMPI_SANDBOX        → "true" para usar el entorno de pruebas
+//
+// Para pasar a PRODUCCIÓN solo hay que reemplazar las 4 llaves por las de
+// producción: el entorno se deduce del prefijo (_test_ → sandbox,
+// _prod_ → producción). WOMPI_SANDBOX es solo un respaldo por si no hay llaves.
 //
 // Flujo Nequi: se crea la transacción → al cliente le llega una notificación
 // push en su app Nequi para aprobar el pago → Wompi nos notifica por webhook
@@ -14,15 +17,30 @@
 
 import crypto from "node:crypto";
 
-const WOMPI_BASE =
-  process.env.WOMPI_SANDBOX === "true"
-    ? "https://sandbox.wompi.co/v1"
-    : "https://production.wompi.co/v1";
+const WOMPI_SANDBOX_BASE = "https://sandbox.wompi.co/v1";
+const WOMPI_PRODUCTION_BASE = "https://production.wompi.co/v1";
 
 export const WOMPI_PUBLIC_KEY = process.env.WOMPI_PUBLIC_KEY || "";
 export const WOMPI_PRIVATE_KEY = process.env.WOMPI_PRIVATE_KEY || "";
 export const WOMPI_INTEGRITY_KEY = process.env.WOMPI_INTEGRITY_KEY || "";
 export const WOMPI_EVENTS_KEY = process.env.WOMPI_EVENTS_KEY || "";
+
+// Deducir el entorno de las llaves para que el único cambio al pasar a
+// producción sean las llaves: si empiezan por _prod_ → producción, si por
+// _test_ → sandbox. WOMPI_SANDBOX solo se usa como respaldo cuando no hay
+// llaves (p. ej. arranque local sin configurar). Así, reemplazar las llaves
+// de prueba por las de producción cambia el entorno aunque WOMPI_SANDBOX siga
+// en "true".
+function resolveWompiEnv(): "sandbox" | "production" {
+  const keys = `${WOMPI_PUBLIC_KEY} ${WOMPI_PRIVATE_KEY}`;
+  if (/_prod_/.test(keys)) return "production";
+  if (/_test_/.test(keys)) return "sandbox";
+  return process.env.WOMPI_SANDBOX === "false" ? "production" : "sandbox";
+}
+
+export const WOMPI_ENV: "sandbox" | "production" = resolveWompiEnv();
+
+const WOMPI_BASE = WOMPI_ENV === "production" ? WOMPI_PRODUCTION_BASE : WOMPI_SANDBOX_BASE;
 
 interface Acceptance {
   acceptanceToken: string | null;
@@ -69,25 +87,30 @@ export async function createNequiTransaction(params: {
     throw new Error("Wompi no devolvió el token de aceptación");
   }
 
+  const payload: Record<string, unknown> = {
+    amount_in_cents: params.amountInCents,
+    currency: "COP",
+    customer_email: params.customerEmail,
+    reference: params.reference,
+    acceptance_token: acceptance.acceptanceToken,
+    signature: wompiIntegritySignature(params.reference, params.amountInCents),
+    payment_method: {
+      type: "NEQUI",
+      phone_number: params.phoneNumber,
+    },
+  };
+  // accept_personal_auth solo se envía si Wompi entregó el token de Habeas Data.
+  if (acceptance.personalDataAuthToken) {
+    payload.accept_personal_auth = acceptance.personalDataAuthToken;
+  }
+
   const res = await fetch(`${WOMPI_BASE}/transactions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${WOMPI_PRIVATE_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      amount_in_cents: params.amountInCents,
-      currency: "COP",
-      customer_email: params.customerEmail,
-      reference: params.reference,
-      acceptance_token: acceptance.acceptanceToken,
-      accept_personal_auth: acceptance.personalDataAuthToken,
-      signature: wompiIntegritySignature(params.reference, params.amountInCents),
-      payment_method: {
-        type: "NEQUI",
-        phone_number: params.phoneNumber,
-      },
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (!res.ok) {
