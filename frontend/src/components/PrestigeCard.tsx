@@ -163,8 +163,9 @@ export function PrestigeCard({ onUpgrade }: PrestigeCardProps) {
         pague su plan. Un referido que crea su tienda FREE no suma.
       </p>
       <p className="text-xs text-surface-500 mt-1">
-        Tu meta sube <strong className="text-brand-600">100 pts</strong> cada vez que activas,
-        renuevas o mejoras tu plan (tope 1000 pts). Una vez consigas el check, no se pierde.
+        Tu meta arranca en <strong className="text-brand-600">100 pts</strong> y sube{' '}
+        <strong className="text-brand-600">100 pts</strong> cada vez que renuevas o mejoras tu plan
+        (tope 1000 pts). Una vez consigas el check, no se pierde.
       </p>
 
       <div className="mt-5 p-4 bg-surface-50 rounded-2xl border border-surface-200 flex items-center gap-2">

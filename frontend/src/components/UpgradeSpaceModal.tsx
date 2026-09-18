@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Loader2,
   AlertTriangle,
@@ -20,16 +20,32 @@ interface UpgradeSpaceModalProps {
   storeId?: string;
   onClose: () => void;
   onPaymentResult?: (state: PaymentResultState) => void;
+  /**
+   * Renovación directa: cuando se abre desde el aviso de vencimiento, arranca
+   * en el método de pago con el plan actual ya elegido (sin volver a elegirlo).
+   */
+  initialSelection?: UpgradeSelection | null;
 }
 
 const NEQUI_POLL_MS = 4000;
 
-export function UpgradeSpaceModal({ open, storeId, onClose, onPaymentResult }: UpgradeSpaceModalProps) {
+export function UpgradeSpaceModal({ open, storeId, onClose, onPaymentResult, initialSelection }: UpgradeSpaceModalProps) {
   const [step, setStep] = useState<UpgradeStep>('plan');
   const [error, setError] = useState<string | null>(null);
   const [sel, setSel] = useState<UpgradeSelection | null>(null);
   const [phone, setPhone] = useState('');
   const [transactionId, setTransactionId] = useState<string | null>(null);
+  const prevOpen = useRef(false);
+
+  // Al abrir para renovar, saltamos la elección de plan. Se dispara solo en la
+  // transición cerrado→abierto para no reescribir el paso durante el flujo.
+  useEffect(() => {
+    if (open && !prevOpen.current && initialSelection) {
+      setSel(initialSelection);
+      setStep('method');
+    }
+    prevOpen.current = open;
+  }, [open, initialSelection]);
 
   useEffect(() => {
     if (step !== 'nequi-pending' || !transactionId) return;

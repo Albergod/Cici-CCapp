@@ -4,7 +4,7 @@ import { useAuth } from '@/stores/authStore';
 import { api } from '@/services/api';
 import { Store, Product } from '@/types';
 import { StoreRulesModal } from '@/components/StoreRulesModal';
-import { SpacePlanModal, SpaceSelection } from '@/components/SpacePlanModal';
+import { SpacePlanModal, SpaceSelection, UpgradeSelection } from '@/components/SpacePlanModal';
 import { UpgradeSpaceModal } from '@/components/UpgradeSpaceModal';
 import { PremiumUnlockedModal } from '@/components/PremiumUnlockedModal';
 import { PaymentResultModal, PaymentResultState } from '@/components/PaymentResultModal';
@@ -63,6 +63,8 @@ export function DashboardPage() {
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [showSpaceModal, setShowSpaceModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  // Si se abre el pago desde el aviso de vencimiento, arranca con el plan actual.
+  const [renewSelection, setRenewSelection] = useState<UpgradeSelection | null>(null);
   const [showPremiumUnlocked, setShowPremiumUnlocked] = useState(false);
   const [unlockedPlan, setUnlockedPlan] = useState<'PRO' | 'BUSINESS'>('PRO');
   const [unlockedCycle, setUnlockedCycle] = useState<'MONTHLY' | 'BI_MONTHLY'>('MONTHLY');
@@ -283,7 +285,21 @@ export function DashboardPage() {
     }
   };
 
-  const openUpgrade = () => setShowUpgradeModal(true);
+  const openUpgrade = () => {
+    setRenewSelection(null);
+    setShowUpgradeModal(true);
+  };
+
+  // Renovar el plan que está por vencer: abre el mismo pago pero directo al
+  // método, con el plan y ciclo actuales ya elegidos.
+  const renewNow = () => {
+    if (!store || store.plan === 'FREE') return;
+    setRenewSelection({
+      plan: store.plan,
+      cycle: store.subscriptionCycle ?? 'MONTHLY',
+    });
+    setShowUpgradeModal(true);
+  };
 
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -731,12 +747,12 @@ export function DashboardPage() {
                     </div>
                   </div>
                   <button
-                    onClick={openUpgrade}
+                    onClick={renewNow}
                     className={`shrink-0 inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition-colors ${
                       urgent ? 'bg-red-600 hover:bg-red-700' : 'bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600'
                     }`}
                   >
-                    Renovar plan
+                    Renovar ahora
                   </button>
                 </div>
               );
@@ -1119,8 +1135,10 @@ export function DashboardPage() {
         <UpgradeSpaceModal
           open={showUpgradeModal}
           storeId={store?.id}
+          initialSelection={renewSelection}
           onClose={() => {
             setShowUpgradeModal(false);
+            setRenewSelection(null);
             setPendingCreatePlan(null);
             sessionStorage.removeItem(PENDING_STORE_KEY);
           }}

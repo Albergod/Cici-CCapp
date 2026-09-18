@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/client";
 import { stores } from "../db/schema";
 import { getActivePrices } from "./plan-config";
@@ -72,6 +72,19 @@ export async function activatePaidPlan(
 
   const referralCode = await ensureReferralCode(storeId, store.referralCode);
 
+  // Meta de prestigio (puntos que hacen falta para el check):
+  //  - Primera activación → base 100. Una tienda nueva NO arranca en 200.
+  //  - Renovación del plan en curso y upgrade de plan → +100 (tope 1000).
+  // Una tienda que ya pagó antes (aunque esté vencida y hoy sea FREE) cuenta
+  // como renovación, no como primera activación: lo delata su código de
+  // referido, que solo se genera al activar un plan de pago real.
+  const currentGoal = Number(store.prestigeGoal) || PRESTIGE_BASE_GOAL;
+  const hadPaidPlan =
+    store.plan !== "FREE" || store.subscriptionCycle !== null || store.referralCode != null;
+  const nextGoal = hadPaidPlan
+    ? Math.min(PRESTIGE_GOAL_MAX, currentGoal + PRESTIGE_GOAL_STEP)
+    : PRESTIGE_BASE_GOAL;
+
   await db
     .update(stores)
     .set({
@@ -81,12 +94,7 @@ export async function activatePaidPlan(
         Math.max(Date.now(), store.subscriptionExpiresAt?.getTime() ?? 0) + CYCLE_MS[cycle],
       ),
       referralCode,
-      // Cada activación/renovación/mejora del propietario sube su META de
-      // prestigio (+100, tope 1000). No toca los puntos ya ganados.
-      prestigeGoal: sql`LEAST(
-        ${PRESTIGE_GOAL_MAX},
-        COALESCE(${stores.prestigeGoal}, ${PRESTIGE_BASE_GOAL}) + ${PRESTIGE_GOAL_STEP}
-      )`,
+      prestigeGoal: nextGoal,
     })
     .where(eq(stores.id, storeId));
 

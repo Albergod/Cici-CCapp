@@ -99,11 +99,11 @@ describe("Prestigio por referidos", () => {
     await activatePaidPlan(storeA.body.id, "PRO", "MONTHLY");
     const a = await storeByOwnerEmail(`ref-a-${ts}@example.com`);
     expect(a.referralCode).toBeTruthy();
-    expect(Number(a.prestigeGoal)).toBe(200); // base 100 + 100 al activar su plan
-    // Renovar no toca los puntos, solo sube la meta de nuevo (+100 → 300).
+    expect(Number(a.prestigeGoal)).toBe(100); // una tienda nueva arranca en la base 100
+    // Renovar no toca los puntos, sube la meta +100 → 200.
     await activatePaidPlan(storeA.body.id, "PRO", "MONTHLY");
     const aRenewed = await storeByOwnerEmail(`ref-a-${ts}@example.com`);
-    expect(Number(aRenewed.prestigeGoal)).toBe(300);
+    expect(Number(aRenewed.prestigeGoal)).toBe(200);
 
     // Referido B: se registra con el código de A y crea su tienda FREE.
     const tokenB = await registerUser(`ref-b-${ts}@example.com`, a.referralCode!);
@@ -247,18 +247,18 @@ describe("Prestigio por referidos", () => {
     const store = await createStore(token, `Ref Cap ${ts}`);
     const id = store.body.id;
 
-    // Activación inicial: base 100 + 100 = 200.
+    // Activación inicial: meta base 100 (una tienda nueva no arranca en 200).
     await activatePaidPlan(id, "PRO", "MONTHLY");
     let s = await storeByOwnerEmail(`ref-cap-${ts}@example.com`);
-    expect(Number(s.prestigeGoal)).toBe(200);
+    expect(Number(s.prestigeGoal)).toBe(100);
 
-    // UPGRADE de plan (mejora): +100 → 300.
+    // UPGRADE de plan (mejora): +100 → 200.
     await activatePaidPlan(id, "BUSINESS", "MONTHLY");
     s = await storeByOwnerEmail(`ref-cap-${ts}@example.com`);
     expect(s.plan).toBe("BUSINESS");
-    expect(Number(s.prestigeGoal)).toBe(300);
+    expect(Number(s.prestigeGoal)).toBe(200);
 
-    // Renovaciones/mejoras sucesivas: sigue subiendo +100 hasta el tope 1000.
+    // Renovaciones/mejoras sucesivas: siguen subiendo +100 hasta el tope 1000.
     for (let i = 0; i < 20; i++) {
       await activatePaidPlan(id, "BUSINESS", "MONTHLY");
     }
