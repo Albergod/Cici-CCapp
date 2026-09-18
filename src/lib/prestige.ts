@@ -51,24 +51,32 @@ export function getProductLimit(plan: string | null | undefined): number {
  * Otorga el premio de referido al referidor cuando la tienda del referido
  * ACTIVA un plan de pago. Es idempotente (una vez por referido): la bandera
  * referral_rewarded actúa como guarda atómica contra dobles premios en
- * renovaciones/reactivaciones. El referidor debe tener un plan de pago activo.
+ * renovaciones/reactivaciones.
+ * La bandera SOLO se marca cuando el premio realmente se otorga: si el
+ * referidor no califica todavía (plan FREE o trial), no se quema la bandera
+ * y el pago queda "pendiente" hasta que el referidor tenga un plan de pago
+ * activo (reinicio del plan → se reintenta y premia).
  * Suma PRESTIGE_PER_REFERRAL y REFERRAL_BONUS_DAYS a la vigencia del plan.
  * Un referidor en modo trial (plan != FREE pero subscription_cycle = null) tampoco
  * premia: los días de regalo y los puntos solo aplican a un plan REAL pagado.
  * Devuelve los puntos otorgados (0 si no aplicó).
  */
 export async function awardReferralPrestige(referredStoreId: string): Promise<number> {
-  const [claimed] = await db
-    .update(stores)
-    .set({ referralRewarded: true })
-    .where(and(eq(stores.id, referredStoreId), eq(stores.referralRewarded, false)))
-    .returning({ referredByStoreId: stores.referredByStoreId });
-  if (!claimed?.referredByStoreId) return 0;
+  // Fase 1 (solo lectura): NO se toca la bandera aún. Si el referidor no es
+  // elegible en este momento (plan FREE/trial), el premio queda pendiente:
+  // cuando reactive su plan se reintentará y el referido seguirá sin marcar.
+  const [referred] = await db
+    .select()
+    .from(stores)
+    .where(eq(stores.id, referredStoreId))
+    .limit(1);
+  if (!referred?.referredByStoreId) return 0;
+  if (referred.referralRewarded) return 0;
 
   const [referrer] = await db
     .select({ id: stores.id, plan: stores.plan, subscriptionCycle: stores.subscriptionCycle })
     .from(stores)
-    .where(eq(stores.id, claimed.referredByStoreId))
+    .where(eq(stores.id, referred.referredByStoreId))
     .limit(1);
   if (
     !referrer ||
@@ -78,6 +86,14 @@ export async function awardReferralPrestige(referredStoreId: string): Promise<nu
   ) {
     return 0;
   }
+
+  // Fase 2: guarda atómica contra dobles premios (renovaciones/reactivaciones).
+  const [claimed] = await db
+    .update(stores)
+    .set({ referralRewarded: true })
+    .where(and(eq(stores.id, referredStoreId), eq(stores.referralRewarded, false)))
+    .returning({ id: stores.id });
+  if (!claimed) return 0;
 
   await db
     .update(stores)

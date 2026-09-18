@@ -205,6 +205,12 @@ export interface ReferralInfo {
   verified: boolean;
   productLimit: number;
   message?: string;
+  criteria?: {
+    minAgeDays: number;
+    minSales: number;
+    storeAgeDays: number;
+    trackedSales: number;
+  };
 }
 
 export type OrderStatus = 'pending' | 'sold' | 'cancelled';

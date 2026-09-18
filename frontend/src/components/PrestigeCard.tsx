@@ -80,6 +80,18 @@ export function PrestigeCard({ onUpgrade }: PrestigeCardProps) {
 
   const pct = Math.min(100, Math.round((info.prestigePoints / info.required) * 100));
 
+  const faltanCriterios = (i: ReferralInfo): string => {
+    const faltantes: string[] = [];
+    const c = i.criteria;
+    if (c) {
+      if (c.trackedSales < c.minSales) faltantes.push('con al menos 1 venta rastreable');
+      if (c.storeAgeDays < c.minAgeDays)
+        faltantes.push(`con la tienda de ${c.minAgeDays}+ días de vida`);
+    }
+    if (faltantes.length) return `Listos los puntos, falta: ${faltantes.join(' y ')}`;
+    return 'Listos los puntos, el check se otorga automáticamente';
+  };
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(info.referralLink ?? '');
@@ -131,7 +143,9 @@ export function PrestigeCard({ onUpgrade }: PrestigeCardProps) {
             <span className="text-xs font-bold text-brand-600">¡Estás verificado!</span>
           ) : (
             <span className="text-xs font-semibold text-surface-500">
-              Te faltan {Math.max(0, info.required - info.prestigePoints)} pts para el check azul
+              {info.prestigePoints >= info.required
+                ? faltanCriterios(info)
+                : `Te faltan ${Math.max(0, info.required - info.prestigePoints)} pts para el check azul`}
             </span>
           )}
         </div>

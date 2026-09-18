@@ -17,6 +17,8 @@ import {
   isStoreVerified,
   reauthorizeExpiredSuspensions,
   storeOperational,
+  VERIFIED_MIN_AGE_DAYS,
+  VERIFIED_MIN_SALES,
   refreshStoreStatus,
   insertViolation,
   applySuspension,
@@ -532,6 +534,15 @@ router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
     required: goal,
     verified: store.verifiedAt !== null || justGranted,
     productLimit: getProductLimit(store.plan),
+    // Criterios del check verificado (además de los puntos): la tienda debe
+    // tener al menos algunos días de vida y una venta real rastreable. Se
+    // exponen para que la UI explique qué falta cuando ya se alcanzó la meta.
+    criteria: {
+      minAgeDays: VERIFIED_MIN_AGE_DAYS,
+      minSales: VERIFIED_MIN_SALES,
+      storeAgeDays: Math.max(0, Math.floor((Date.now() - new Date(store.createdAt).getTime()) / 86400000)),
+      trackedSales: trackedMap.get(store.id) ?? 0,
+    },
   });
 });
 

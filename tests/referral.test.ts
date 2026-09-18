@@ -60,8 +60,16 @@ describe("Prestigio por referidos", () => {
     // Borrar primero el referido B (apunta a A) y luego el referidor A.
     await db.delete(stores).where(eq(stores.name, `Ref B ${ts}`));
     await db.delete(stores).where(eq(stores.name, `Ref A ${ts}`));
+    await db.delete(stores).where(eq(stores.name, `Ref Pending B ${ts}`));
+    await db.delete(stores).where(eq(stores.name, `Ref Pending A ${ts}`));
+    await db.delete(stores).where(eq(stores.name, `Ref Free ${ts}`));
+    await db.delete(stores).where(eq(stores.name, `Ref Free B ${ts}`));
     await db.delete(users).where(eq(users.email, `ref-a-${ts}@example.com`));
     await db.delete(users).where(eq(users.email, `ref-b-${ts}@example.com`));
+    await db.delete(users).where(eq(users.email, `ref-pend-a-${ts}@example.com`));
+    await db.delete(users).where(eq(users.email, `ref-pend-b-${ts}@example.com`));
+    await db.delete(users).where(eq(users.email, `ref-free-${ts}@example.com`));
+    await db.delete(users).where(eq(users.email, `ref-free-b-${ts}@example.com`));
   });
 
   it("un referido FREE NO suma prestigio; solo suma al activar su plan, una sola vez", async () => {
@@ -134,5 +142,46 @@ describe("Prestigio por referidos", () => {
     // Como el referidor es FREE, la referencia ni se guarda: no habrá premio jamás.
     expect(b.referredByStoreId).toBeNull();
     expect(storeB.status).toBe(201);
+  });
+
+  it("el premio no se pierde si el referidor está en TRIAL cuando el referido paga", async () => {
+    // Referidor A paga su plan y genera código.
+    const tokenA = await registerUser(`ref-pend-a-${ts}@example.com`);
+    const storeA = await createStore(tokenA, `Ref Pending A ${ts}`);
+    await activatePaidPlan(storeA.body.id, "PRO", "MONTHLY");
+    const a = await storeByOwnerEmail(`ref-pend-a-${ts}@example.com`);
+    expect(a.referralCode).toBeTruthy();
+
+    // El referido B se registra con el código de A y crea tienda.
+    const tokenB = await registerUser(`ref-pend-b-${ts}@example.com`, a.referralCode!);
+    const storeB = await createStore(tokenB, `Ref Pending B ${ts}`);
+    const b = await storeByOwnerEmail(`ref-pend-b-${ts}@example.com`);
+    expect(b.referredByStoreId).toBe(storeA.body.id);
+
+    // B paga su plan. Si en ese momento A pierde su plan (pasa a trial/manual),
+    // el premio NO se otorga pero NO se quema la bandera: queda pendiente.
+    await db
+      .update(stores)
+      .set({ plan: "PRO", subscriptionCycle: null }) // trial/manual
+      .where(eq(stores.id, storeA.body.id));
+    await activatePaidPlan(b.id, "PRO", "MONTHLY");
+    const pendiente = await awardReferralPrestige(b.id);
+    expect(pendiente).toBe(0);
+    const bStillPending = await storeByOwnerEmail(`ref-pend-b-${ts}@example.com`);
+    expect(bStillPending.referralRewarded).toBe(false);
+
+    // A reactiva su plan → el premio pendiente SÍ se otorga (no se perdió).
+    await activatePaidPlan(storeA.body.id, "PRO", "MONTHLY");
+    const awarded = await awardReferralPrestige(b.id);
+    expect(awarded).toBe(25);
+
+    const aAfter = await storeByOwnerEmail(`ref-pend-a-${ts}@example.com`);
+    const bAfter = await storeByOwnerEmail(`ref-pend-b-${ts}@example.com`);
+    expect(Number(aAfter.prestigePoints)).toBe(25);
+    expect(bAfter.referralRewarded).toBe(true);
+
+    // Sigue idempotente.
+    const again = await awardReferralPrestige(b.id);
+    expect(again).toBe(0);
   });
 });
