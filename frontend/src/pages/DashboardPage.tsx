@@ -8,6 +8,7 @@ import { SpacePlanModal, SpaceSelection, UpgradeSelection } from '@/components/S
 import { UpgradeSpaceModal } from '@/components/UpgradeSpaceModal';
 import { PremiumUnlockedModal } from '@/components/PremiumUnlockedModal';
 import { PaymentResultModal, PaymentResultState } from '@/components/PaymentResultModal';
+import { AnonymousPhotoModal } from '@/components/AnonymousPhotoModal';
 import { SalesDashboard } from '@/components/SalesDashboard';
 import { PrestigeCard } from '@/components/PrestigeCard';
 import { BeautyServicesPanel } from '@/components/BeautyServicesPanel';
@@ -16,7 +17,7 @@ import { ShareStoreCard } from '@/components/ShareStoreCard';
 import { fieldsFor, attributesToTitledList } from '@/lib/categoryFields';
 import { formatCOP } from '@/lib/format';
 import { isBusinessActivated } from '@/lib/business';
-import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp, Rocket } from 'lucide-react';
+import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp, Rocket, Wand2 } from 'lucide-react';
 
 // Datos de la tienda por crear, guardados mientras se paga. Sobreviven al
 // redirect de Mercado Pago para que la tienda se cree recién cuando el pago es
@@ -84,6 +85,7 @@ export function DashboardPage() {
   });
   const [showProductForm, setShowProductForm] = useState(false);
   const [addingProduct, setAddingProduct] = useState(false);
+  const [showAnonPhoto, setShowAnonPhoto] = useState(false);
   const [productName, setProductName] = useState('');
   const [productDescription, setProductDescription] = useState('');
   const [productPrice, setProductPrice] = useState('');
@@ -403,6 +405,13 @@ export function DashboardPage() {
     } finally {
       setSavingStore(false);
     }
+  };
+
+  const handleAnonPhotoApply = async (blob: Blob) => {
+    const file = new File([blob], 'anonima.png', { type: blob.type || 'image/png' });
+    const url = await api.upload(file);
+    setProductImageUrl(url);
+    setShowAnonPhoto(false);
   };
 
   const handleProductImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1029,6 +1038,14 @@ export function DashboardPage() {
                             onChange={handleProductImageUpload}
                           />
                         </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowAnonPhoto(true)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold bg-brand-50 text-brand-700 border border-brand-200 rounded-xl hover:bg-brand-100 transition-colors"
+                        >
+                          <Wand2 className="w-3.5 h-3.5" />
+                          Foto anónima en limpio (quitar fondo / recorte)
+                        </button>
                         <p className="text-xs text-surface-400">Máx. 5 MB (jpg, png, webp, gif)</p>
                       </div>
                     </div>
@@ -1174,6 +1191,12 @@ export function DashboardPage() {
           open={paymentResult}
           onClose={() => setPaymentResult(null)}
           onRetry={retryPayment}
+        />
+
+        <AnonymousPhotoModal
+          open={showAnonPhoto}
+          onClose={() => setShowAnonPhoto(false)}
+          onApply={handleAnonPhotoApply}
         />
 
         {showEditModal && (
