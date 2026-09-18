@@ -12,8 +12,8 @@ import {
   normalizeSchedule,
   nowInTimezone,
   nextFreeSlots,
-  humanDayLabel,
   dateFromDb,
+  groupFreeSlotsLines,
   type BusyAppointment,
 } from "./booking";
 import type { ScheduleConfig } from "../db/schema";
@@ -76,10 +76,7 @@ async function buildBookingSlotsText(storeId: string, schedule: ScheduleConfig, 
     timesPerDay: 3,
   });
 
-  const lines = Object.entries(next).map(([dateStr, times]) => {
-    const label = humanDayLabel(dateStr, now);
-    return `${label} ${dateStr}: ${times.join(", ")}`;
-  });
+  const lines = groupFreeSlotsLines(next, now);
   if (!lines.length) return "No hay horarios disponibles para los próximos días.";
   return lines.join("\n");
 }

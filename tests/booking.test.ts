@@ -10,6 +10,7 @@ import {
   slotConflicts,
   nowInTimezone,
   dateFromDb,
+  groupFreeSlotsLines,
 } from "../src/lib/booking";
 
 const sched = normalizeSchedule({});
@@ -197,5 +198,40 @@ describe("freeSlotsForDate / nextFreeSlots", () => {
     expect(byDay["2026-09-14"]).toEqual(["08:00", "08:30"]); // lunes
     expect(byDay["2026-09-13"]).toBeUndefined(); // domingo saltado
     expect(byDay["2026-09-15"]).toEqual(["08:00", "08:30"]); // martes
+  });
+});
+
+describe("groupFreeSlotsLines", () => {
+  const now = { date: "2026-09-18" };
+
+  it("agrupa en una línea los días con las mismas franjas", () => {
+    const lines = groupFreeSlotsLines(
+      {
+        "2026-09-18": ["08:00", "08:30", "09:00"],
+        "2026-09-19": ["08:00", "08:30", "09:00"],
+        "2026-09-21": ["08:00", "08:30", "09:00"],
+        "2026-09-22": ["08:00", "08:30", "09:00"],
+      },
+      now,
+    );
+    expect(lines).toEqual([
+      "hoy 2026-09-18, mañana 2026-09-19, lunes 2026-09-21 y martes 2026-09-22: 08:00, 08:30, 09:00",
+    ]);
+  });
+
+  it("saca cada día en su propia línea cuando los horarios difieren", () => {
+    const lines = groupFreeSlotsLines(
+      {
+        "2026-09-18": ["08:00"],
+        "2026-09-19": ["10:00"],
+      },
+      now,
+    );
+    expect(lines).toEqual(["hoy 2026-09-18: 08:00", "mañana 2026-09-19: 10:00"]);
+  });
+
+  it("no agrupa días no laborables (no llegan en el mapa)", () => {
+    const lines = groupFreeSlotsLines({}, now);
+    expect(lines).toEqual([]);
   });
 });

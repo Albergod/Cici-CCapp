@@ -283,3 +283,31 @@ export function humanDayLabel(dateStr: string, now: { date: string }): string {
 export function dateFromDb(raw: string): string {
   return raw.slice(0, 10);
 }
+
+/**
+ * Agrupa los días que comparten EXACTAMENTE las mismas franjas en una sola
+ * línea legible para el prompt de la IA. Ej.:
+ * "hoy 2026-09-18, mañana 2026-09-19 y lunes 2026-09-21: 08:00, 08:30, 09:00"
+ * Conserva las fechas completas para que la IA emita reservas (YYYY-MM-DD) sin
+ * inventar; los días con horarios distintos salen en su propia línea.
+ */
+export function groupFreeSlotsLines(
+  byDay: Record<string, string[]>,
+  now: { date: string },
+): string[] {
+  const groups = new Map<string, string[]>(); // franjas → fechas
+  for (const [dateStr, times] of Object.entries(byDay)) {
+    const key = times.join("::");
+    const list = groups.get(key) ?? [];
+    list.push(dateStr);
+    groups.set(key, list);
+  }
+  return [...groups.values()].map((dates) => {
+    const labels = dates.map((d) => `${humanDayLabel(d, now)} ${d}`);
+    const joined =
+      labels.length > 1
+        ? `${labels.slice(0, -1).join(", ")} y ${labels[labels.length - 1]}`
+        : labels[0];
+    return `${joined}: ${byDay[dates[0]].join(", ")}`;
+  });
+}

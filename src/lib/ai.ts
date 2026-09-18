@@ -107,6 +107,11 @@ const BUSINESS_TYPE_PROFILES: Record<string, BusinessProfile> = {
   },
 };
 
+// Tono de voz del asistente: cercano y cálido, sin empalagar. Aplica a los
+// mensajes que escribe la IA (saludo y respuestas), no a los comandos máquina
+// (RESERVAR/PEDIDO/facturas) ni a los fallbacks determinísticos del plan FREE.
+const TONE_RULE = `Tono: sos una mujer emprendedora cercana y cálida. Tratá al cliente bonito: con amabilidad, cariño y confianza, como quien cuida su negocio y a sus clientes. Que se sienta natural: nada de ser distante o robótica, pero tampoco empalagues ni uses apelativos cariñosos en cada mensaje ("amor", "corazón", etc.). Usá un lenguaje femenino con naturalidad al expresarte.`;
+
 // `needsSizes` por compatibilidad: solo ROPA/CALZADO piden tallas.
 function storeBusinessType(store: StoreInfo): string {
   return (store.businessType ?? "OTRO").toUpperCase();
@@ -235,7 +240,9 @@ export async function getStoreGreeting(
   try {
     const profile = profileFor(store);
     const itemWord = item?.isService ? "servicio" : "producto";
-    const prompt = `Eres un asistente virtual de "${store.name}" (plan ${store.plan}, ${profile.label}). El cliente acaba de abrir el chat mirando ${item ? `el ${itemWord} "${item.name}"` : "la tienda"}. Escribe un saludo cálido, natural y breve (máx. 30 palabras) que invite a preguntar por ${item ? `ese ${itemWord}` : "la tienda"} o por otras dudas. No menciones precios ni disponibilidad en el saludo inicial; solo presentate y abre la conversación.`;
+    const prompt = `Eres un asistente virtual de "${store.name}" (plan ${store.plan}, ${profile.label}). El cliente acaba de abrir el chat mirando ${item ? `el ${itemWord} "${item.name}"` : "la tienda"}. Escribe un saludo cálido, natural y breve (máx. 30 palabras) que invite a preguntar por ${item ? `ese ${itemWord}` : "la tienda"} o por otras dudas. No menciones precios ni disponibilidad en el saludo inicial; solo presentate y abre la conversación.
+
+${TONE_RULE}`;
     const resp = await openai!.chat.completions.create({
       model: AI_MODEL,
       messages: [{ role: "user", content: prompt }],
@@ -397,6 +404,8 @@ ${(services ?? []).map((s) => `- ${s.name} (${s.durationMinutes} min, ${formatPr
 Horarios libres reales (NUNCA inventes ni propongas horas fuera de esta lista):
 ${bookingSlots || "(sin horarios)"}
 
+Cómo ofrecer los horarios: presentá la disponibilidad con calidez, breve y natural. Agrupá los días que tengan las mismas horas (ej. "hoy, mañana y lunes a las 8:00, 8:30 y 9:00") y no repitas la lista día por día; los días con horarios distintos va cada uno aparte. Invitá al cliente a elegir la franja que mejor le quede.
+
 Cuando el cliente quiera reservar un servicio:
 1. Confirma qué servicio quiere (de la lista exacta) y en qué día/hora.
 2. Ofrece solo las franjas libres de la lista. Pregunta cuál prefiere.
@@ -444,6 +453,8 @@ No agregues nada fuera de esos guiones ni después de la línea de Total: ni sal
     const prompt = `Sos el asistente de la tienda "${store.name}" (plan ${store.plan}, ${profile.label}). El cliente acaba de escribir: "${lastMessage?.content || "hola"}".
 Respondé de forma natural, breve (máx. 80 palabras), en español, como si fueras el dueño de la tienda.
 Usá solo la información del catálogo a continuación. Si un producto está marcado [AGOTADO], decile que se agotó y ofrecé ayuda con otros productos; nunca ofrezcas vender un producto agotado. No inventes precios ni datos que no sean los del catálogo ni del WhatsApp del comerciante.
+
+${TONE_RULE}
 
 Contexto de esta conversación:
 ${contextLine}
