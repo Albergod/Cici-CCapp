@@ -133,6 +133,10 @@ if (isMainModule) {
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS moderation_until timestamp`);
     // Trial manual: la prueba no arranca al crear la tienda, solo al activarla.
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_used_at timestamp`);
+    // La prueba no arranca al crear la tienda: trial_started_at debe aceptar NULL
+    // (una tienda FREE recién creada no lo fija). En prod pudo quedar NOT NULL de
+    // un esquema viejo creado con db:push → si no lo soltamos, INSERT falla.
+    await db.execute(sql`ALTER TABLE stores ALTER COLUMN trial_started_at DROP NOT NULL`);
     await db.execute(sql`ALTER TABLE stores ALTER COLUMN trial_started_at DROP DEFAULT`);
     await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS removed_at timestamp`);
     await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS removed_reason text`);
