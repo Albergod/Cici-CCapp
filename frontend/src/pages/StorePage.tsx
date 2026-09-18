@@ -5,6 +5,7 @@ import { api } from '@/services/api';
 import { useAuth } from '@/stores/authStore';
 import { useFollowsVersion } from '@/stores/followsStore';
 import { ProductCard } from '@/components/ProductCard';
+import { formatCOP } from '@/lib/format';
 import { Loader2, Users, Package, MessageSquare, ArrowLeft, UserCheck, BadgeCheck, Share2, Check, Sparkles, Flag } from 'lucide-react';
 
 export function StorePage() {
@@ -329,7 +330,7 @@ export function StorePage() {
                         </p>
                       </div>
                       <span className="font-display font-bold text-brand-600">
-                        ${svc.price.toLocaleString('es-CO')}
+                        {formatCOP(svc.price)}
                       </span>
                     </div>
                     {svc.description && (

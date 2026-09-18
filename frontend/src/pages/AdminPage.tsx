@@ -15,6 +15,7 @@ import {
   Ban,
 } from 'lucide-react';
 import { adminApi } from '@/services/api';
+import { formatCOP } from '@/lib/format';
 
 type Stats = {
   totalStores: number;
@@ -360,7 +361,7 @@ export function AdminPage() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-bold text-surface-900">${p.amount.toLocaleString()}</p>
+                        <p className="text-sm font-bold text-surface-900">{formatCOP(p.amount)}</p>
                         <p className="text-xs text-surface-500">{statusLabel(p.status)}</p>
                       </div>
                     </div>
