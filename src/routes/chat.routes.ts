@@ -10,6 +10,8 @@ import {
   refreshStoreStatus,
   gateIncomingMessage,
   retractIfFlaggedByAI,
+  shouldRunAIModeration,
+  markAIScan,
 } from "../lib/moderation";
 
 const router = Router();
@@ -400,13 +402,17 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
 
   // Revisión en segundo plano con IA (igual que el WebSocket): retira el
   // mensaje si el abuso pasó el filtro de lista (sarcasmo, acoso, presión).
-  void retractIfFlaggedByAI({
-    userId: req.userId!,
-    senderIsMerchant: isStoreOwner,
-    messageId: savedMsg.id,
-    content: textToSend,
-    onRetracted: () => undefined,
-  });
+  // Solo corre en tiendas de pago y con cadencia (ahorro de tokens).
+  if (shouldRunAIModeration(req.userId!, conversation.store.plan)) {
+    markAIScan(req.userId!);
+    void retractIfFlaggedByAI({
+      userId: req.userId!,
+      senderIsMerchant: isStoreOwner,
+      messageId: savedMsg.id,
+      content: textToSend,
+      onRetracted: () => undefined,
+    });
+  }
 
   // Modelo de ventas A: el cierre se hace por el WhatsApp del comerciante
   // (flujo normal). No se sanciona mencionarlo; la moderación se apoya en

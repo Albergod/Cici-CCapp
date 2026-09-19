@@ -10,7 +10,7 @@
 import { and, eq, lt, inArray, gte, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { stores, violations, sales, users, messages } from "../db/schema";
-import { openai, AI_MODEL } from "./ai";
+import { openai, AI_MODEL, logTokenUsage } from "./ai";
 
 // ── Umbrales / constantes de la política anti-fraude ─────────────────────────
 export const VERIFIED_MIN_AGE_DAYS = 7; // la tienda debe tener +1 semana de vida
@@ -324,6 +324,7 @@ severity: low=mild, medium=acoso/presión reiterada, high=amenaza/odio/doxxing/e
       temperature: 0,
       response_format: { type: "json_object" },
     });
+    logTokenUsage("moderation", input.senderIsMerchant ? "merchant" : "customer", resp.usage);
     const raw = resp.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(raw) as AIClassification;
     if (typeof parsed.offensive === "boolean") {
@@ -552,6 +553,24 @@ export async function gateIncomingMessage(opts: {
   }
 
   return { status: "ok" };
+}
+
+const AI_SCAN_COOLDOWN_MS = Math.max(0, Number(process.env.MODERATION_AI_COOLDOWN_SEC ?? 120)) * 1000;
+const lastAIScanAt = new Map<string, number>();
+
+/**
+ * ¿Corre el escaneo contextual con IA para este mensaje? Solo en tiendas de
+ * plan de pago (PRO/BUSINESS) y con una cadencia mínima por usuario, para
+ * no gastar tokens en cada mensaje de todas las conversaciones.
+ */
+export function shouldRunAIModeration(userId: string, storePlan: string | null | undefined): boolean {
+  if (storePlan !== "PRO" && storePlan !== "BUSINESS") return false;
+  const last = lastAIScanAt.get(userId) ?? 0;
+  return Date.now() - last >= AI_SCAN_COOLDOWN_MS;
+}
+
+export function markAIScan(userId: string): void {
+  lastAIScanAt.set(userId, Date.now());
 }
 
 /**

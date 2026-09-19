@@ -8,6 +8,7 @@ import { conversations, messages, products, storeServices, appointments, stores 
 import { getIAStoreReply, buildInvoiceVersions, parseBookingCommand, parseOrderCommand } from "./ai";
 import { createBooking } from "./appointments";
 import { createPendingOrder, type PendingOrderItem } from "./orders";
+import { planAgentReply } from "./agent/plan";
 import {
   normalizeSchedule,
   nowInTimezone,
@@ -36,7 +37,7 @@ export interface AssistantResult {
 }
 
 /** Franjas libres de los próximos días en texto legible para el prompt de la IA. */
-async function buildBookingSlotsText(storeId: string, schedule: ScheduleConfig, serviceDuration: number) {
+async function buildBookingSlots(storeId: string, schedule: ScheduleConfig, serviceDuration: number) {
   const now = nowInTimezone(schedule.timezone);
   const horizonEnd = new Date(`${now.date}T00:00:00`);
   horizonEnd.setDate(horizonEnd.getDate() + schedule.bookingHorizonDays);
@@ -67,7 +68,7 @@ async function buildBookingSlotsText(storeId: string, schedule: ScheduleConfig, 
     busyByDate.set(d, list);
   }
 
-  const next = nextFreeSlots({
+  const byDay = nextFreeSlots({
     schedule,
     busyByDate,
     durationMinutes: serviceDuration,
@@ -76,9 +77,11 @@ async function buildBookingSlotsText(storeId: string, schedule: ScheduleConfig, 
     timesPerDay: 3,
   });
 
-  const lines = groupFreeSlotsLines(next, now);
-  if (!lines.length) return "No hay horarios disponibles para los próximos días.";
-  return lines.join("\n");
+  const lines = groupFreeSlotsLines(byDay, now);
+  return {
+    byDay,
+    text: lines.length ? lines.join("\n") : "No hay horarios disponibles para los próximos días.",
+  };
 }
 
 /** Nombres de servicios con franjas: el contexto que la IA puede reservar. */
@@ -119,7 +122,10 @@ export async function generateAssistantReply(
   // ── Servicios y franjas (BELLEZA) ──────────────────────────────────────
   let services: { name: string; price: number; durationMinutes: number }[] = [];
   let bookingSlots = "";
+  let slotsByDay: Record<string, string[]> = {};
   let contextServiceName: string | null = null;
+  const schedule = normalizeSchedule(store.schedule);
+  const today = nowInTimezone(schedule.timezone).date;
   if (isBeauty) {
     const serviceRows = await db.query.storeServices.findMany({
       where: eq(storeServices.storeId, store.id),
@@ -132,8 +138,9 @@ export async function generateAssistantReply(
     }
     const fallbackDuration = serviceRows.find((s) => s.id === ctx.conversation.assertedServiceId)?.durationMinutes ?? services[0]?.durationMinutes ?? 60;
     if (services.length > 0) {
-      const schedule = normalizeSchedule(store.schedule);
-      bookingSlots = await buildBookingSlotsText(store.id, schedule, fallbackDuration);
+      const slots = await buildBookingSlots(store.id, schedule, fallbackDuration);
+      slotsByDay = slots.byDay;
+      bookingSlots = slots.text;
     }
   }
 
@@ -151,22 +158,51 @@ export async function generateAssistantReply(
     .where(eq(messages.conversationId, ctx.conversation.id))
     .orderBy(asc(messages.createdAt));
 
-  const aiReply = await getIAStoreReply({
-    store: storeInfo,
-    products: storeProducts,
-    history,
-    contextProduct: contextProduct ? { name: contextProduct.name, attributes: contextProduct.attributes ?? undefined } : null,
-    customerName: customer,
-    services: services.map((s) => ({ ...s })),
-    bookingSlots,
-    bookingEnabled: isBeauty && services.length > 0,
-    pedidosEnabled,
-    contextService: contextServiceName,
-  });
+  // Cerebro determinístico (0 tokens): decide reservas y pedidos claros sin
+  // llamar a la LLM. Solo transaccional; lo ambiguo sigue la ruta de la IA.
+  const bookingEnabled = isBeauty && services.length > 0;
+  const agentDecision =
+    process.env.AGENT_DISABLED === "1"
+      ? { type: "none" as const }
+      : planAgentReply({
+          lastMessage: history[history.length - 1]?.content ?? "",
+          bookingEnabled,
+          pedidosEnabled,
+          services: services.map((s) => ({ name: s.name })),
+          products: storeProducts.map((p) => ({ name: p.name })),
+          slotsByDay,
+          today,
+        });
 
-  // ¿Viene una orden de reserva del playground? Ejecutarla SIEMPRE de forma
-  // determinística (la IA nunca toca la DB).
-  const booking = parseBookingCommand(aiReply);
+  if (agentDecision.type === "booking_offer") {
+    return {
+      content: `¡Claro que sí! El ${agentDecision.serviceName} está disponible: ${agentDecision.slotsText}. ¿Cuál te queda mejor? ☺️`,
+      waText: null,
+      appointmentId: null,
+      orderId: null,
+    };
+  }
+
+  const aiReply =
+    agentDecision.type === "none" ? await getIAStoreReply({
+      store: storeInfo,
+      products: storeProducts,
+      history,
+      contextProduct: contextProduct ? { name: contextProduct.name, attributes: contextProduct.attributes ?? undefined } : null,
+      customerName: customer,
+      services: services.map((s) => ({ ...s })),
+      bookingSlots,
+      bookingEnabled,
+      pedidosEnabled,
+      contextService: contextServiceName,
+    }) : "";
+
+  // ¿Viene una orden de reserva? Ejecutarla SIEMPRE de forma determinística
+  // (la IA nunca toca la DB).
+  const booking =
+    agentDecision.type === "booking_confirm"
+      ? { serviceName: agentDecision.serviceName, date: agentDecision.date, time: agentDecision.time }
+      : parseBookingCommand(aiReply);
 
   if (booking) {
     const service = services.find((s) => s.name === booking.serviceName);
@@ -205,10 +241,11 @@ export async function generateAssistantReply(
     return conflictReply(result, store, bookingSlots);
   }
 
-  // ¿Viene un pedido del playground? Ejecutarlo SIEMPRE de forma
-  // determinística (la IA nunca toca la DB).
+  // ¿Viene un pedido? Ejecutarlo SIEMPRE de forma determinística (la IA
+  // nunca toca la DB).
   if (pedidosEnabled) {
-    const orderReq = parseOrderCommand(aiReply);
+    const orderReq =
+      agentDecision.type === "order" ? { items: agentDecision.items } : parseOrderCommand(aiReply);
     if (orderReq) {
       const result = await createPendingOrder({
         storeId: store.id,

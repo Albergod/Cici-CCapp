@@ -7,7 +7,21 @@ const AI_BASE_URL = process.env.AI_BASE_URL || "https://api.groq.com/openai/v1";
 const AI_API_KEY = process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || "";
 const AI_MODEL = process.env.AI_MODEL || "openai/gpt-oss-120b";
 
+// ── Presupuesto de tokens (medir antes de optimizar) ───────────────────
+const PROMPT_MAX_PRODUCTS = Math.max(1, Number(process.env.PROMPT_MAX_PRODUCTS ?? 5));
+const PROMPT_MAX_HISTORY = Math.max(0, Number(process.env.PROMPT_MAX_HISTORY ?? 10));
+
 export { AI_MODEL };
+
+type TokenUsage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+
+/** Logs el consumo de tokens de cada llamada LLM para dimensionar el uso. */
+export function logTokenUsage(call: string, tag: string, usage: TokenUsage | undefined): void {
+  if (!usage) return;
+  console.log(
+    `[ai-tokens] call=${call} tag=${tag} in=${usage.prompt_tokens ?? "-"} out=${usage.completion_tokens ?? "-"} total=${usage.total_tokens ?? "-"}`,
+  );
+}
 
 export const openai = AI_API_KEY
   ? new OpenAI({ apiKey: AI_API_KEY, baseURL: AI_BASE_URL })
@@ -265,6 +279,7 @@ Escribe un saludo cálido, natural y breve (máx. 30 palabras) que invite a preg
       ],
       temperature: 0.7,
     });
+    logTokenUsage("greeting", store.name, resp.usage);
     return (
       resp.choices[0]?.message?.content?.trim() || fallbackGreeting({ storeName: store.name, productName: item?.name })
     );
@@ -361,9 +376,9 @@ export async function getIAStoreReply({
     });
   }
   try {
-    // Catálogo resumido (máx. 5 productos)
+    // Catálogo resumido (máx. PROMPT_MAX_PRODUCTS productos)
     const catalogLines = products
-      .slice(0, 5)
+      .slice(0, PROMPT_MAX_PRODUCTS)
       .map((p) => {
         const stockNote =
           p.stock !== undefined && p.stock !== null && p.stock <= 0
@@ -405,7 +420,7 @@ Qué NO hacer:
 Si el cliente ya dio esos datos en mensajes anteriores, no se los vuelvas a pedir.`;
 
     // Historial de la conversación para no repetir preguntas ya respondidas
-    const historyLines = (history ?? []).slice(-10).map((h) => `- ${h.content}`).join("\n");
+    const historyLines = (history ?? []).slice(-PROMPT_MAX_HISTORY).map((h) => `- ${h.content}`).join("\n");
 
     const invoiceExtraLines = profile.invoiceExtra ? `\n${profile.invoiceExtra.join("\n")}\n` : "";
     const productNoteLine = profile.productNote
@@ -498,6 +513,7 @@ ${catalogLines}
       ],
       temperature: 0.75,
     });
+    logTokenUsage("reply", store.name, resp.usage);
     return (
       resp.choices[0]?.message?.content?.trim() ||
       fallbackReply({

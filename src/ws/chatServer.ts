@@ -14,6 +14,8 @@ import {
   refreshUserModeration,
   gateIncomingMessage,
   retractIfFlaggedByAI,
+  shouldRunAIModeration,
+  markAIScan,
 } from "../lib/moderation";
 
 interface ClientInfo {
@@ -187,16 +189,20 @@ export function attachChatWebSocket(server: Server) {
 
         // Revisión en segundo plano con IA: si detecta abuso (acoso, sarcasmo
         // ofensivo, presión), retira el mensaje publicado y aplica la escalera.
-        void retractIfFlaggedByAI({
-          userId,
-          senderName: modUser?.name,
-          senderIsMerchant: isStoreOwner,
-          messageId: message.id,
-          content: content.trim(),
-          onRetracted: (reason) => {
-            broadcast(conversationId, { type: "message_retracted", messageId: message.id, reason });
-          },
-        });
+        // Solo corre en tiendas de pago y con cadencia (ahorro de tokens).
+        if (shouldRunAIModeration(userId, conversation.store.plan)) {
+          markAIScan(userId);
+          void retractIfFlaggedByAI({
+            userId,
+            senderName: modUser?.name,
+            senderIsMerchant: isStoreOwner,
+            messageId: message.id,
+            content: content.trim(),
+            onRetracted: (reason) => {
+              broadcast(conversationId, { type: "message_retracted", messageId: message.id, reason });
+            },
+          });
+        }
 
         // Modelo de ventas A: el cierre se hace por el WhatsApp del comerciante
         // (flujo normal). No se sanciona mencionarlo; solo se bloquea si la
