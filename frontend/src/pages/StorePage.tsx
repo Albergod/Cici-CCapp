@@ -22,6 +22,8 @@ export function StorePage() {
   const [reviews, setReviews] = useState<StoreReview[]>([]);
   const [myRating, setMyRating] = useState(5);
   const [myComment, setMyComment] = useState('');
+  const [myPhoto, setMyPhoto] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewMsg, setReviewMsg] = useState<string | null>(null);
   // Id con el ojito "Ampliar" activo (uno solo a la vez, salta de producto en producto).
@@ -124,6 +126,23 @@ export function StorePage() {
     ? `https://wa.me/?text=${encodeURIComponent(`Mira ${store.name}: ${window.location.origin}/store/${store.slug}`)}`
     : '#';
 
+  const handleReviewPhoto = async (file: File) => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const url = await api.upload(file);
+      setMyPhoto(url);
+    } catch (err) {
+      setReviewMsg(err instanceof Error ? err.message : 'No se pudo subir la foto.');
+      setTimeout(() => setReviewMsg(null), 4000);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   const handleReview = async () => {
     if (!isAuthenticated || !store) {
       navigate('/login');
@@ -135,9 +154,11 @@ export function StorePage() {
       const res = await api.stores.postReview(store.id, {
         rating: myRating,
         comment: myComment.trim() || undefined,
+        imageUrl: myPhoto ?? undefined,
       });
       setReviewMsg('¡Gracias por tu reseña!');
       setMyComment('');
+      setMyPhoto(null);
       const r = await api.stores.reviews(store.id);
       setReviews(r.reviews);
       setStore((s) => (s ? { ...s, ratingAvg: r.ratingAvg, ratingCount: r.ratingCount } : s));
@@ -501,6 +522,36 @@ export function StorePage() {
               placeholder="¿Qué te pareció? (opcional, máx 500)"
               className="input w-full min-h-[80px]"
             />
+            <div className="mt-3">
+              {myPhoto ? (
+                <div className="relative inline-block">
+                  <img src={myPhoto} alt="Foto de tu compra" className="rounded-xl max-h-40 object-cover" />
+                  <button
+                    onClick={() => setMyPhoto(null)}
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-surface-900/70 text-white text-xs"
+                    aria-label="Quitar foto"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-surface-300 text-sm font-semibold text-surface-600 cursor-pointer hover:border-brand-400 hover:text-brand-600 transition-colors">
+                  📷 Agregar foto de tu compra
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+                    className="hidden"
+                    disabled={uploadingPhoto}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = '';
+                      if (f) void handleReviewPhoto(f);
+                    }}
+                  />
+                </label>
+              )}
+              {uploadingPhoto && <p className="text-xs text-surface-500 mt-1">Subiendo foto…</p>}
+            </div>
             {reviewMsg && <p className="text-sm mt-2 text-surface-600">{reviewMsg}</p>}
             <button onClick={handleReview} disabled={reviewBusy} className="btn-primary mt-3">
               {reviewBusy ? 'Enviando…' : 'Publicar reseña'}
