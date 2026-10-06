@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Store } from '@/types';
+import { Store, StoreReview } from '@/types';
 import { api } from '@/services/api';
 import { useAuth } from '@/stores/authStore';
 import { useFollowsVersion } from '@/stores/followsStore';
 import { ProductCard } from '@/components/ProductCard';
 import { formatCOP } from '@/lib/format';
-import { Loader2, Users, Package, MessageSquare, ArrowLeft, UserCheck, BadgeCheck, Share2, Check, Sparkles, Flag } from 'lucide-react';
+import { Loader2, Users, Package, MessageSquare, ArrowLeft, UserCheck, BadgeCheck, Share2, Check, Sparkles, Flag, Star, MessageCircle } from 'lucide-react';
 
 export function StorePage() {
   const { slug } = useParams<{ slug: string }>();
@@ -19,12 +19,21 @@ export function StorePage() {
   const [following, setFollowing] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [reviews, setReviews] = useState<StoreReview[]>([]);
+  const [myRating, setMyRating] = useState(5);
+  const [myComment, setMyComment] = useState('');
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewMsg, setReviewMsg] = useState<string | null>(null);
   // Id con el ojito "Ampliar" activo (uno solo a la vez, salta de producto en producto).
   const [armedProductId, setArmedProductId] = useState<string | null>(null);
 
   useEffect(() => {
     if (slug) loadStore();
   }, [slug]);
+
+  useEffect(() => {
+    document.title = store ? `${store.name} · CC Platform` : 'CC Platform - Tu Centro Comercial Digital';
+  }, [store?.name]);
 
   const loadStore = async () => {
     try {
@@ -33,6 +42,10 @@ export function StorePage() {
       setStore(data);
       setFollowersCount(data.followersCount || 0);
       setFollowing(!!data.following);
+      api.stores.reviews(data.id).then((r) => {
+        setReviews(r.reviews);
+        setStore((s) => (s ? { ...s, ratingAvg: r.ratingAvg, ratingCount: r.ratingCount } : s));
+      }).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar tienda');
     } finally {
@@ -105,6 +118,36 @@ export function StorePage() {
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const whatsappShareUrl = store
+    ? `https://wa.me/?text=${encodeURIComponent(`Mira ${store.name}: ${window.location.origin}/store/${store.slug}`)}`
+    : '#';
+
+  const handleReview = async () => {
+    if (!isAuthenticated || !store) {
+      navigate('/login');
+      return;
+    }
+    setReviewBusy(true);
+    setReviewMsg(null);
+    try {
+      const res = await api.stores.postReview(store.id, {
+        rating: myRating,
+        comment: myComment.trim() || undefined,
+      });
+      setReviewMsg('¡Gracias por tu reseña!');
+      setMyComment('');
+      const r = await api.stores.reviews(store.id);
+      setReviews(r.reviews);
+      setStore((s) => (s ? { ...s, ratingAvg: r.ratingAvg, ratingCount: r.ratingCount } : s));
+      void res;
+    } catch (err) {
+      setReviewMsg(err instanceof Error ? err.message : 'No se pudo publicar.');
+    } finally {
+      setReviewBusy(false);
+      setTimeout(() => setReviewMsg(null), 4000);
+    }
   };
 
   const [reportMsg, setReportMsg] = useState<string | null>(null);
@@ -237,10 +280,21 @@ export function StorePage() {
                     <span className="block text-xs text-surface-500 mt-0.5">productos</span>
                   </div>
                 </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-amber-50 text-amber-500">
+                    <Star className="w-4 h-4" />
+                  </span>
+                  <div>
+                    <strong className="font-display text-lg font-bold text-surface-900 leading-none">
+                      {(store.ratingCount ?? 0) > 0 ? Number(store.ratingAvg ?? 0).toFixed(1) : '—'}
+                    </strong>
+                    <span className="block text-xs text-surface-500 mt-0.5">{store.ratingCount ?? 0} reseñas</span>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="flex gap-2.5 w-full md:w-auto">
+            <div className="flex gap-2.5 w-full md:w-auto flex-wrap">
               <button
                 onClick={handleFollow}
                 className={`flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl text-sm font-semibold transition-all active:scale-[0.98] ${
@@ -259,6 +313,16 @@ export function StorePage() {
                 <MessageSquare className="w-4 h-4 text-brand-500" />
                 Contactar
               </button>
+              <a
+                href={whatsappShareUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-sm font-semibold bg-[#25D366] text-white hover:opacity-90 transition-all active:scale-[0.98]"
+                aria-label="Compartir por WhatsApp"
+              >
+                <MessageCircle className="w-4 h-4" />
+                WhatsApp
+              </a>
               <button
                 onClick={handleShare}
                 className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-sm font-semibold transition-all active:scale-[0.98] text-surface-900 bg-white border border-surface-200 hover:border-surface-300 hover:shadow-soft"
@@ -388,6 +452,60 @@ export function StorePage() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* ── Reseñas (prueba social + haul criollo) ─────────── */}
+        <div className="mb-10">
+          <h2 className="font-display text-xl md:text-2xl font-bold text-surface-900 tracking-tight flex items-center gap-2.5 mb-5">
+            <Star className="w-5 h-5 text-amber-500" />
+            Reseñas
+            <span className="inline-flex items-center justify-center min-w-[1.75rem] h-6 px-2 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">
+              {store.ratingCount ?? 0}
+            </span>
+            {(store.ratingCount ?? 0) > 0 && (
+              <span className="text-sm font-semibold text-surface-500">
+                {Number(store.ratingAvg ?? 0).toFixed(1)} / 5
+              </span>
+            )}
+          </h2>
+          {reviews.length === 0 ? (
+            <p className="text-sm text-surface-500 card p-5">Sé la primera en dejar una reseña con foto de tu compra.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+              {reviews.slice(0, 6).map((r) => (
+                <div key={r.id} className="card p-4">
+                  <div className="flex items-center gap-1 mb-1">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star key={s} className={`w-3.5 h-3.5 ${s <= r.rating ? 'text-amber-500 fill-amber-500' : 'text-surface-300'}`} />
+                    ))}
+                    <span className="ml-2 text-xs font-semibold text-surface-500">{r.customer?.name ?? 'Clienta'}</span>
+                  </div>
+                  {r.comment && <p className="text-sm text-surface-700">{r.comment}</p>}
+                  {r.imageUrl && <img src={r.imageUrl} alt="" className="mt-2 rounded-xl max-h-40 object-cover" loading="lazy" />}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="card p-5">
+            <h3 className="font-bold text-surface-900 mb-2">Deja tu reseña</h3>
+            <div className="flex items-center gap-1 mb-3">
+              {[1, 2, 3, 4, 5].map((s) => (
+                <button key={s} onClick={() => setMyRating(s)} aria-label={`${s} estrellas`}>
+                  <Star className={`w-6 h-6 ${s <= myRating ? 'text-amber-500 fill-amber-500' : 'text-surface-300'}`} />
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={myComment}
+              onChange={(e) => setMyComment(e.target.value.slice(0, 500))}
+              placeholder="¿Qué te pareció? (opcional, máx 500)"
+              className="input w-full min-h-[80px]"
+            />
+            {reviewMsg && <p className="text-sm mt-2 text-surface-600">{reviewMsg}</p>}
+            <button onClick={handleReview} disabled={reviewBusy} className="btn-primary mt-3">
+              {reviewBusy ? 'Enviando…' : 'Publicar reseña'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

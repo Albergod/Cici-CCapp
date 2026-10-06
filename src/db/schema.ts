@@ -230,6 +230,31 @@ export const follows = pgTable(
   }),
 );
 
+// Reseñas de clientes por tienda (prueba social): 1 reseña por cliente y
+// tienda (upsert), con foto opcional (haul criollo).
+export const storeReviews = pgTable(
+  "store_reviews",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => users.id),
+    rating: integer("rating").notNull(),
+    comment: text("comment"),
+    imageUrl: text("image_url"),
+  },
+  (t) => ({
+    customerStoreUnique: uniqueIndex("store_reviews_customer_store_unique").on(
+      t.customerId,
+      t.storeId,
+    ),
+  }),
+);
+
 // Chat contextual: una conversación = 1 cliente + 1 tienda (no un chat global)
 export const conversations = pgTable(
   "conversations",
@@ -464,6 +489,11 @@ export const appointmentsRelations = relations(appointments, ({ one }) => ({
 export const followsRelations = relations(follows, ({ one }) => ({
   user: one(users, { fields: [follows.userId], references: [users.id] }),
   store: one(stores, { fields: [follows.storeId], references: [stores.id] }),
+}));
+
+export const storeReviewsRelations = relations(storeReviews, ({ one }) => ({
+  customer: one(users, { fields: [storeReviews.customerId], references: [users.id] }),
+  store: one(stores, { fields: [storeReviews.storeId], references: [stores.id] }),
 }));
 
 export const conversationsRelations = relations(conversations, ({ one, many }) => ({

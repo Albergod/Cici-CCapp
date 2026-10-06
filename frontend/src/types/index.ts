@@ -90,6 +90,8 @@ export interface Store {
   prestigeActive?: boolean;
   verified?: boolean;
   referralCode?: string;
+  ratingAvg?: number | null;
+  ratingCount?: number;
   products?: Product[];
   categories?: Category[];
 }
@@ -215,6 +217,15 @@ export interface ReferralInfo {
 }
 
 export type OrderStatus = 'pending' | 'sold' | 'cancelled';
+
+export interface StoreReview {
+  id: string;
+  rating: number;
+  comment: string | null;
+  imageUrl: string | null;
+  createdAt?: string;
+  customer?: { id?: string; name?: string; avatarUrl?: string | null } | null;
+}
 
 export interface OrderItem {
   id: string;

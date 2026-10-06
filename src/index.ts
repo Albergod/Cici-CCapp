@@ -32,6 +32,15 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { db } from "./db/client";
 import { sql } from "drizzle-orm";
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export function createApp() {
   const app = express();
 
@@ -88,6 +97,71 @@ export function createApp() {
   const frontendDist = path.join(appRoot, "frontend", "dist");
   if (fs.existsSync(frontendDist)) {
     app.use(express.static(frontendDist));
+
+    // ── SEO básico: robots + sitemap (tráfico gratis) ──
+    app.get("/robots.txt", (_req, res) => {
+      const host = _req.protocol + "://" + _req.get("host");
+      res.type("text/plain").send(`User-agent: *\nAllow: /\nSitemap: ${host}/sitemap.xml\n`);
+    });
+
+    app.get("/sitemap.xml", async (_req, res) => {
+      try {
+        const rows = await db.execute(sql`SELECT slug FROM stores ORDER BY created_at DESC LIMIT 5000`);
+        const host = _req.protocol + "://" + _req.get("host");
+        const urls = (rows.rows as { slug: string }[])
+          .map((r) => `  <url><loc>${host}/store/${r.slug}</loc><changefreq>daily</changefreq></url>`)
+          .join("\n");
+        res.type("application/xml").send(
+          `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${host}/</loc><changefreq>daily</changefreq></url>\n${urls}\n</urlset>`,
+        );
+      } catch {
+        res.status(500).type("application/xml").send(`<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`);
+      }
+    });
+
+    // ── Open Graph por tienda: previews lindos en WhatsApp/Google ──
+    // Como el frontend es SPA, inyectamos OG server-side al servir /store/:slug.
+    app.get("/store/:slug", async (req, res, next) => {
+      try {
+        const indexPath = path.join(frontendDist, "index.html");
+        if (!fs.existsSync(indexPath)) return next();
+        const rows = await db.execute(
+          sql`SELECT name, description, logo_url, banner_url FROM stores WHERE slug = ${req.params.slug} LIMIT 1`,
+        );
+        const row = (rows.rows as { name?: string; description?: string | null; logo_url?: string | null; banner_url?: string | null }[])[0];
+        if (!row) {
+          return res.sendFile(indexPath);
+        }
+        const host = req.protocol + "://" + req.get("host");
+        const title = `${row.name} · CC Platform`;
+        const desc = (row.description ?? "Descubre esta tienda en CC Platform: productos y contacto directo por chat.").slice(0, 200);
+        const img = row.banner_url ?? row.logo_url ?? `${host}/vite.svg`;
+        const url = `${host}/store/${req.params.slug}`;
+        let html = fs.readFileSync(indexPath, "utf8");
+        // Título dinámico
+        html = html.replace(/<title>.*?<\/title>/, `<title>${escapeHtml(title)}</title>`);
+        // Inyecta OG/Twitter antes de </head>
+        const og = [
+          `<meta property="og:type" content="website" />`,
+          `<meta property="og:site_name" content="CC Platform" />`,
+          `<meta property="og:title" content="${escapeHtml(title)}" />`,
+          `<meta property="og:description" content="${escapeHtml(desc)}" />`,
+          `<meta property="og:image" content="${escapeHtml(img)}" />`,
+          `<meta property="og:url" content="${escapeHtml(url)}" />`,
+          `<meta name="twitter:card" content="summary_large_image" />`,
+          `<meta name="twitter:title" content="${escapeHtml(title)}" />`,
+          `<meta name="twitter:description" content="${escapeHtml(desc)}" />`,
+          `<meta name="twitter:image" content="${escapeHtml(img)}" />`,
+          `<meta name="description" content="${escapeHtml(desc)}" />`,
+          `<link rel="canonical" href="${escapeHtml(url)}" />`,
+        ].join("\n    ");
+        html = html.replace("</head>", `    ${og}\n  </head>`);
+        res.type("html").send(html);
+      } catch {
+        return next();
+      }
+    });
+
     app.get("*", (req, res, next) => {
       if (req.path.startsWith("/api/") || req.path.startsWith("/uploads/") || req.path.startsWith("/public/")) return next();
       res.sendFile(path.join(frontendDist, "index.html"));
@@ -205,6 +279,18 @@ if (isMainModule) {
       unit_price numeric(10, 2) NOT NULL,
       quantity numeric(10, 0) NOT NULL
     )`);
+    // ── Reseñas por tienda (prueba social): 1 por cliente y tienda (upsert).
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS store_reviews (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      created_at timestamp DEFAULT now() NOT NULL,
+      store_id uuid NOT NULL REFERENCES stores(id),
+      customer_id uuid NOT NULL REFERENCES users(id),
+      rating integer NOT NULL,
+      comment text,
+      image_url text
+    )`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS store_reviews_customer_store_unique
+      ON store_reviews (customer_id, store_id)`);
   }
 
   async function runMigrations(): Promise<void> {

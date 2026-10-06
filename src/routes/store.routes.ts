@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { eq, and, sql, desc, count, isNull, lt, ne, isNotNull, inArray, gte } from "drizzle-orm";
 import { db } from "../db/client";
-import { stores, follows, users, products, mpPayments, violations, storeServices, businessTypeEnum } from "../db/schema";
+import { stores, follows, users, products, mpPayments, violations, storeServices, storeReviews, businessTypeEnum } from "../db/schema";
 import { requireAuth, optionalAuth, AuthRequest } from "../middleware/auth";
 import { getContactEligibility, isOnTrial, TRIAL_DURATION_MS } from "../lib/subscription";
 import { imageUrl } from "../lib/validators";
@@ -723,6 +723,7 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
     products: visibleProducts,
     services,
     followersCount: followers.length,
+    ...(await reviewStats(store.id)),
     contactAvailable: elig.contactAvailable,
     subscriptionStatus: elig.status,
     onTrial: isOnTrial(store),
@@ -777,6 +778,83 @@ router.post("/:id/follow", requireAuth, async (req: AuthRequest, res) => {
 
   await db.insert(follows).values({ userId: req.userId!, storeId });
   res.json({ following: true });
+});
+
+// ── Reseñas: prueba social ──────────────────────────────────────────────────
+// Una reseña por cliente y tienda (upsert). Con foto opcional (haul criollo).
+const reviewSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().trim().max(500).optional().nullable(),
+  imageUrl: imageUrl().optional().nullable(),
+});
+
+async function reviewStats(storeId: string) {
+  try {
+    const [row] = await db
+      .select({
+        count: sql<number>`count(*)::int`,
+        avg: sql<string | null>`avg(${storeReviews.rating})::text`,
+      })
+      .from(storeReviews)
+      .where(eq(storeReviews.storeId, storeId));
+    return { ratingCount: row?.count ?? 0, ratingAvg: row?.avg ? Number(row.avg) : null };
+  } catch {
+    // Tabla aún sin migrar (deploy en curso): no tumbar el detalle de la tienda.
+    return { ratingCount: 0, ratingAvg: null };
+  }
+}
+
+router.get("/:id/reviews", async (req, res) => {
+  const storeId = req.params.id;
+  const take = Math.min(Math.max(Number(req.query.take) || 20, 1), 50);
+  const skip = Math.max(Number(req.query.skip) || 0, 0);
+  const [store] = await db.select({ id: stores.id }).from(stores).where(eq(stores.id, storeId)).limit(1);
+  if (!store) return res.status(404).json({ error: "Tienda no encontrada." });
+  try {
+    const rows = await db.query.storeReviews.findMany({
+      where: eq(storeReviews.storeId, storeId),
+      orderBy: (r, { desc }) => [desc(r.createdAt)],
+      limit: take,
+      offset: skip,
+      with: { customer: { columns: { id: true, name: true, avatarUrl: true } } },
+    });
+    res.json({ ...(await reviewStats(storeId)), reviews: rows });
+  } catch {
+    res.json({ ratingCount: 0, ratingAvg: null, reviews: [] });
+  }
+});
+
+router.post("/:id/reviews", requireAuth, async (req: AuthRequest, res) => {
+  const parsed = reviewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Calificación inválida (1 a 5 estrellas)." });
+  }
+  const storeId = req.params.id;
+  const [store] = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
+  if (!store) return res.status(404).json({ error: "Tienda no encontrada." });
+  if (store.ownerId === req.userId) {
+    return res.status(400).json({ error: "No puedes calificar tu propia tienda." });
+  }
+  const { rating, comment, imageUrl: img } = parsed.data;
+  const [review] = await db
+    .insert(storeReviews)
+    .values({
+      storeId,
+      customerId: req.userId!,
+      rating,
+      comment: comment?.trim() ? comment.trim() : null,
+      imageUrl: img ?? null,
+    })
+    .onConflictDoUpdate({
+      target: [storeReviews.customerId, storeReviews.storeId],
+      set: {
+        rating,
+        comment: comment?.trim() ? comment.trim() : null,
+        imageUrl: img ?? null,
+      },
+    })
+    .returning();
+  res.status(201).json({ ...(await reviewStats(storeId)), review });
 });
 
 // ── Anti-fraude: reporte de un comprador ────────────────────────────────────

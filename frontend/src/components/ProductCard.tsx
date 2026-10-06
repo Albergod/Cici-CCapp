@@ -94,6 +94,12 @@ export function ProductCard({
 
       <div className="p-3.5 flex flex-col flex-1">
         <h3 className="font-display font-bold text-surface-900 text-sm truncate">{product.name}</h3>
+        {typeof product.stock === 'number' && product.available && product.stock > 0 && product.stock <= 5 && (
+          <p className="text-[11px] font-bold text-amber-600 mt-1">¡Solo quedan {product.stock}!</p>
+        )}
+        {(!product.available || (typeof product.stock === 'number' && product.stock <= 0)) && (
+          <p className="text-[11px] font-bold text-accent-600 mt-1">Agotado</p>
+        )}
         {product.description && (
           <p className="text-xs text-surface-500 line-clamp-2 mt-0.5 flex-1">
             {product.description}

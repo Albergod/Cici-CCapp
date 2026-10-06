@@ -1,4 +1,4 @@
-import { AuthResponse, Conversation, Store, Product, Message, SaleStats, ReferralInfo, StoreService, Appointment, BusinessType, Order } from '@/types';
+import { AuthResponse, Conversation, Store, Product, Message, SaleStats, ReferralInfo, StoreService, Appointment, BusinessType, Order, StoreReview } from '@/types';
 
 const API_BASE = '/api';
 
@@ -163,6 +163,13 @@ export const api = {
         body: JSON.stringify(data),
       }),
     referral: () => request<ReferralInfo>('/stores/referral'),
+    reviews: (id: string) =>
+      request<{ ratingAvg: number | null; ratingCount: number; reviews: StoreReview[] }>(`/stores/${id}/reviews`),
+    postReview: (id: string, data: { rating: number; comment?: string; imageUrl?: string }) =>
+      request<{ ratingAvg: number | null; ratingCount: number }>(`/stores/${id}/reviews`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
   },
   upload: uploadImage,
 
