@@ -18,7 +18,7 @@ async function j(method, url, body, token) {
 
 const register = async (email, password, name) => {
   try {
-    const r = await j('POST', '/auth/register', { email, password, name });
+    const r = await j('POST', '/auth/register', { email, password, name, termsAccepted: true });
     return r;
   } catch (e) {
     throw e;
