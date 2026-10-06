@@ -4,7 +4,7 @@ import { api } from '@/services/api';
 import { StorePager } from '@/components/StorePager';
 import { ProductCarousel } from '@/components/ProductCarousel';
 import { TutorialModal } from '@/components/TutorialModal';
-import { Loader2, StoreIcon, Sparkles, ShoppingBag, MessageSquare, ChevronRight, CircleHelp } from 'lucide-react';
+import { Loader2, StoreIcon, Sparkles, ShoppingBag, MessageSquare, ChevronRight, CircleHelp, Smartphone } from 'lucide-react';
 
 export function HomePage() {
   const [stores, setStores] = useState<Store[]>([]);
@@ -74,6 +74,13 @@ export function HomePage() {
               Descubre tiendas únicas, chatea directo con cada emprendedor y compra en minutos.
               ¿Tienes algo para vender? Abre tu propia tienda gratis hoy.
             </p>
+            <a
+              href="/descargar"
+              className="inline-flex items-center gap-2 mt-6 px-6 py-3 rounded-2xl bg-white text-brand-700 font-semibold shadow-lift hover:bg-white/90 transition"
+            >
+              <Smartphone className="w-5 h-5" />
+              Descargar la app
+            </a>
           </div>
           <button
             onClick={() => setTutorialOpen(true)}

@@ -14,6 +14,7 @@ import { DashboardPage } from '@/pages/DashboardPage';
 import { ChatPage } from '@/pages/ChatPage';
 import { SearchPage } from '@/pages/SearchPage';
 import { AdminPage } from '@/pages/AdminPage';
+import { DownloadPage } from '@/pages/DownloadPage';
 
 const AUTH_PAGES = ['/login', '/register', '/forgot-password', '/reset-password'];
 
@@ -158,6 +159,14 @@ function App() {
         element={
           <AppLayout>
             <SearchPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/descargar"
+        element={
+          <AppLayout>
+            <DownloadPage />
           </AppLayout>
         }
       />
