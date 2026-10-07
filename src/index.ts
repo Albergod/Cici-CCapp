@@ -291,6 +291,9 @@ if (isMainModule) {
     )`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS store_reviews_customer_store_unique
       ON store_reviews (customer_id, store_id)`);
+    // ── Ofertas estilo Shopee (v1): precio promo + fin de vigencia ──────────
+    await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS offer_price numeric(10, 2)`);
+    await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS offer_ends_at timestamp`);
   }
 
   async function runMigrations(): Promise<void> {

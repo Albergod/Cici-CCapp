@@ -5,6 +5,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/client";
 import { orders, orderItems, products } from "../db/schema";
+import { withOfferFlags } from "./offers";
 
 export interface PendingOrderItem {
   productName: string;
@@ -62,17 +63,36 @@ export async function createPendingOrder(args: {
   const productRows: { id: string; name: string; unitPrice: string }[] = [];
 
   for (const [name, qty] of aggregated) {
-    const [product] = await db
-      .select({
-        id: products.id,
-        name: products.name,
-        price: products.price,
-        available: products.available,
-        stock: products.stock,
-      })
-      .from(products)
-      .where(and(eq(products.storeId, args.storeId), eq(products.name, name)))
-      .limit(1);
+    // Precio vigente (oferta activa si la hay), con fallback pre-migración.
+    const [product] = await (async () => {
+      try {
+        return await db
+          .select({
+            id: products.id,
+            name: products.name,
+            price: products.price,
+            offerPrice: products.offerPrice,
+            offerEndsAt: products.offerEndsAt,
+            available: products.available,
+            stock: products.stock,
+          })
+          .from(products)
+          .where(and(eq(products.storeId, args.storeId), eq(products.name, name)))
+          .limit(1);
+      } catch {
+        return await db
+          .select({
+            id: products.id,
+            name: products.name,
+            price: products.price,
+            available: products.available,
+            stock: products.stock,
+          })
+          .from(products)
+          .where(and(eq(products.storeId, args.storeId), eq(products.name, name)))
+          .limit(1);
+      }
+    })();
 
     if (!product) {
       return { ok: false, status: 404, code: "product_not_found", message: `No conozco "${name}" en este catálogo.` };
@@ -89,12 +109,17 @@ export async function createPendingOrder(args: {
       };
     }
 
-    productRows.push({ id: product.id, name: product.name, unitPrice: String(product.price) });
+    const effective = withOfferFlags({
+      price: product.price,
+      offerPrice: (product as { offerPrice?: string | null }).offerPrice ?? null,
+      offerEndsAt: (product as { offerEndsAt?: Date | string | null }).offerEndsAt ?? null,
+    }).effectivePrice;
+    productRows.push({ id: product.id, name: product.name, unitPrice: String(effective.toFixed(2)) });
     lines.push({
       productName: product.name,
-      unitPrice: Number(product.price),
+      unitPrice: effective,
       quantity: qty,
-      lineTotal: Number(product.price) * qty,
+      lineTotal: effective * qty,
     });
   }
 

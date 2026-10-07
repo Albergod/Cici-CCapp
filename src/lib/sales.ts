@@ -8,6 +8,7 @@ import {
   refreshStoreStatus,
   storeOperational,
 } from "./moderation";
+import { withOfferFlags } from "./offers";
 
 // Origen de la venta. `manual` la registra el comerciante a mano; `appointment`
 // se genera al cerrar una cita ("Listo"); `order` al confirmar un pedido del
@@ -78,11 +79,31 @@ export async function createSale(
     return { ok: false, status: 400, error: "La venta necesita al menos un ítem." };
   }
 
-  const productRows = await d.query.products.findMany({
-    where: eq(products.storeId, storeId),
-    columns: { id: true, price: true },
-  });
-  const productPrice = new Map(productRows.map((p) => [p.id, Number(p.price)]));
+  // Precio vigente: oferta activa si la hay (con fallback si la columna aún
+  // no migró en la DB, para no tumbar ventas durante el deploy).
+  const productRows = await (async () => {
+    try {
+      const rows = await d.query.products.findMany({
+        where: eq(products.storeId, storeId),
+        columns: { id: true, price: true, offerPrice: true, offerEndsAt: true },
+      });
+      return rows.map((p) => ({
+        id: p.id,
+        price: withOfferFlags({
+          price: p.price,
+          offerPrice: (p.offerPrice as string | null) ?? null,
+          offerEndsAt: (p.offerEndsAt as Date | string | null) ?? null,
+        }).effectivePrice,
+      }));
+    } catch {
+      const rows = await d.query.products.findMany({
+        where: eq(products.storeId, storeId),
+        columns: { id: true, price: true },
+      });
+      return rows.map((p) => ({ id: p.id, price: Number(p.price) }));
+    }
+  })();
+  const productPrice = new Map(productRows.map((p) => [p.id, p.price]));
 
   const serviceRows = await d.query.storeServices.findMany({
     where: eq(storeServices.storeId, storeId),

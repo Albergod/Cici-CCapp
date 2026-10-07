@@ -56,6 +56,15 @@ function toNumber(value: string | number): number {
   return typeof value === 'number' ? value : Number(value);
 }
 
+function normalizeProduct<T extends { price: number | string; offerPrice?: number | string | null; effectivePrice?: number | string | null }>(p: T): T {
+  return {
+    ...p,
+    price: toNumber(p.price),
+    ...(p.offerPrice != null ? { offerPrice: toNumber(p.offerPrice as string | number) } : {}),
+    ...(p.effectivePrice != null ? { effectivePrice: toNumber(p.effectivePrice as string | number) } : {}),
+  };
+}
+
 export const api = {
   auth: {
     login: (email: string, password: string) =>
@@ -94,7 +103,7 @@ export const api = {
       return data.map((s) => ({
         ...s,
         products:
-          s.products?.map((p) => ({ ...p, price: toNumber(p.price) })) ?? [],
+          s.products?.map((p) => normalizeProduct({ ...p, price: toNumber(p.price) })) ?? [],
       }));
     },
     mine: () => request<{ id: string; slug: string; name: string }>('/stores/mine'),
@@ -102,7 +111,7 @@ export const api = {
       const data = await request<Store>(`/stores/${slug}`);
       return {
         ...data,
-        products: data.products?.map((p) => ({ ...p, price: toNumber(p.price) })) ?? [],
+        products: data.products?.map((p) => normalizeProduct({ ...p, price: toNumber(p.price) })) ?? [],
       };
     },
     activateTrial: (storeId: string) =>
@@ -203,13 +212,13 @@ export const api = {
   products: {
     list: async (take = 20): Promise<Product[]> => {
       const data = await request<Product[]>(`/products?take=${take}`);
-      return data.map((p) => ({ ...p, price: toNumber(p.price) }));
+      return data.map((p) => normalizeProduct({ ...p, price: toNumber(p.price) }));
     },
     search: async (q: string, take = 20): Promise<Product[]> => {
       const data = await request<Product[]>(
         `/products?q=${encodeURIComponent(q)}&take=${take}`
       );
-      return data.map((p) => ({ ...p, price: toNumber(p.price) }));
+      return data.map((p) => normalizeProduct({ ...p, price: toNumber(p.price) }));
     },
     create: (storeId: string, data: any) =>
       request<Product>(`/stores/${storeId}/products`, {

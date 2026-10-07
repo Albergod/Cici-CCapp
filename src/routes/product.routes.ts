@@ -5,6 +5,7 @@ import { db } from "../db/client";
 import { products, stores } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { getProductLimit } from "../lib/prestige";
+import { validateOffer, withOfferFlags, buildOfferFields } from "../lib/offers";
 import { imageUrl } from "../lib/validators";
 import { sanitizeAttributes, BusinessType } from "../lib/categoryFields";
 import { storeOperational, refreshStoreStatus } from "../lib/moderation";
@@ -21,6 +22,9 @@ const productSchema = z.object({
   categoryId: z.string().uuid().optional(),
   stock: z.number().int().min(0).optional(),
   attributes: attributesSchema.optional(),
+  // Oferta opcional al crear (mismas reglas que en PATCH).
+  offerPrice: z.number().positive().optional().nullable(),
+  offerEndsAt: z.string().optional().nullable(),
 });
 
 async function assertStoreOwner(storeId: string, userId: string) {
@@ -62,12 +66,15 @@ router.post("/stores/:storeId/products", requireAuth, async (req: AuthRequest, r
     });
   }
 
+  const { offerPrice: _formOfferPrice, offerEndsAt: _formOfferEndsAt, ...rest } = parsed.data;
   const [product] = await db
     .insert(products)
     .values({
-      ...parsed.data,
+      ...rest,
       price: parsed.data.price.toFixed(2),
       stock: String(parsed.data.stock ?? 0),
+      // Oferta al crear: solo si es válida (promo < precio y fin futuro ≤30d).
+      ...buildOfferFields(parsed.data.price, parsed.data.offerPrice, parsed.data.offerEndsAt),
       // Misma regla que PATCH: con stock 0 el producto nace desactivado.
       available: (parsed.data.stock ?? 0) > 0,
       attributes: sanitizeAttributes(check.businessType, parsed.data.attributes),
@@ -90,6 +97,18 @@ router.patch("/products/:id", requireAuth, async (req: AuthRequest, res) => {
   if (typeof patch.price === "number") patch.price = patch.price.toFixed(2);
   if (patch.attributes !== undefined) {
     patch.attributes = sanitizeAttributes(check.businessType, patch.attributes as Record<string, unknown>);
+  }
+
+  // Oferta estilo Shopee: precio promo + fin de vigencia (máx 30 días).
+  // offerPrice 0/null la quita. Debe ser menor al precio base y futura.
+  if (patch.offerPrice !== undefined || patch.offerEndsAt !== undefined) {
+    const base = Number(patch.price ?? product.price);
+    const result = validateOffer(base, patch.offerPrice, patch.offerEndsAt);
+    if ("error" in result) {
+      return res.status(400).json({ error: result.error });
+    }
+    patch.offerPrice = result.fields.offerPrice;
+    patch.offerEndsAt = result.fields.offerEndsAt;
   }
 
   // Regla de stock: si el stock llega a 0 el producto se desactiva solo
@@ -137,6 +156,8 @@ router.get("/products", async (req, res) => {
       name: true,
       description: true,
       price: true,
+      offerPrice: true,
+      offerEndsAt: true,
       imageUrl: true,
       available: true,
       views: true,
@@ -151,7 +172,7 @@ router.get("/products", async (req, res) => {
     },
   });
 
-  res.json(results);
+  res.json(results.map((p) => withOfferFlags(p)));
 });
 
 export default router;

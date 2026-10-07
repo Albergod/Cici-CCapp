@@ -159,6 +159,9 @@ type ProductShort = {
   description?: string;
   stock?: number | null;
   attributes?: Record<string, string | number | boolean>;
+  onOffer?: boolean;
+  discountPct?: number;
+  offerEndsAt?: string | null;
 };
 type StoreInfo = {
   name: string;
@@ -390,7 +393,11 @@ export async function getIAStoreReply({
           p.attributes && Object.keys(p.attributes).length > 0
             ? ` (${attributesSummary(store.businessType as BusinessType | undefined, p.attributes)})`
             : "";
-        return `- ${p.name}: $${formatPrice(p.price)}${attrsNote}${p.description ? ` - ${p.description.substring(0, 60)}` : ""}${stockNote}`;
+        const offerNote =
+          p.onOffer && p.discountPct
+            ? ` [¡OFERTA -${p.discountPct}% hasta ${p.offerEndsAt ? new Date(p.offerEndsAt).toLocaleDateString("es-CO") : "pronto"}!]`
+            : "";
+        return `- ${p.name}: $${formatPrice(p.price)}${attrsNote}${p.description ? ` - ${p.description.substring(0, 60)}` : ""}${offerNote}${stockNote}`;
       })
       .join("\n");
     const waLine = store.whatsapp && /^\d{7,15}$/.test(store.whatsapp)

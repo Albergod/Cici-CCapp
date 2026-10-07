@@ -196,6 +196,10 @@ export const products = pgTable("products", {
   name: text("name").notNull(),
   description: text("description"),
   price: numeric("price", { precision: 10, scale: 2 }).notNull(),
+  // Oferta estilo Shopee (v1): precio promo + fin de vigencia. NULL = sin
+  // oferta. La vigencia se evalúa al leer (ver lib/offers.ts), sin cron.
+  offerPrice: numeric("offer_price", { precision: 10, scale: 2 }),
+  offerEndsAt: timestamp("offer_ends_at"),
   imageUrl: text("image_url"),
   available: boolean("available").default(true).notNull(),
   views: numeric("views", { precision: 10, scale: 0 }).default("0").notNull(),

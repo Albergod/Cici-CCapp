@@ -83,6 +83,11 @@ export function ProductCard({
             <Package className="w-12 h-12" />
           </div>
         )}
+        {product.onOffer && product.discountPct ? (
+          <span className="absolute top-2 left-2 px-2 py-1 text-[11px] font-bold text-white bg-accent-500 rounded-full shadow-soft">
+            -{product.discountPct}%
+          </span>
+        ) : null}
         {!product.available && (
           <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex items-center justify-center">
             <span className="px-3 py-1.5 bg-accent-500 text-white text-xs font-semibold rounded-full">
@@ -94,6 +99,18 @@ export function ProductCard({
 
       <div className="p-3.5 flex flex-col flex-1">
         <h3 className="font-display font-bold text-surface-900 text-sm truncate">{product.name}</h3>
+        {product.onOffer && product.offerEndsAt
+          ? (() => {
+              const days = Math.ceil(
+                (new Date(product.offerEndsAt as string).getTime() - Date.now()) / 86_400_000
+              );
+              return days <= 3 && days >= 0 ? (
+                <p className="text-[11px] font-bold text-accent-600 mt-1">
+                  {days === 0 ? '¡Termina hoy!' : `¡Termina en ${days} día${days === 1 ? '' : 's'}!`}
+                </p>
+              ) : null;
+            })()
+          : null}
         {typeof product.stock === 'number' && product.available && product.stock > 0 && product.stock <= 5 && (
           <p className="text-[11px] font-bold text-amber-600 mt-1">¡Solo quedan {product.stock}!</p>
         )}
@@ -119,9 +136,20 @@ export function ProductCard({
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 mt-3">
-          <span className="text-lg font-extrabold text-surface-900 min-w-0 truncate">
-            {formatCOP(product.price)}
-          </span>
+          {product.onOffer && product.effectivePrice != null ? (
+            <span className="min-w-0">
+              <span className="block text-xs text-surface-400 line-through leading-none">
+                {formatCOP(product.price)}
+              </span>
+              <span className="text-lg font-extrabold text-accent-600">
+                {formatCOP(product.effectivePrice)}
+              </span>
+            </span>
+          ) : (
+            <span className="text-lg font-extrabold text-surface-900 min-w-0 truncate">
+              {formatCOP(product.price)}
+            </span>
+          )}
           {product.available && onContact && (
             <button
               onClick={() => onContact(product.id)}

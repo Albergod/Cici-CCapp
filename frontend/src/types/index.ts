@@ -110,6 +110,13 @@ export interface Product {
   createdAt: string;
   attributes?: Record<string, string | number | boolean>;
   store?: Pick<Store, 'name' | 'slug' | 'logoUrl' | 'businessType'>;
+  /** Oferta estilo Shopee: precio promo (null = sin oferta). */
+  offerPrice?: number | null;
+  offerEndsAt?: string | null;
+  /** Calculado por el backend: lo que paga el cliente hoy. */
+  effectivePrice?: number;
+  onOffer?: boolean;
+  discountPct?: number;
 }
 
 export interface Category {

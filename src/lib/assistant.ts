@@ -18,6 +18,7 @@ import {
   type BusyAppointment,
 } from "./booking";
 import type { ScheduleConfig } from "../db/schema";
+import { withOfferFlags } from "./offers";
 
 export interface AssistantContext {
   conversation: {
@@ -105,13 +106,23 @@ export async function generateAssistantReply(
   const customer = customerName;
 
   // ── Productos disponibles para el catálogo del prompt ──────────────────
-  const storeProducts = (store.products ?? []).map((p) => ({
-    name: p.name,
-    price: Number(p.price),
-    description: p.description ?? undefined,
-    stock: p.stock !== undefined && p.stock !== null ? Number(p.stock) : null,
-    attributes: p.attributes ?? undefined,
-  }));
+  const storeProducts = (store.products ?? []).map((p) => {
+    const flagged = withOfferFlags({
+      price: p.price,
+      offerPrice: (p.offerPrice as string | null) ?? null,
+      offerEndsAt: (p.offerEndsAt as Date | string | null) ?? null,
+    });
+    return {
+      name: p.name,
+      price: flagged.effectivePrice,
+      description: p.description ?? undefined,
+      stock: p.stock !== undefined && p.stock !== null ? Number(p.stock) : null,
+      attributes: p.attributes ?? undefined,
+      onOffer: flagged.onOffer,
+      discountPct: flagged.discountPct,
+      offerEndsAt: flagged.offerEndsAt ?? undefined,
+    };
+  });
   // Fase 2: pedido automático (solo tiendas de productos con catálogo).
   const pedidosEnabled = !isBeauty && storeProducts.length > 0;
 

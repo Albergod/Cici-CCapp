@@ -14,10 +14,11 @@ import { PrestigeCard } from '@/components/PrestigeCard';
 import { BeautyServicesPanel } from '@/components/BeautyServicesPanel';
 import { OrdersPanel } from '@/components/OrdersPanel';
 import { ShareStoreCard } from '@/components/ShareStoreCard';
+import { OfferModal } from '@/components/OfferModal';
 import { fieldsFor, attributesToTitledList } from '@/lib/categoryFields';
 import { formatCOP } from '@/lib/format';
 import { isBusinessActivated } from '@/lib/business';
-import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp, Rocket, Wand2 } from 'lucide-react';
+import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp, Rocket, Wand2, Tag } from 'lucide-react';
 
 // Datos de la tienda por crear, guardados mientras se paga. Sobreviven al
 // redirect de Mercado Pago para que la tienda se cree recién cuando el pago es
@@ -84,6 +85,7 @@ export function DashboardPage() {
     timezone: 'America/Bogota',
   });
   const [showProductForm, setShowProductForm] = useState(false);
+  const [offerProduct, setOfferProduct] = useState<Product | null>(null);
   const [addingProduct, setAddingProduct] = useState(false);
   const [showAnonPhoto, setShowAnonPhoto] = useState(false);
   const [productName, setProductName] = useState('');
@@ -345,8 +347,7 @@ export function DashboardPage() {
     }
   };
 
-  const handleAdjustStock = async (product: Product) => {
-    const input = window.prompt(
+  const handleAdjustStock = async (product: Product) => {    const input = window.prompt(
       `Nuevo stock para "${product.name}" (0 = se desactiva solo):`,
       String(product.stock ?? 0)
     );
@@ -371,6 +372,20 @@ export function DashboardPage() {
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Error al ajustar stock');
     }
+  };
+
+  const handleOfferSaved = (updated: Product) => {
+    setOfferProduct((cur) => (cur && cur.id === updated.id ? { ...cur, ...updated } : cur));
+    setStore((prev) =>
+      prev
+        ? {
+            ...prev,
+            products: (prev.products || []).map((p) =>
+              p.id === updated.id ? { ...p, ...updated } : p
+            ),
+          }
+        : prev
+    );
   };
 
   const handleOpenEdit = () => {
@@ -494,6 +509,11 @@ export function DashboardPage() {
         </div>
       </div>
       <div className="shrink-0 flex items-center gap-2">
+        {product.onOffer && product.discountPct ? (
+          <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-accent-500 text-white">
+            -{product.discountPct}%
+          </span>
+        ) : null}
         {typeof product.stock === 'number' && (
           <span
             className={`px-2.5 py-1 text-xs font-bold rounded-full ${
@@ -521,6 +541,14 @@ export function DashboardPage() {
           className="p-1.5 text-surface-500 hover:text-brand-600 transition-colors"
         >
           <Settings2 className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setOfferProduct(product)}
+          title={product.onOffer ? 'Editar oferta' : 'Crear oferta'}
+          className={`p-1.5 transition-colors ${product.onOffer ? 'text-accent-500 hover:text-accent-600' : 'text-surface-500 hover:text-brand-600'}`}
+        >
+          <Tag className="w-4 h-4" />
         </button>
       </div>
     </div>
@@ -1198,6 +1226,14 @@ export function DashboardPage() {
           onClose={() => setShowAnonPhoto(false)}
           onApply={handleAnonPhotoApply}
         />
+
+        {offerProduct && (
+          <OfferModal
+            product={offerProduct}
+            onClose={() => setOfferProduct(null)}
+            onSaved={handleOfferSaved}
+          />
+        )}
 
         {showEditModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto">

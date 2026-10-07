@@ -12,6 +12,7 @@ import {
   VERIFIED_THRESHOLD,
 } from "../lib/prestige";
 import { activatePaidPlan, ensureReferralCode } from "../lib/plans";
+import { withOfferFlags } from "../lib/offers";
 import {
   getTrackedSalesCounts,
   isStoreVerified,
@@ -636,6 +637,8 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
           name: true,
           description: true,
           price: true,
+          offerPrice: true,
+          offerEndsAt: true,
           imageUrl: true,
           available: true,
           createdAt: true,
@@ -720,7 +723,13 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
 
   res.json({
     ...rest,
-    products: visibleProducts,
+    products: visibleProducts.map((p) =>
+      withOfferFlags({
+        ...p,
+        offerPrice: (p as { offerPrice?: string | null }).offerPrice ?? null,
+        offerEndsAt: (p as { offerEndsAt?: Date | string | null }).offerEndsAt ?? null,
+      }),
+    ),
     services,
     followersCount: followers.length,
     ...(await reviewStats(store.id)),

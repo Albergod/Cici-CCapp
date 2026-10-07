@@ -1,21 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// LOGIN CON GOOGLE — implementado pero DESACTIVADO por el momento.
+// LOGIN CON GOOGLE.
 //
-// ESTADO ACTUAL: la ruta está montada pero devuelve 503 si no se configura la
-// variable GOOGLE_CLIENT_ID en .env. No se usa ninguna credencial real todavía.
+// ESTADO: activo cuando `GOOGLE_CLIENT_ID` está definido en el .env del
+// backend. Sin esa variable la ruta responde 503 y el frontend/Android
+// ocultan el botón automáticamente (GET /api/auth/config).
 //
-// CÓMO ACTIVARLO (cuando tengas las credenciales):
-//   1. En Google Cloud Console: APIs y servicios → Credenciales → Crear
-//      credenciales → ID de cliente OAuth. Tipo: "Aplicación web".
-//      - Orígenes de JS autorizados:  http://localhost:5173 (y tu dominio en prod)
-//      - URIs de redireccionamiento: (no obligatorias para este flujo, pero se
-//        pueden dejar vacías)
-//   2. Copia el "ID de cliente" en .env →  GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
-//   3. Copia el MISMO valor en frontend/.env → VITE_GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
-//   4. Reinicia backend y frontend. Listo: el botón "Continuar con Google"
-//      aparece automáticamente en Registro y Login (ver GoogleAuthButton.tsx).
-//
-// CÓMO DESACTIVARLO: borra o comenta las dos variables del .env.
+// ACTIVACIÓN:
+//   1. Google Cloud Console → Credenciales → ID de cliente OAuth (tipo Web).
+//      - Orígenes JS: http://localhost:5173 y el dominio de producción.
+//      - Para Android: registra también la app (paquete com.cici.ccapp) con
+//        sus huellas SHA-1 (debug y release) en el mismo proyecto.
+//   2. Backend .env → GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com
+//   3. Render → Environment → GOOGLE_CLIENT_ID con el mismo valor.
+//   4. Reinicia backend. El botón aparece solo en Login/Registro.
 //
 // FLUJO QUE IMPLEMENTA:
 //   - El frontend carga el script oficial de Google Identity Services y muestra
@@ -26,6 +23,8 @@
 //         inutilizable, porque su acceso es por Google) y guarda avatar.
 //       · si el correo YA existe → simplemente inicia sesión (una sola cuenta,
 //         sin duplicados).
+//   - Android usa el mismo endpoint con Credential Manager (serverClientId
+//     obtenido de GET /api/auth/config) y soporta refCode igual que la web.
 //   - Responde { token, user } con el mismo JWT de siempre.
 // ─────────────────────────────────────────────────────────────────────────────
 
