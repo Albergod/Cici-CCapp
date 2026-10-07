@@ -74,6 +74,19 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Tokens de recuperación de contraseña (en DB, no en memoria: sobreviven a
+// reinicios/sleep del servidor). Se guarda el hash SHA-256, nunca el token.
+export const passwordResets = pgTable("password_resets", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const stores = pgTable("stores", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),

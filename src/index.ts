@@ -294,6 +294,17 @@ if (isMainModule) {
     // ── Ofertas estilo Shopee (v1): precio promo + fin de vigencia ──────────
     await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS offer_price numeric(10, 2)`);
     await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS offer_ends_at timestamp`);
+    // ── Recuperación de contraseña (tokens en DB, no en memoria) ───────────
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS password_resets (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      created_at timestamp DEFAULT now() NOT NULL,
+      user_id uuid NOT NULL REFERENCES users(id),
+      token_hash text NOT NULL,
+      expires_at timestamp NOT NULL,
+      used_at timestamp
+    )`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS password_resets_token_hash_unique
+      ON password_resets (token_hash)`);
   }
 
   async function runMigrations(): Promise<void> {

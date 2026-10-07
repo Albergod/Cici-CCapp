@@ -129,8 +129,10 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
 
   const { email } = parsed.data;
 
-  // No revelar si el email existe o no.
-  const resetLink = await import("../lib/email").then((m) => m.sendResetLink(email));
+  // No revelar si el email existe o no. La base del link sale del host real
+  // de la petición (con TRUST_PROXY detrás de Render) o de PUBLIC_BASE_URL.
+  const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+  const resetLink = await import("../lib/email").then((m) => m.sendResetLink(email, baseUrl));
 
   res.json({
     message: "Si el email está registrado, recibirás el enlace para reiniciar.",
