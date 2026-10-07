@@ -4,6 +4,15 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './index.css'
 
+// PWA: registra el service worker en producción (misma ruta que sirve Render).
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* sin SW la web funciona igual */
+    });
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>

@@ -135,7 +135,7 @@ export function createApp() {
         const host = req.protocol + "://" + req.get("host");
         const title = `${row.name} · CC Platform`;
         const desc = (row.description ?? "Descubre esta tienda en CC Platform: productos y contacto directo por chat.").slice(0, 200);
-        const img = row.banner_url ?? row.logo_url ?? `${host}/vite.svg`;
+        const img = row.banner_url ?? row.logo_url ?? `${host}/logo.svg`;
         const url = `${host}/store/${req.params.slug}`;
         let html = fs.readFileSync(indexPath, "utf8");
         // Título dinámico
