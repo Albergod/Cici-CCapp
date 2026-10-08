@@ -14,6 +14,7 @@ import fs from "fs";
 
 import authRoutes from "./routes/auth.routes";
 import googleAuthRoutes from "./routes/auth-google.routes";
+import devicesRoutes from "./routes/devices.routes";
 import storeRoutes from "./routes/store.routes";
 import productRoutes from "./routes/product.routes";
 import chatRoutes from "./routes/chat.routes";
@@ -82,6 +83,7 @@ export function createApp() {
   // ── Rutas de autenticación (rate-limit por endpoint dentro del router) ───
   app.use("/api/auth", authRoutes);
   app.use("/api/auth", googleAuthRoutes);
+  app.use("/api/devices", devicesRoutes);
   app.use("/api/stores", storeRoutes);
   app.use("/api", productRoutes);
   app.use("/api", chatRoutes);
@@ -305,6 +307,16 @@ if (isMainModule) {
     )`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS password_resets_token_hash_unique
       ON password_resets (token_hash)`);
+    // ── Push FCM por dispositivo ───────────────────────────────────────────
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS device_tokens (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      created_at timestamp DEFAULT now() NOT NULL,
+      user_id uuid NOT NULL REFERENCES users(id),
+      token text NOT NULL,
+      platform text NOT NULL DEFAULT 'android'
+    )`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS device_tokens_token_unique
+      ON device_tokens (token)`);
   }
 
   async function runMigrations(): Promise<void> {

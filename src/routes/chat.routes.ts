@@ -400,6 +400,34 @@ router.post("/conversations/:id/messages", requireAuth, async (req: AuthRequest,
     })
     .returning();
 
+  // Push al destinatario (best-effort, con cooldown anti-spam). Nunca tumba.
+  void (async () => {
+    try {
+      const { notifyUser, pushAllowed } = await import("../lib/push");
+      const recipientId = isCustomer ? conversation.store.ownerId : conversation.customerId;
+      if (recipientId !== req.userId && pushAllowed(`chat:${recipientId}:${conversation.id}`)) {
+        const [sender] = await db
+          .select({ name: users.name })
+          .from(users)
+          .where(eq(users.id, req.userId!))
+          .limit(1);
+        const who = isCustomer ? (sender?.name ?? "Una clienta") : (conversation.store.name ?? "La tienda");
+        await notifyUser(recipientId, {
+          title: `Nuevo mensaje de ${String(who).slice(0, 40)}`,
+          body: textToSend.slice(0, 120),
+          data: {
+            type: "chat",
+            conversationId: conversation.id,
+            storeId: conversation.storeId,
+            storeName: conversation.store.name ?? "",
+          },
+        });
+      }
+    } catch {
+      /* push best-effort */
+    }
+  })();
+
   // Revisión en segundo plano con IA (igual que el WebSocket): retira el
   // mensaje si el abuso pasó el filtro de lista (sarcasmo, acoso, presión).
   // Solo corre en tiendas de pago y con cadencia (ahorro de tokens).

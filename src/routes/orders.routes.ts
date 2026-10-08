@@ -86,6 +86,21 @@ router.post("/:id/confirm", requireAuth, async (req: AuthRequest, res) => {
     .set({ status: "sold", saleId: result.sale.id })
     .where(eq(orders.id, order.id))
     .returning();
+  // Push a la clienta: pedido confirmado (best-effort).
+  void (async () => {
+    try {
+      if (order.customerId) {
+        const { notifyUser } = await import("../lib/push");
+        await notifyUser(order.customerId, {
+          title: "¡Pedido confirmado!",
+          body: "La tienda confirmó tu pedido y lo está preparando.",
+          data: { type: "order_confirmed", orderId: order.id, storeId: store.id },
+        });
+      }
+    } catch {
+      /* push best-effort */
+    }
+  })();
   res.json(updated);
 });
 
@@ -115,6 +130,24 @@ router.post("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
     .set({ status: "cancelled" })
     .where(eq(orders.id, order.id))
     .returning();
+  void (async () => {
+    try {
+      const full = await db.query.orders.findFirst({
+        where: eq(orders.id, order.id),
+        columns: { customerId: true },
+      });
+      if (full?.customerId) {
+        const { notifyUser } = await import("../lib/push");
+        await notifyUser(full.customerId, {
+          title: "Pedido cancelado",
+          body: "La tienda canceló tu pedido. Escríbeles por el chat si tienes dudas.",
+          data: { type: "order_cancelled", orderId: order.id, storeId: store.id },
+        });
+      }
+    } catch {
+      /* push best-effort */
+    }
+  })();
   res.json(updated);
 });
 

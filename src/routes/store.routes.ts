@@ -871,6 +871,20 @@ router.post("/:id/reviews", requireAuth, async (req: AuthRequest, res) => {
       },
     })
     .returning();
+  // Push a la tendera: reseña nueva (best-effort).
+  void (async () => {
+    try {
+      const { notifyUser } = await import("../lib/push");
+      const stars = "★".repeat(rating) + "☆".repeat(5 - rating);
+      await notifyUser(store.ownerId, {
+        title: `Nueva reseña ${stars}`,
+        body: (comment?.trim() || "Te dejaron una calificación.").slice(0, 120),
+        data: { type: "review", storeId, reviewId: review.id },
+      });
+    } catch {
+      /* push best-effort */
+    }
+  })();
   res.status(201).json({ ...(await reviewStats(storeId)), review });
 });
 

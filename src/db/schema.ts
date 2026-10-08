@@ -87,6 +87,18 @@ export const passwordResets = pgTable("password_resets", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Tokens de push (FCM) por dispositivo. Un token = un dispositivo; al hacer
+// login se registra (upsert) y al cerrar sesión se borra.
+export const deviceTokens = pgTable("device_tokens", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  token: text("token").notNull().unique(),
+  platform: text("platform").notNull().default("android"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const stores = pgTable("stores", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),

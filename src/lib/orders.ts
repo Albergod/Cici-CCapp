@@ -142,5 +142,28 @@ export async function createPendingOrder(args: {
 
   const total = lines.reduce((acc, l) => acc + l.lineTotal, 0);
 
+  // Push a la tendera: pedido nuevo por confirmar (best-effort).
+  void (async () => {
+    try {
+      const { notifyUser } = await import("./push");
+      const { stores } = await import("../db/schema");
+      const [store] = await db
+        .select({ ownerId: stores.ownerId, name: stores.name })
+        .from(stores)
+        .where(eq(stores.id, args.storeId))
+        .limit(1);
+      if (store && store.ownerId !== args.customerId) {
+        const itemsText = lines.map((l) => (l.quantity > 1 ? `${l.productName} × ${l.quantity}` : l.productName)).join(", ").slice(0, 100);
+        await notifyUser(store.ownerId, {
+          title: `Nuevo pedido en ${String(store.name).slice(0, 30)}`,
+          body: itemsText || "Tienes un pedido por confirmar.",
+          data: { type: "order", orderId: order.id, storeId: args.storeId },
+        });
+      }
+    } catch {
+      /* push best-effort */
+    }
+  })();
+
   return { ok: true, orderId: order.id, items: lines, total };
 }
