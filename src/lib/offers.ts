@@ -50,6 +50,18 @@ export function withOfferFlags<T extends OfferInput>(row: T, now = Date.now()): 
 export const OFFER_MAX_DAYS = 30;
 
 /**
+ * Disponibilidad pública sin filtrar cantidades: true si está disponible y
+ * (cuando el stock viene) es mayor a 0. Si el stock no viene (payload
+ * público, que nunca lo expone), se confía en `available`.
+ */
+export function computeInStock(row: { available?: boolean | null; stock?: string | number | null }): boolean {
+  if (row.available === false) return false;
+  if (row.stock == null || row.stock === "") return true;
+  const n = Number(row.stock);
+  return Number.isFinite(n) ? n > 0 : true;
+}
+
+/**
  * Valida y normaliza una oferta contra el precio base. Devuelve los campos
  * listos para DB, `null`s para quitarla, o un mensaje de error.
  */

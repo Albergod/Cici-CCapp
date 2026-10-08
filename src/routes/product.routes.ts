@@ -5,7 +5,7 @@ import { db } from "../db/client";
 import { products, stores } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { getProductLimit } from "../lib/prestige";
-import { validateOffer, withOfferFlags, buildOfferFields } from "../lib/offers";
+import { validateOffer, withOfferFlags, buildOfferFields, computeInStock } from "../lib/offers";
 import { imageUrl } from "../lib/validators";
 import { sanitizeAttributes, BusinessType } from "../lib/categoryFields";
 import { storeOperational, refreshStoreStatus } from "../lib/moderation";
@@ -172,7 +172,7 @@ router.get("/products", async (req, res) => {
     },
   });
 
-  res.json(results.map((p) => withOfferFlags(p)));
+  res.json(results.map((p) => ({ ...withOfferFlags(p), inStock: computeInStock(p) })));
 });
 
 export default router;

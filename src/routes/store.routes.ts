@@ -12,7 +12,7 @@ import {
   VERIFIED_THRESHOLD,
 } from "../lib/prestige";
 import { activatePaidPlan, ensureReferralCode } from "../lib/plans";
-import { withOfferFlags } from "../lib/offers";
+import { withOfferFlags, computeInStock } from "../lib/offers";
 import {
   getTrackedSalesCounts,
   isStoreVerified,
@@ -723,13 +723,21 @@ router.get("/:slug", optionalAuth, async (req: AuthRequest, res) => {
 
   res.json({
     ...rest,
-    products: visibleProducts.map((p) =>
-      withOfferFlags({
+    products: visibleProducts.map((p) => {
+      const inStock = computeInStock({
+        available: (p as { available?: boolean }).available,
+        stock: (p as { stock?: string | null }).stock,
+      });
+      const flagged = withOfferFlags({
         ...p,
         offerPrice: (p as { offerPrice?: string | null }).offerPrice ?? null,
         offerEndsAt: (p as { offerEndsAt?: Date | string | null }).offerEndsAt ?? null,
-      }),
-    ),
+      });
+      if (isOwner) return { ...flagged, inStock };
+      // Al público nunca se le expone la cantidad en stock, solo el flag.
+      const { stock: _hidden, ...pub } = flagged as unknown as Record<string, unknown>;
+      return { ...pub, inStock };
+    }),
     services,
     followersCount: followers.length,
     ...(await reviewStats(store.id)),

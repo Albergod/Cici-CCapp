@@ -114,8 +114,7 @@ describe("Ofertas estilo Shopee (precio promo + fin)", () => {
     expect(prod.discountPct).toBe(0);
   });
 
-  it("oferta vencida se ignora y el precio vuelve solo (sin cron)", async () => {
-    // La API no deja crear vencidas; simulamos el paso del tiempo directo en DB.
+  it("oferta vencida se ignora y el precio vuelve solo (sin cron)", async () => {    // La API no deja crear vencidas; simulamos el paso del tiempo directo en DB.
     const ends = new Date(Date.now() + 5 * 86_400_000).toISOString();
     await request(app)
       .patch(`/api/products/${productId}`)
@@ -132,5 +131,29 @@ describe("Ofertas estilo Shopee (precio promo + fin)", () => {
     ) as { effectivePrice: number; onOffer: boolean };
     expect(prod.onOffer).toBe(false);
     expect(Number(prod.effectivePrice)).toBe(100000);
+  });
+
+  it("inStock público: true con stock, sin filtrar la cantidad; false solo como dueña", async () => {
+    const pub = await request(app).get(`/api/stores/${storeSlug}`);
+    expect(pub.status).toBe(200);
+    const pubProd = (pub.body.products as unknown[]).find(
+      (p) => (p as { id: string }).id === productId,
+    ) as { inStock: boolean; stock?: unknown };
+    expect(pubProd.inStock).toBe(true);
+    // La cantidad exacta no se expone al público (regla de privacidad).
+    expect(pubProd.stock).toBeUndefined();
+
+    // Producto agotado (stock 0 nace desactivado): la dueña lo ve con inStock false.
+    const zero = await request(app)
+      .post(`/api/stores/${storeId}/products`)
+      .set(await authHeaders())
+      .send({ name: "Jean Agotado", price: 50000, stock: 0 });
+    expect(zero.status).toBe(201);
+    const owner = await request(app).get(`/api/stores/${storeSlug}`).set(await authHeaders());
+    const ownerProd = (owner.body.products as unknown[]).find(
+      (p) => (p as { id: string }).id === (zero.body.id as string),
+    ) as { inStock: boolean; stock: string };
+    expect(ownerProd.inStock).toBe(false);
+    expect(Number(ownerProd.stock)).toBe(0);
   });
 });
