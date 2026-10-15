@@ -15,6 +15,17 @@ test.describe('Confianza: tutorial y cómo funciona', () => {
     await expect(page.getByText(/tu espacio/i).first()).toBeVisible();
   });
 
+  test('refresh con el parámetro ya consumido NO reabre el tutorial', async ({ page }) => {
+    await page.goto('/?tutorial=1');
+    await expect(page.getByText(/página principal/i).first()).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: /cerrar/i }).click();
+    await page.waitForTimeout(400);
+    expect(page.url()).not.toContain('tutorial=1');
+    await page.reload();
+    await page.waitForTimeout(1200);
+    await expect(page.getByText(/página principal/i)).toHaveCount(0);
+  });
+
   test('footer lleva a cómo funciona y descargar', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('link', { name: /cómo funciona/i }).click();

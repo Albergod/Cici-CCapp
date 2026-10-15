@@ -17,10 +17,14 @@ export function HomePage() {
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Re-abrible desde el menú del avatar (/?tutorial=1).
+  // Re-abrible desde el menú del avatar (/?tutorial=1), una sola vez por
+  // pestaña: los refresh con el parámetro puesto ya no lo reabren.
   useEffect(() => {
-    if (searchParams.get('tutorial') === '1') {
+    if (searchParams.get('tutorial') === '1' && !sessionStorage.getItem('cici-tutorial-shown')) {
+      sessionStorage.setItem('cici-tutorial-shown', '1');
       setTutorialOpen(true);
+      setSearchParams({}, { replace: true });
+    } else if (searchParams.get('tutorial') === '1') {
       setSearchParams({}, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

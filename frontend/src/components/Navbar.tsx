@@ -183,6 +183,8 @@ export function Navbar() {
                         <button
                           onClick={() => {
                             setMenuOpen(false);
+                            // Fuerza la apertura aunque ya se haya mostrado en esta pestaña.
+                            sessionStorage.removeItem('cici-tutorial-shown');
                             navigate('/?tutorial=1');
                           }}
                           className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-colors"
