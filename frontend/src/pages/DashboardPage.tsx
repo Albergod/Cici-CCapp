@@ -20,7 +20,7 @@ import { EquipoCard, JoinTeamBox } from '@/components/EquipoCard';
 import { fieldsFor, attributesToTitledList } from '@/lib/categoryFields';
 import { formatCOP } from '@/lib/format';
 import { isBusinessActivated } from '@/lib/business';
-import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp, Rocket, Wand2, Tag, LayoutGrid, ShoppingBag, ClipboardList, Wallet, Trophy, Share2 } from 'lucide-react';
+import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp, Rocket, Wand2, Tag, LayoutGrid, ShoppingBag, ClipboardList, Wallet } from 'lucide-react';
 
 // Datos de la tienda por crear, guardados mientras se paga. Sobreviven al
 // redirect de Mercado Pago para que la tienda se cree recién cuando el pago es
@@ -898,35 +898,23 @@ export function DashboardPage() {
               readOnly={!user || store.ownerId !== user.id}
             />
 
-            <div className="grid gap-6 md:grid-cols-2 items-start">
-              <CollapsibleSection
-                title="Prestigio y referidos"
-                subtitle="Invita tenderas y gana el check verificado"
-                icon={<Trophy className="w-5 h-5" />}
-                defaultOpen
-              >
-                {(!user || store.ownerId === user.id) && (
-              <PrestigeCard onUpgrade={openUpgrade} />
-            )}
-              </CollapsibleSection>
-
-              <CollapsibleSection
-                title="Promociona tu tienda"
-                subtitle="Link, WhatsApp y QR para tus clientas"
-                icon={<Share2 className="w-5 h-5" />}
-              >
-                <ShareStoreCard
-                  url={`${window.location.origin}/store/${store.slug}`}
-                  name={store.name}
-                />
-              </CollapsibleSection>
+            <div className="grid gap-6 md:grid-cols-2 items-stretch">
+              {user && store.ownerId === user.id && (
+                <EquipoCard storeId={store.id} />
+              )}
+              <div className="min-w-0">
+                <SalesDashboard store={store} />
+              </div>
             </div>
 
-            {user && store.ownerId === user.id && (
-              <EquipoCard storeId={store.id} />
-            )}
+            <ShareStoreCard
+              url={`${window.location.origin}/store/${store.slug}`}
+              name={store.name}
+            />
 
-            <SalesDashboard store={store} />
+            {(!user || store.ownerId === user.id) && (
+              <PrestigeCard onUpgrade={openUpgrade} />
+            )}
 
               </>
             )}
@@ -1549,42 +1537,6 @@ function formatDaysLeft(ms: number | undefined): string {
   if (!ms) return '';
   const days = Math.max(0, Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000)));
   return `${days} día${days !== 1 ? 's' : ''}`;
-}
-
-// Sección colapsable: resumen compacto siempre visible, detalle expandible.
-function CollapsibleSection({
-  title,
-  subtitle,
-  icon,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  icon: React.ReactNode;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <details
-      className="card overflow-hidden group"
-      open={defaultOpen}
-    >
-      <summary className="flex items-center gap-3 p-4 cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:bg-surface-50/60 transition-colors">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-600 to-accent-500 text-white flex items-center justify-center shrink-0">
-          {icon}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-extrabold text-surface-900 leading-tight">{title}</p>
-          <p className="text-xs text-surface-500 truncate">{subtitle}</p>
-        </div>
-        <ChevronDown className="w-5 h-5 text-surface-400 shrink-0 transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="px-4 pb-4 [&>.card]:shadow-none [&>.card]:border-0 [&>.card]:p-0">
-        {children}
-      </div>
-    </details>
-  );
 }
 
 function DashboardSubscription({
