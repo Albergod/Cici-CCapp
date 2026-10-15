@@ -54,7 +54,12 @@ export function FinanzasPanel() {
         </div>
         <div>
           <h3 className="text-lg font-extrabold text-surface-900">Pagos protegidos</h3>
-          <p className="text-xs text-surface-500">Comisión 2.5% + 2.5% · se libera a las 48h · Nequi semanal</p>
+          <p className="text-xs text-surface-500">
+            Comisión 2.5% + 2.5% · se libera a las 48h · Nequi semanal.{' '}
+            <a href="/como-funciona#tenderas" className="font-semibold text-brand-600 underline">
+              ¿Cómo funciona?
+            </a>
+          </p>
         </div>
       </div>
 

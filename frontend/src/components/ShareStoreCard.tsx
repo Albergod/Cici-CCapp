@@ -1,8 +1,24 @@
 import { useState } from 'react';
-import { Share2, Link2, MessageCircle, Upload, Check, QrCode } from 'lucide-react';
+import { Share2, Link2, MessageCircle, Upload, Check, QrCode, Copy } from 'lucide-react';
 
 export function ShareStoreCard({ url, name }: { url: string; name: string }) {
   const [copied, setCopied] = useState(false);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const input = document.createElement('input');
+      input.value = text;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+    }
+    setCopiedText(text);
+    setTimeout(() => setCopiedText((cur) => (cur === text ? null : cur)), 2000);
+  };
 
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(
     `Desde este enlace puedes ver todos mis productos: ${url}`
@@ -89,6 +105,31 @@ export function ShareStoreCard({ url, name }: { url: string; name: string }) {
           <QrCode className="w-4 h-4 text-brand-500 mb-1" />
           Imprime este QR y ponlo en tus productos, entregas o vitrina: al escanearlo, tus
           clientes caen directo a tu local.
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-xs font-extrabold text-surface-700 mb-2 flex items-center gap-1.5">
+          <MessageCircle className="w-3.5 h-3.5 text-[#25D366]" />
+          Textos listos para tus estados
+        </p>
+        <div className="space-y-2">
+          {[
+            `🛍️ Ya tengo tienda en CiCi, mira todo aquí: ${url}`,
+            `🛡️ En mi tienda puedes pagar PROTEGIDO: tu plata queda retenida hasta que recibas. Pide por aquí: ${url}`,
+          ].map((text) => (
+            <div key={text.slice(0, 20)} className="flex items-center gap-2 rounded-xl bg-surface-50 border border-surface-200 p-2.5">
+              <p className="flex-1 text-xs text-surface-600 leading-snug line-clamp-2">{text}</p>
+              <button
+                onClick={() => copyText(text)}
+                className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-surface-200 text-xs font-bold text-surface-700 hover:border-brand-300"
+                title="Copiar texto"
+              >
+                {copiedText === text ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedText === text ? '¡Listo!' : 'Copiar'}
+              </button>
+            </div>
+          ))}
         </div>
       </div>
     </div>

@@ -80,7 +80,10 @@ export function ProtectedCheckoutModal({ orderId, onClose, onPaid }: ProtectedCh
           </button>
         </div>
         <p className="text-sm text-surface-500 mb-4">
-          Tu plata queda retenida hasta que recibas el pedido (máx 48h). Comisión 2.5% + 2.5% la tienda.
+          Tu plata queda retenida hasta que recibas el pedido (máx 48h). Comisión 2.5% + 2.5% la tienda.{' '}
+          <a href="/como-funciona#pago-protegido" target="_blank" rel="noreferrer" className="font-semibold text-brand-600 underline">
+            ¿Qué es esto?
+          </a>
         </p>
 
         {error && (

@@ -4,6 +4,7 @@ import { api } from '@/services/api';
 import { StorePager } from '@/components/StorePager';
 import { ProductCarousel } from '@/components/ProductCarousel';
 import { TutorialModal } from '@/components/TutorialModal';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Loader2, StoreIcon, Sparkles, ShoppingBag, MessageSquare, ChevronRight, CircleHelp, Smartphone } from 'lucide-react';
 
 export function HomePage() {
@@ -14,6 +15,16 @@ export function HomePage() {
   const [productsLoading, setProductsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Re-abrible desde el menú del avatar (/?tutorial=1).
+  useEffect(() => {
+    if (searchParams.get('tutorial') === '1') {
+      setTutorialOpen(true);
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     loadProducts();
@@ -171,6 +182,17 @@ export function HomePage() {
         ) : (
           <StorePager stores={stores} loading={loading} />
         )}
+        <footer className="mt-12 pb-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-surface-400 font-medium">
+          <Link to="/como-funciona" className="hover:text-brand-600 transition-colors">
+            ¿Cómo funciona?
+          </Link>
+          <Link to="/descargar" className="hover:text-brand-600 transition-colors">
+            Descargar la app
+          </Link>
+          <Link to="/register" className="hover:text-brand-600 transition-colors">
+            Crear mi tienda
+          </Link>
+        </footer>
       </div>
     </div>
     <TutorialModal open={tutorialOpen} onClose={() => setTutorialOpen(false)} />

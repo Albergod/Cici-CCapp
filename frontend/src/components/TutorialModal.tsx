@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Send,
   Bot,
+  Star,
 } from 'lucide-react';
 
 type Step = {
@@ -54,8 +55,9 @@ const STEPS: Step[] = [
       'El asistente IA es un servicio de los planes de pago: con el plan Gratis el chat queda en modo manual.',
       'Puedes pagar tu plan con Nequi o Mercado Pago, como más te guste.',
       'Invita a otros emprendedores con tu enlace de referidos: por cada uno que pague su plan ganas 25 pts de prestigio hacia tu check verificado, y te suma 3 días más a la vigencia del tuyo.',
+      '¿Sin plan? Activa la prueba PRO gratis de 14 días desde tu dashboard (necesitas al menos un producto o servicio).',
     ],
-    tip: 'Sin comisión por tus ventas en ningún plan: solo pagas el arriendo de tu espacio.',
+    tip: 'El arriendo de tu espacio es fijo; las ventas por Nequi directo no tienen comisión. Solo el pago protegido cobra 2.5% + 2.5%.',
   },
   {
     icon: Bot,
@@ -95,10 +97,33 @@ const STEPS: Step[] = [
     tag: 'Nuestra meta',
     title: 'Qué queremos',
     points: [
-      'No cobramos comisión por tus ventas: solo queremos darte un espacio en internet para que promociones y vendas más rápido.',
+      'Las ventas por Nequi directo no tienen comisión: solo pagas el arriendo de tu espacio.',
+      'El pago protegido (opcional) cobra 2.5% + 2.5% y retiene la plata hasta 48h para dar confianza.',
       'Queremos un servicio serio, por eso hay reglas claras y castigos para quien no las cumpla.',
       'Así todos jugamos limpio y las tiendas son de verdad.',
     ],
+  },
+  {
+    icon: Star,
+    tag: 'Vende más',
+    title: 'Ofertas y reseñas',
+    points: [
+      'Crea ofertas con precio promo y fecha fin desde tus productos: aparecen con badge de descuento y cuenta regresiva.',
+      'Pide a tus clientas una reseña con foto de su compra: es lo que más convence a la siguiente compradora.',
+      'Tu promedio y número de reseñas se ven en tu tienda junto al check de verificada.',
+    ],
+    tip: 'Una tienda con reseñas y una oferta activa vende más que una vitrina quieta.',
+  },
+  {
+    icon: MessageSquare,
+    tag: 'Compra protegida',
+    title: 'Si te compran con protección',
+    points: [
+      'La clienta puede elegir pagar protegido: su plata queda retenida hasta 48h y se te libera al entregar.',
+      'Ves cada pago en Finanzas: retenido, liberado y pagado. El desembolso a tu Nequi es semanal.',
+      'Si algo sale mal, se devuelve a la compradora y queda registrado.',
+    ],
+    tip: 'Ofrece el pago protegido a clientas nuevas: la confianza cierra ventas.',
   },
 ];
 

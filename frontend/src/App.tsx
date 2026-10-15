@@ -16,6 +16,7 @@ import { SearchPage } from '@/pages/SearchPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { DownloadPage } from '@/pages/DownloadPage';
 import { MisComprasPage } from '@/pages/MisComprasPage';
+import { ComoFuncionaPage } from '@/pages/ComoFuncionaPage';
 
 const AUTH_PAGES = ['/login', '/register', '/forgot-password', '/reset-password'];
 
@@ -176,6 +177,14 @@ function App() {
         element={
           <AppLayout>
             <MisComprasPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/como-funciona"
+        element={
+          <AppLayout>
+            <ComoFuncionaPage />
           </AppLayout>
         }
       />

@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Settings,
   ShoppingBag,
+  CircleHelp,
   ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '@/stores/authStore';
@@ -178,6 +179,16 @@ export function Navbar() {
                         >
                           <ShoppingBag className="w-4 h-4" />
                           Mis compras
+                        </button>
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            navigate('/?tutorial=1');
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-colors"
+                        >
+                          <CircleHelp className="w-4 h-4" />
+                          Ver tutorial
                         </button>
                         <button
                           disabled
