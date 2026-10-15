@@ -11,6 +11,7 @@ import {
   Clock,
   HelpCircle,
   Banknote,
+  Users,
 } from 'lucide-react';
 
 function Step({ n, title, text }: { n: number; title: string; text: string }) {
@@ -147,6 +148,10 @@ export function ComoFuncionaPage() {
             <div className="flex gap-2.5 rounded-xl bg-surface-50 border border-surface-100 px-3 py-2.5">
               <Truck className="w-4 h-4 mt-0.5 text-brand-500 shrink-0" />
               <span className="text-surface-600"><strong className="text-surface-900">La entrega la coordinas tú</strong> con tu clienta por el chat, como siempre. CiCi no se mete en el domicilio.</span>
+            </div>
+            <div className="flex gap-2.5 rounded-xl bg-surface-50 border border-surface-100 px-3 py-2.5">
+              <Users className="w-4 h-4 mt-0.5 text-brand-500 shrink-0" />
+              <span className="text-surface-600"><strong className="text-surface-900">¿Tienes quien te ayude?</strong> Genera un código en Dashboard → Equipo y pásalo por WhatsApp: tu colaboradora opera pedidos, productos y agenda desde su cuenta. Los planes y la plata los manejas solo tú, y la puedes quitar o revocar el código cuando quieras.</span>
             </div>
           </div>
 
