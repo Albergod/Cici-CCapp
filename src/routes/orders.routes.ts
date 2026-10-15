@@ -4,9 +4,9 @@
 // descuenta stock) o lo cancela. Ventas con origin='order' están respaldadas
 // por un cliente real: no cuentan como inflación de prestigio.
 import { Router } from "express";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../db/client";
-import { orders, stores } from "../db/schema";
+import { orders, stores, protectedPayments } from "../db/schema";
 import { createSale } from "../lib/sales";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 
@@ -39,8 +39,41 @@ router.get("/", requireAuth, async (req: AuthRequest, res) => {
       sale: { columns: { id: true, total: true } },
     },
   });
-  res.json(rows);
+  const withProtected = await attachProtected(rows);
+  res.json(withProtected);
 });
+
+// Mis compras (clienta, tenga tienda o no): mis pedidos con items, tienda y
+// estado del pago protegido. GET /api/orders/mine
+router.get("/mine", requireAuth, async (req: AuthRequest, res) => {
+  const rows = await db.query.orders.findMany({
+    where: eq(orders.customerId, req.userId!),
+    orderBy: [desc(orders.createdAt)],
+    limit: 50,
+    with: {
+      items: true,
+      sale: { columns: { id: true, total: true } },
+      store: { columns: { id: true, name: true, slug: true, logoUrl: true } },
+    },
+  });
+  res.json(await attachProtected(rows));
+});
+
+/** Pega protectedStatus a una lista de pedidos (join por orderId). */
+async function attachProtected<T extends { id: string }>(rows: T[]): Promise<(T & { protectedStatus: string | null })[]> {
+  if (!rows.length) return rows.map((r) => ({ ...r, protectedStatus: null }));
+  const pays = await db
+    .select({ orderId: protectedPayments.orderId, status: protectedPayments.status })
+    .from(protectedPayments)
+    .where(
+      inArray(
+        protectedPayments.orderId,
+        rows.map((r) => r.id),
+      ),
+    );
+  const byOrder = new Map(pays.map((p) => [p.orderId, p.status as string]));
+  return rows.map((r) => ({ ...r, protectedStatus: byOrder.get(r.id) ?? null }));
+}
 
 // Confirmar pedido → genera la venta (origin='order') y descuenta stock.
 router.post("/:id/confirm", requireAuth, async (req: AuthRequest, res) => {

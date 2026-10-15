@@ -250,8 +250,11 @@ export interface Order {
   storeId: string;
   customerId?: string | null;
   customer?: { id: string; name: string } | null;
+  store?: Pick<Store, 'id' | 'name' | 'slug' | 'logoUrl'> | null;
   note?: string | null;
   saleId?: string | null;
   sale?: { id: string; total: number } | null;
   items: OrderItem[];
+  /** Estado del pago protegido (null = sin pago protegido). */
+  protectedStatus?: string | null;
 }

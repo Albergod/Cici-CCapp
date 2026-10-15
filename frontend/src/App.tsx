@@ -15,6 +15,7 @@ import { ChatPage } from '@/pages/ChatPage';
 import { SearchPage } from '@/pages/SearchPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { DownloadPage } from '@/pages/DownloadPage';
+import { MisComprasPage } from '@/pages/MisComprasPage';
 
 const AUTH_PAGES = ['/login', '/register', '/forgot-password', '/reset-password'];
 
@@ -167,6 +168,14 @@ function App() {
         element={
           <AppLayout>
             <DownloadPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/mis-compras"
+        element={
+          <AppLayout>
+            <MisComprasPage />
           </AppLayout>
         }
       />

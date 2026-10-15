@@ -322,6 +322,7 @@ export const api = {
   orders: {
     list: (status?: Order['status']) =>
       request<Order[]>(`/orders${status ? `?status=${status}` : ''}`),
+    mine: () => request<Order[]>('/orders/mine'),
     confirm: (id: string) =>
       request<Order>(`/orders/${id}/confirm`, { method: 'POST' }),
     cancel: (id: string) =>

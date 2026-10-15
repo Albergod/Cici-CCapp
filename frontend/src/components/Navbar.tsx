@@ -7,6 +7,7 @@ import {
   Store,
   LayoutDashboard,
   Settings,
+  ShoppingBag,
   ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '@/stores/authStore';
@@ -168,6 +169,16 @@ export function Navbar() {
                         </div>
                       </div>
                       <div className="p-1.5">
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            navigate('/mis-compras');
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-colors"
+                        >
+                          <ShoppingBag className="w-4 h-4" />
+                          Mis compras
+                        </button>
                         <button
                           disabled
                           title="Próximamente"

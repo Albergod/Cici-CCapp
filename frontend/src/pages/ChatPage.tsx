@@ -575,15 +575,18 @@ export function ChatPage() {
               {bookingNotice && (
                 <div className="mb-3 rounded-xl p-3 text-sm border bg-emerald-50 border-emerald-300 text-emerald-800">
                   <p>{bookingNotice}</p>
-                  {protectedOrderId && (
-                    <button
-                      onClick={() => setShowProtected(true)}
-                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
-                    >
-                      <ShieldCheck className="w-4 h-4" />
-                      Pagar protegido (2.5% + 2.5%)
-                    </button>
-                  )}
+                </div>
+              )}
+              {protectedOrderId && (
+                <div className="mb-3 rounded-xl p-3 text-sm border bg-brand-50 border-brand-300 text-brand-800 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 shrink-0" />
+                  <p className="flex-1">Tienes un pedido por pagar con protección (se libera a la tienda cuando recibas).</p>
+                  <button
+                    onClick={() => setShowProtected(true)}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-brand-600 to-accent-500 text-white text-xs font-bold transition-all active:scale-95"
+                  >
+                    Pagar protegido
+                  </button>
                 </div>
               )}
               <div className="flex gap-2">

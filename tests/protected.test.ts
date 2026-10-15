@@ -119,8 +119,7 @@ describe("Pago protegido piloto", () => {
     expect(r.status).toBe(503);
   });
 
-  it("cron libera lo retenido +48h y el reporte cuadra", async () => {
-    const [me] = await db.select({ id: users.id }).from(users).where(eq(users.email, customerEmail)).limit(1);
+  it("cron libera lo retenido +48h y el reporte cuadra", async () => {    const [me] = await db.select({ id: users.id }).from(users).where(eq(users.email, customerEmail)).limit(1);
     const [row] = await db
       .insert(protectedPayments)
       .values({
@@ -157,4 +156,22 @@ describe("Pago protegido piloto", () => {
     const bal2 = await storeBalance(storeId);
     expect(bal2.paid).toBeGreaterThanOrEqual(97500);
   });
+  it("mis compras: la clienta ve sus pedidos con estado protegido", async () => {
+    const r = await request(app).get("/api/orders/mine").set("Authorization", `Bearer ${customerToken}`);
+    expect(r.status).toBe(200);
+    expect(Array.isArray(r.body)).toBe(true);
+    expect(r.body.length).toBeGreaterThanOrEqual(1);
+    expect(r.body[0].protectedStatus).toBeDefined();
+  });
+
+  it("lista de tendera incluye protectedStatus por pedido", async () => {
+    const r = await request(app).get("/api/orders").set("Authorization", `Bearer ${ownerToken}`);
+    expect(r.status).toBe(200);
+    const withProt = (r.body as unknown[]).filter(
+      (o) => (o as { protectedStatus: string | null }).protectedStatus !== null,
+    );
+    expect(withProt.length).toBeGreaterThanOrEqual(1);
+  });
+
+
 });

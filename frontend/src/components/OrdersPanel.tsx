@@ -127,6 +127,19 @@ export function OrdersPanel({ isFreePlan }: Props) {
                   {o.items.length} producto{o.items.length !== 1 ? 's' : ''} · {formatCOP(itemsTotal(o.items))}
                 </p>
                 <p className="text-[11px] text-surface-400">{dateLabel(o.createdAt)}</p>
+                {o.protectedStatus && (
+                  <p className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-bold">
+                    🛡️ {{
+                      initiated: 'pago iniciado',
+                      collected: 'cobrado',
+                      held: 'retenido',
+                      released: 'liberado',
+                      paid_out: 'pagado',
+                      refunded: 'devuelto',
+                      cancelled: 'cancelado',
+                    }[o.protectedStatus] ?? o.protectedStatus}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
