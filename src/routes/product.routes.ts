@@ -5,6 +5,7 @@ import { db } from "../db/client";
 import { products, stores } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { getProductLimit } from "../lib/prestige";
+import { assertStoreAccess } from "../lib/members";
 import { validateOffer, withOfferFlags, buildOfferFields, computeInStock } from "../lib/offers";
 import { imageUrl } from "../lib/validators";
 import { sanitizeAttributes, BusinessType } from "../lib/categoryFields";
@@ -28,9 +29,10 @@ const productSchema = z.object({
 });
 
 async function assertStoreOwner(storeId: string, userId: string) {
+  const check = await assertStoreAccess(storeId, userId);
+  if (!check.ok) return { ok: false as const, status: check.status ?? 403, msg: check.msg ?? "Sin acceso" };
   const [store] = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
   if (!store) return { ok: false as const, status: 404, msg: "Tienda no encontrada" };
-  if (store.ownerId !== userId) return { ok: false as const, status: 403, msg: "No eres dueño de esta tienda" };
   // Anti-fraude: una tienda suspendida/banneada no puede publicar productos.
   await refreshStoreStatus(store);
   if (!storeOperational(store)) {
@@ -43,7 +45,7 @@ async function assertStoreOwner(storeId: string, userId: string) {
           : "Tu tienda está suspendida temporalmente. No puedes publicar productos por ahora.",
     };
   }
-  return { ok: true as const, plan: store.plan, businessType: store.businessType as BusinessType };
+  return { ok: true as const, plan: store.plan, businessType: store.businessType as BusinessType, isOwner: check.isOwner };
 }
 
 // Publicar producto en una tienda
@@ -137,20 +139,44 @@ router.post("/products/:id/views", async (req, res) => {
   res.status(204).end();
 });
 
-// Búsqueda / tendencias de productos (across todas las tiendas)
+// Búsqueda / tendencias de productos (across todas las tiendas).
+// Filtros: q, minPrice, maxPrice (COP), businessType, onOffer=1 y orden
+// (sort: recent | price_asc | price_desc).
 router.get("/products", async (req, res) => {
   const q = (req.query.q as string) || "";
   const take = Math.min(Number(req.query.take) || 20, 50);
+  const minPrice = Math.max(0, Math.floor(Number(req.query.minPrice) || 0));
+  const maxPrice = Math.max(0, Math.floor(Number(req.query.maxPrice) || 0));
+  const businessType = String(req.query.businessType ?? "").trim().toUpperCase();
+  const onlyOffer = String(req.query.onOffer ?? "") === "1";
+  const sort = String(req.query.sort ?? "recent");
+
+  const conds = [
+    eq(products.available, true),
+    ilike(products.name, `%${q}%`),
+    // Solo productos de tiendas activas (las suspendidas/banneadas se ocultan)
+    sql`EXISTS (SELECT 1 FROM stores s WHERE s.id = ${products.storeId} AND s.status = 'ACTIVE')`,
+  ];
+  if (minPrice > 0) conds.push(sql`${products.price} >= ${minPrice}`);
+  if (maxPrice > 0 && maxPrice >= minPrice) conds.push(sql`${products.price} <= ${maxPrice}`);
+  if (/^[A-Z_]{3,20}$/.test(businessType)) {
+    conds.push(sql`EXISTS (SELECT 1 FROM stores s WHERE s.id = ${products.storeId} AND s.business_type = ${businessType})`);
+  }
+  if (onlyOffer) {
+    conds.push(sql`${products.offerPrice} IS NOT NULL AND ${products.offerPrice} > 0 AND ${products.offerEndsAt} IS NOT NULL AND ${products.offerEndsAt} > now() AND ${products.offerPrice} < ${products.price}`);
+  }
+
+  const orderBy =
+    sort === "price_asc"
+      ? [sql`${products.price} ASC`]
+      : sort === "price_desc"
+        ? [sql`${products.price} DESC`]
+        : [desc(products.createdAt)];
 
   const results = await db.query.products.findMany({
-    where: and(
-      eq(products.available, true),
-      ilike(products.name, `%${q}%`),
-      // Solo productos de tiendas activas (las suspendidas/banneadas se ocultan)
-      sql`EXISTS (SELECT 1 FROM stores s WHERE s.id = ${products.storeId} AND s.status = 'ACTIVE')`,
-    ),
+    where: and(...conds),
     limit: take,
-    orderBy: [desc(products.createdAt)],
+    orderBy,
     columns: {
       id: true,
       name: true,

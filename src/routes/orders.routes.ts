@@ -9,21 +9,18 @@ import { db } from "../db/client";
 import { orders, stores, protectedPayments } from "../db/schema";
 import { createSale } from "../lib/sales";
 import { requireAuth, AuthRequest } from "../middleware/auth";
+import { myWorkStore } from "../lib/members";
 
 const router = Router();
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Listar pedidos de la tienda del comerciante (todos los estados, recientes
-// primero; se puede filtrar por `?status=pending|sold|cancelled`). Disponible
-// en todos los planes: en FREE el modo es manual.
+// Listar pedidos de la tienda donde trabajo (dueña o colaboradora; todos
+// los estados, recientes primero). Disponible en todos los planes.
 router.get("/", requireAuth, async (req: AuthRequest, res) => {
-  const [store] = await db
-    .select({ id: stores.id })
-    .from(stores)
-    .where(eq(stores.ownerId, req.userId!))
-    .limit(1);
-  if (!store) return res.status(404).json({ error: "No tienes una tienda." });
+  const work = await myWorkStore(req.userId!);
+  if (!work) return res.status(404).json({ error: "No tienes una tienda." });
+  const store = { id: work.id };
 
   const status = String(req.query.status ?? "").trim();
   const statusFilter =
@@ -79,12 +76,9 @@ async function attachProtected<T extends { id: string }>(rows: T[]): Promise<(T 
 router.post("/:id/confirm", requireAuth, async (req: AuthRequest, res) => {
   if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
 
-  const [store] = await db
-    .select({ id: stores.id })
-    .from(stores)
-    .where(eq(stores.ownerId, req.userId!))
-    .limit(1);
-  if (!store) return res.status(404).json({ error: "No tienes una tienda." });
+  const work = await myWorkStore(req.userId!);
+  if (!work) return res.status(404).json({ error: "No tienes una tienda." });
+  const store = { id: work.id };
 
   const order = await db.query.orders.findFirst({
     where: and(eq(orders.id, req.params.id), eq(orders.storeId, store.id)),
@@ -141,12 +135,9 @@ router.post("/:id/confirm", requireAuth, async (req: AuthRequest, res) => {
 router.post("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
   if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
 
-  const [store] = await db
-    .select({ id: stores.id })
-    .from(stores)
-    .where(eq(stores.ownerId, req.userId!))
-    .limit(1);
-  if (!store) return res.status(404).json({ error: "No tienes una tienda." });
+  const work = await myWorkStore(req.userId!);
+  if (!work) return res.status(404).json({ error: "No tienes una tienda." });
+  const store = { id: work.id };
 
   const [order] = await db
     .select({ id: orders.id, status: orders.status })

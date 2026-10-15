@@ -102,6 +102,9 @@ export function DashboardPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [savingStore, setSavingStore] = useState(false);
   const [showAllProducts, setShowAllProducts] = useState(false);
+  const [onlyOutOfStock, setOnlyOutOfStock] = useState(false);
+  const isOut = (p: { available: boolean; stock?: number }) => !p.available || (typeof p.stock === 'number' && p.stock <= 0);
+  const visibleProducts = (store?.products ?? []).filter((p) => !onlyOutOfStock || isOut(p));
   const [editStoreName, setEditStoreName] = useState('');
   const [editStoreDescription, setEditStoreDescription] = useState('');
   const [editLogoUrl, setEditLogoUrl] = useState('');
@@ -1176,13 +1179,34 @@ export function DashboardPage() {
                 </div>
               ) : (
                 <>
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setOnlyOutOfStock(false)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${!onlyOutOfStock ? 'bg-surface-900 text-white' : 'bg-surface-100 text-surface-500 hover:bg-surface-200'}`}
+                    >
+                      Todos ({store.products.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOnlyOutOfStock(true)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${onlyOutOfStock ? 'bg-accent-500 text-white' : 'bg-surface-100 text-surface-500 hover:bg-surface-200'}`}
+                    >
+                      Agotados ({store.products.filter(isOut).length})
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:hidden">
-                    {(showAllProducts ? store.products : store.products.slice(0, 5)).map(renderProductCard)}
+                    {(showAllProducts ? visibleProducts : visibleProducts.slice(0, 5)).map(renderProductCard)}
                   </div>
                   <div className="hidden md:grid md:grid-cols-2 gap-3">
-                    {store.products.map(renderProductCard)}
+                    {visibleProducts.map(renderProductCard)}
                   </div>
-                  {store.products.length > 5 && (
+                  {visibleProducts.length === 0 && (
+                    <p className="text-center text-sm text-surface-400 py-6">
+                      {onlyOutOfStock ? 'Nada agotado. Todo en verde.' : 'Sin productos aquí.'}
+                    </p>
+                  )}
+                  {visibleProducts.length > 5 && (
                     <button
                       type="button"
                       onClick={() => setShowAllProducts((v) => !v)}
@@ -1195,7 +1219,7 @@ export function DashboardPage() {
                         </>
                       ) : (
                         <>
-                          Ver más ({store.products.length - 5} más)
+                          Ver más ({visibleProducts.length - 5} más)
                           <ChevronDown className="w-4 h-4" />
                         </>
                       )}

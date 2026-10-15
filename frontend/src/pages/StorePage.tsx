@@ -11,7 +11,7 @@ import { Loader2, Users, Package, MessageSquare, ArrowLeft, UserCheck, BadgeChec
 export function StorePage() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const follows = useFollowsVersion();
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
@@ -198,8 +198,7 @@ export function StorePage() {
     );
   }
 
-  if (error || !store) {
-    return (
+  if (error || !store) {    return (
       <div className="min-h-screen pt-[7.5rem] md:pt-16 flex items-center justify-center">
         <div className="text-center card p-10">
           <p className="text-accent-500 font-medium">{error || 'Tienda no encontrada'}</p>
@@ -494,16 +493,15 @@ export function StorePage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
               {reviews.slice(0, 6).map((r) => (
-                <div key={r.id} className="card p-4">
-                  <div className="flex items-center gap-1 mb-1">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <Star key={s} className={`w-3.5 h-3.5 ${s <= r.rating ? 'text-amber-500 fill-amber-500' : 'text-surface-300'}`} />
-                    ))}
-                    <span className="ml-2 text-xs font-semibold text-surface-500">{r.customer?.name ?? 'Clienta'}</span>
-                  </div>
-                  {r.comment && <p className="text-sm text-surface-700">{r.comment}</p>}
-                  {r.imageUrl && <img src={r.imageUrl} alt="" className="mt-2 rounded-xl max-h-40 object-cover" loading="lazy" />}
-                </div>
+                <ReviewCard
+                  key={r.id}
+                  review={r}
+                  storeId={store.id}
+                  isOwner={!!user && user.id === store.ownerId}
+                  onChanged={(updated) =>
+                    setReviews((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)))
+                  }
+                />
               ))}
             </div>
           )}
@@ -559,6 +557,95 @@ export function StorePage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReviewCard({
+  review: r,
+  storeId,
+  isOwner,
+  onChanged,
+}: {
+  review: StoreReview;
+  storeId: string;
+  isOwner: boolean;
+  onChanged: (updated: StoreReview) => void;
+}) {
+  const [replying, setReplying] = useState(false);
+  const [reply, setReply] = useState(r.ownerReply ?? '');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const sendReply = async () => {
+    if (!reply.trim()) return;
+    setBusy(true);
+    try {
+      const updated = await api.stores.replyReview(storeId, r.id, reply.trim());
+      onChanged(updated);
+      setReplying(false);
+      setMsg(null);
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'No se pudo responder.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendReport = async () => {
+    const reason = window.prompt('¿Por qué reportas esta reseña? (mínimo 5 letras)', '');
+    if (!reason || reason.trim().length < 5) return;
+    try {
+      await api.stores.reportReview(storeId, r.id, reason.trim());
+      setMsg('Reporte enviado. Lo revisaremos.');
+      setTimeout(() => setMsg(null), 4000);
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'No se pudo reportar.');
+    }
+  };
+
+  return (
+    <div className="card p-4">
+      <div className="flex items-center gap-1 mb-1">
+        {[1, 2, 3, 4, 5].map((s) => (
+          <Star key={s} className={`w-3.5 h-3.5 ${s <= r.rating ? 'text-amber-500 fill-amber-500' : 'text-surface-300'}`} />
+        ))}
+        <span className="ml-2 text-xs font-semibold text-surface-500">{r.customer?.name ?? 'Clienta'}</span>
+      </div>
+      {r.comment && <p className="text-sm text-surface-700">{r.comment}</p>}
+      {r.imageUrl && <img src={r.imageUrl} alt="" className="mt-2 rounded-xl max-h-40 object-cover" loading="lazy" />}
+      {r.ownerReply && (
+        <div className="mt-2 rounded-xl bg-brand-50 border border-brand-100 p-3">
+          <p className="text-[11px] font-extrabold text-brand-700 uppercase tracking-wide mb-0.5">Respuesta de la tienda</p>
+          <p className="text-sm text-surface-700">{r.ownerReply}</p>
+        </div>
+      )}
+      <div className="flex items-center gap-3 mt-2">
+        {isOwner && !replying && (
+          <button onClick={() => { setReply(r.ownerReply ?? ''); setReplying(true); }} className="text-xs font-bold text-brand-600 hover:text-brand-700">
+            {r.ownerReply ? 'Editar respuesta' : 'Responder'}
+          </button>
+        )}
+        {!isOwner && (
+          <button onClick={() => void sendReport()} className="text-xs text-surface-400 hover:text-red-500 transition-colors">
+            Reportar
+          </button>
+        )}
+      </div>
+      {msg && <p className="text-xs mt-1 text-surface-500">{msg}</p>}
+      {replying && (
+        <div className="mt-2 flex gap-2">
+          <input
+            value={reply}
+            onChange={(e) => setReply(e.target.value.slice(0, 500))}
+            placeholder="Gracias por tu compra…"
+            className="input !py-2 text-sm flex-1"
+          />
+          <button onClick={() => void sendReply()} disabled={busy} className="btn-primary !py-2 text-sm shrink-0">
+            Enviar
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,9 +2,9 @@
 // Solo tiendas voluntarias (stores.protected_enabled) y tope por pedido.
 import { Router } from "express";
 import { z } from "zod";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { orders, orderItems, stores, users, protectedPayments } from "../db/schema";
+import { orders, orderItems, stores, users, violations, protectedPayments } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import {
   WOMPI_PRIVATE_KEY,
@@ -190,7 +190,65 @@ router.post("/:id/refund", requireAuth, async (req: AuthRequest, res) => {
   res.json({ ...updated, note: "Devuelve el dinero a la compradora por Nequi manual y listo." });
 });
 
-// Finanzas de mi tienda (dueña): saldo + historial. GET /api/protected/mine
+// Reportar problema con un pago protegido (compradora). Crea una violación
+// visible para el admin, avisa a la dueña y congela la liberación: un pago
+// en disputa NO lo suelta el cron hasta resolverse.
+// POST /api/protected/dispute { orderId, reason }
+router.post("/dispute", requireAuth, async (req: AuthRequest, res) => {
+  const parsed = z
+    .object({ orderId: z.string().uuid(), reason: z.string().trim().min(10, "Cuéntanos qué pasó (mínimo 10 letras).").max(500) })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Cuéntanos qué pasó (mínimo 10 letras)." });
+  const { orderId, reason } = parsed.data;
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  if (!order || order.customerId !== req.userId) {
+    return res.status(404).json({ error: "Pedido no encontrado." });
+  }
+  const [pay] = await db.select().from(protectedPayments).where(eq(protectedPayments.orderId, orderId)).limit(1);
+  if (!pay || !["collected", "held", "released"].includes(pay.status)) {
+    return res.status(409).json({ error: "Este pedido no tiene un pago retenido que disputar." });
+  }
+  const [dup] = await db
+    .select({ id: violations.id })
+    .from(violations)
+    .where(
+      and(
+        eq(violations.status, "OPEN"),
+        sql`(${violations.metadata} ->> 'orderId') = ${orderId}`,
+      ),
+    )
+    .limit(1);
+  if (dup) return res.status(409).json({ error: "Ya hay una disputa abierta por este pedido." });
+
+  const { insertViolation } = await import("../lib/moderation");
+  await insertViolation({
+    type: "order_dispute",
+    severity: "warning",
+    storeId: pay.storeId,
+    reporterId: req.userId!,
+    reason: reason.trim(),
+    metadata: { orderId, protectedId: pay.id, kind: "protected_dispute" },
+  });
+
+  void (async () => {
+    try {
+      const { notifyUser } = await import("../lib/push");
+      const [store] = await db.select({ ownerId: stores.ownerId }).from(stores).where(eq(stores.id, pay.storeId)).limit(1);
+      if (store && store.ownerId !== req.userId) {
+        await notifyUser(store.ownerId, {
+          title: "Disputa abierta en un pago",
+          body: "Una compradora reportó un problema. Revisa el pedido y escribele.",
+          data: { type: "dispute", orderId, storeId: pay.storeId },
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+  })();
+
+  res.status(201).json({ ok: true, message: "Disputa abierta. Revisaremos el caso y te avisamos." });
+});
 router.get("/mine", requireAuth, async (req: AuthRequest, res) => {
   const [store] = await db.select({ id: stores.id }).from(stores).where(eq(stores.ownerId, req.userId!)).limit(1);
   if (!store) return res.status(404).json({ error: "No tienes una tienda." });

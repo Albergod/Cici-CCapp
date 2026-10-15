@@ -277,6 +277,9 @@ export const storeReviews = pgTable(
     rating: integer("rating").notNull(),
     comment: text("comment"),
     imageUrl: text("image_url"),
+    // Respuesta de la dueña (una por reseña) para cerrar el loop de confianza.
+    ownerReply: text("owner_reply"),
+    repliedAt: timestamp("replied_at"),
   },
   (t) => ({
     customerStoreUnique: uniqueIndex("store_reviews_customer_store_unique").on(
@@ -467,6 +470,43 @@ export const paymentReports = pgTable("payment_reports", {
     .references(() => stores.id),
 });
 
+// Colaboradoras de tienda: la dueña invita con un código, la colaboradora lo
+// canjea y puede operar el día a día (catálogo, pedidos, agenda, chat,
+// ventas). Planes, trial, facturación y finanzas protegidas siguen siendo
+// solo de la dueña.
+export const storeMembers = pgTable(
+  "store_members",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    memberUnique: uniqueIndex("store_members_unique").on(t.storeId, t.userId),
+  }),
+);
+
+// Códigos de invitación por tienda (uno activo a la vez, regenerable).
+export const storeInvites = pgTable(
+  "store_invites",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id),
+    code: text("code").notNull().unique(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    inviteStoreUnique: uniqueIndex("store_invites_store_unique").on(t.storeId),
+  }),
+);
+
 // Pago protegido piloto: la compradora paga a la plataforma (Wompi/Nequi) y
 // la plata queda retenida hasta liberarse a la tendera (auto 48h o manual).
 // Comisión 5% repartida: 2.5% compradora (paga total×1.025) + 2.5% tendera
@@ -519,6 +559,16 @@ export const usersRelations = relations(users, ({ many }) => ({
   follows: many(follows),
   conversations: many(conversations),
   messages: many(messages),
+  memberships: many(storeMembers),
+}));
+
+export const storeMembersRelations = relations(storeMembers, ({ one }) => ({
+  store: one(stores, { fields: [storeMembers.storeId], references: [stores.id] }),
+  user: one(users, { fields: [storeMembers.userId], references: [users.id] }),
+}));
+
+export const storeInvitesRelations = relations(storeInvites, ({ one }) => ({
+  store: one(stores, { fields: [storeInvites.storeId], references: [stores.id] }),
 }));
 
 export const storesRelations = relations(stores, ({ one, many }) => ({

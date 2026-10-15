@@ -7,6 +7,7 @@ import { z } from "zod";
 import { db } from "../db/client";
 import { appointments, saleItems, storeServices, stores } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
+import { myWorkStore } from "../lib/members";
 import { sql } from "drizzle-orm";
 import { minutesToTime, nowInTimezone, normalizeSchedule } from "../lib/booking";
 
@@ -15,10 +16,12 @@ const router = Router();
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function requireOwnBeautyStore(userId: string) {
+  const work = await myWorkStore(userId);
+  if (!work) return null;
   const [store] = await db
     .select({ id: stores.id, businessType: stores.businessType, schedule: stores.schedule })
     .from(stores)
-    .where(eq(stores.ownerId, userId))
+    .where(eq(stores.id, work.id))
     .limit(1);
   return store ?? null;
 }

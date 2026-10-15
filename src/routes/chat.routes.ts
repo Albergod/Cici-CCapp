@@ -271,7 +271,9 @@ router.get("/conversations", requireAuth, async (req: AuthRequest, res) => {
     .from(stores)
     .where(eq(stores.ownerId, req.userId!));
 
-  const ownedStoreIds = ownedStores.map((s) => s.id);
+  const { myWorkStoreIds } = await import("../lib/members");
+  const workIds = await myWorkStoreIds(req.userId!);
+  const ownedStoreIds = [...new Set([...ownedStores.map((s) => s.id), ...workIds])];
   const asStoreOwner = ownedStoreIds.length
     ? await db.query.conversations.findMany({
         where: inArray(conversations.storeId, ownedStoreIds),

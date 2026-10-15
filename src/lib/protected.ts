@@ -66,6 +66,7 @@ export function canTransition(from: string, to: ProtectedStatus): boolean {
  */
 export async function releaseDueProtected(now = Date.now()): Promise<number> {
   const cutoff = new Date(now - PROTECTED_HOLD_MS);
+  // Un pago con disputa ABIERTA no se libera solo (espera resolución manual).
   const rows = await db
     .select({ id: protectedPayments.id })
     .from(protectedPayments)
@@ -73,6 +74,11 @@ export async function releaseDueProtected(now = Date.now()): Promise<number> {
       and(
         eq(protectedPayments.status, "held"),
         lt(protectedPayments.createdAt, cutoff),
+        sql`NOT EXISTS (
+          SELECT 1 FROM violations v
+          WHERE v.status = 'OPEN'
+            AND (v.metadata ->> 'orderId') = ${protectedPayments.orderId}::text
+        )`,
       ),
     );
   for (const row of rows) {

@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Heart } from 'lucide-react';
 import { useAuth } from '@/stores/authStore';
 import { Navbar } from '@/components/Navbar';
@@ -17,6 +17,7 @@ import { AdminPage } from '@/pages/AdminPage';
 import { DownloadPage } from '@/pages/DownloadPage';
 import { MisComprasPage } from '@/pages/MisComprasPage';
 import { ComoFuncionaPage } from '@/pages/ComoFuncionaPage';
+import { AjustesModal } from '@/components/AjustesModal';
 
 const AUTH_PAGES = ['/login', '/register', '/forgot-password', '/reset-password'];
 
@@ -30,9 +31,16 @@ function GuestOnly({ children }: { children: React.ReactNode }) {
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [ajustesOpen, setAjustesOpen] = useState(false);
   const path = window.location.pathname;
   const showSidebar = !AUTH_PAGES.some((p) => path.startsWith(p));
   const isChat = path.startsWith('/chat');
+
+  useEffect(() => {
+    const open = () => setAjustesOpen(true);
+    window.addEventListener('cici:open-ajustes', open);
+    return () => window.removeEventListener('cici:open-ajustes', open);
+  }, []);
 
   return (
     <div className="text-surface-900">
@@ -51,7 +59,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           >
             <Heart className="w-5 h-5" />
           </button>
-
           {drawerOpen && (
             <div className="lg:hidden fixed inset-0 z-50">
               <div
@@ -69,6 +76,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </>
       )}
+      <AjustesModal open={ajustesOpen} onClose={() => setAjustesOpen(false)} />
     </div>
   );
 }

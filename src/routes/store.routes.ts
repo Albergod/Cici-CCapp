@@ -446,23 +446,99 @@ router.get("/", async (req, res) => {
   res.json(withCounts);
 });
 
-// Tienda del usuario autenticado (para su dashboard). Busca por dueño, NO por
-// el feed público paginado: así el comerciante siempre encuentra su tienda
-// aunque no quede en el top-50 del mall o esté suspendida/banneada (para ver
-// su sanción). Devuelve solo el identificador; el detalle completo lo trae
-// GET /:slug (que al dueño le muestra su estado y stock).
+// Tienda donde trabajo (dueña o colaboradora). Devuelve isOwner para que la
+// UI oculte facturación/planes a colaboradoras.
 router.get("/mine", requireAuth, async (req: AuthRequest, res) => {
+  const { myWorkStore } = await import("../lib/members");
+  const work = await myWorkStore(req.userId!);
+  if (!work) return res.status(404).json({ error: "No tienes una tienda." });
   const [store] = await db
     .select({ id: stores.id, slug: stores.slug, name: stores.name })
     .from(stores)
-    .where(eq(stores.ownerId, req.userId!))
+    .where(eq(stores.id, work.id))
     .limit(1);
   if (!store) return res.status(404).json({ error: "No tienes una tienda." });
-  res.json(store);
+  res.json({ ...store, isOwner: work.isOwner });
 });
 
-// Referido del negocio: devuelve el enlace y los puntos del emprendedor autenticado.
-// El sistema de prestigio SOLO está activo para tiendas con plan de pago REAL:
+// ── Colaboradoras: invitar con código ───────────────────────────────────────
+// La dueña genera UN código activo (regenerable); quien lo canjea entra como
+// colaboradora (opera día a día; planes y finanzas siguen siendo de la dueña).
+router.post("/:id/invites", requireAuth, async (req: AuthRequest, res) => {
+  const { assertStoreOwner, makeInviteCode } = await import("../lib/members");
+  const { storeMembers, storeInvites } = await import("../db/schema");
+  const access = await assertStoreOwner(req.params.id, req.userId!);
+  if (!access.ok) return res.status(access.status ?? 403).json({ error: access.msg ?? "Sin acceso." });
+  let code = makeInviteCode();
+  for (let i = 0; i < 5; i++) {
+    try {
+      await db
+        .insert(storeInvites)
+        .values({ storeId: req.params.id, code })
+        .onConflictDoUpdate({ target: storeInvites.storeId, set: { code, createdAt: new Date() } });
+      break;
+    } catch {
+      code = makeInviteCode();
+    }
+  }
+  res.status(201).json({ code });
+});
+
+router.delete("/:id/invites", requireAuth, async (req: AuthRequest, res) => {
+  const { assertStoreOwner } = await import("../lib/members");
+  const { storeInvites } = await import("../db/schema");
+  const access = await assertStoreOwner(req.params.id, req.userId!);
+  if (!access.ok) return res.status(access.status ?? 403).json({ error: access.msg ?? "Sin acceso." });
+  await db.delete(storeInvites).where(eq(storeInvites.storeId, req.params.id));
+  res.json({ ok: true });
+});
+
+router.get("/:id/members", requireAuth, async (req: AuthRequest, res) => {
+  const { assertStoreOwner } = await import("../lib/members");
+  const { storeMembers, storeInvites } = await import("../db/schema");
+  const access = await assertStoreOwner(req.params.id, req.userId!);
+  if (!access.ok) return res.status(access.status ?? 403).json({ error: access.msg ?? "Sin acceso." });
+  const members = await db.query.storeMembers.findMany({
+    where: eq(storeMembers.storeId, req.params.id),
+    with: { user: { columns: { id: true, name: true, email: true } } },
+  });
+  const [invite] = await db.select({ code: storeInvites.code }).from(storeInvites).where(eq(storeInvites.storeId, req.params.id)).limit(1);
+  res.json({ members, inviteCode: invite?.code ?? null });
+});
+
+router.delete("/:id/members/:userId", requireAuth, async (req: AuthRequest, res) => {
+  const { assertStoreOwner } = await import("../lib/members");
+  const { storeMembers } = await import("../db/schema");
+  const access = await assertStoreOwner(req.params.id, req.userId!);
+  if (!access.ok) return res.status(access.status ?? 403).json({ error: access.msg ?? "Sin acceso." });
+  if (req.params.userId === req.userId) return res.status(400).json({ error: "No puedes quitarte a ti misma." });
+  await db
+    .delete(storeMembers)
+    .where(and(eq(storeMembers.storeId, req.params.id), eq(storeMembers.userId, req.params.userId)));
+  res.json({ ok: true });
+});
+
+// Canjear código de invitación. POST /api/stores/join { code }
+router.post("/join", requireAuth, async (req: AuthRequest, res) => {
+  const parsed = z.object({ code: z.string().trim().toUpperCase().min(4).max(16) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Código inválido." });
+  const { storeInvites, storeMembers } = await import("../db/schema");
+  const [invite] = await db.select().from(storeInvites).where(eq(storeInvites.code, parsed.data.code)).limit(1);
+  if (!invite) return res.status(404).json({ error: "Ese código no existe o fue revocado." });
+  const [store] = await db.select({ id: stores.id, ownerId: stores.ownerId }).from(stores).where(eq(stores.id, invite.storeId)).limit(1);
+  if (!store) return res.status(404).json({ error: "Tienda no encontrada." });
+  if (store.ownerId === req.userId) return res.status(409).json({ error: "Ya eres la dueña de esta tienda." });
+  const [dup] = await db
+    .select({ id: storeMembers.id })
+    .from(storeMembers)
+    .where(and(eq(storeMembers.storeId, store.id), eq(storeMembers.userId, req.userId!)))
+    .limit(1);
+  if (dup) return res.status(409).json({ error: "Ya colaboras en esta tienda." });
+  await db.insert(storeMembers).values({ storeId: store.id, userId: req.userId! }).onConflictDoNothing();
+  res.status(201).json({ ok: true, storeId: store.id });
+});
+
+// Referido del negocio: devuelve el enlace y los puntos del emprendedor autenticado.// El sistema de prestigio SOLO está activo para tiendas con plan de pago REAL:
 // en modo trial (plan abierto sin ciclo) los referidos están bloqueados.
 router.get("/referral", requireAuth, async (req: AuthRequest, res) => {
   const [store] = await db
@@ -569,7 +645,11 @@ router.get("/following", requireAuth, async (req: AuthRequest, res) => {
 });
 
 // Actualizar perfil de la tienda (personalización: nombre, descripción, logo y portada).
+// Dueña o colaboradora (planes y facturación siguen siendo solo dueña).
 router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
+  const { assertStoreAccess } = await import("../lib/members");
+  const access = await assertStoreAccess(req.params.id, req.userId!);
+  if (!access.ok) return res.status(access.status ?? 403).json({ error: access.msg ?? "Sin acceso." });
   const parsed = z
     .object({
       name: z.string().min(2).optional(),
@@ -585,11 +665,7 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  const [store] = await db
-    .select()
-    .from(stores)
-    .where(and(eq(stores.id, req.params.id), eq(stores.ownerId, req.userId!)))
-    .limit(1);
+  const [store] = await db.select().from(stores).where(eq(stores.id, req.params.id)).limit(1);
   if (!store) return res.status(404).json({ error: "Tienda no encontrada." });
 
   const patch: Record<string, unknown> = {};
@@ -839,6 +915,65 @@ router.get("/:id/reviews", async (req, res) => {
   } catch {
     res.json({ ratingCount: 0, ratingAvg: null, reviews: [] });
   }
+});
+
+// Respuesta de la dueña a una reseña (una por reseña, editable).
+// POST /api/stores/:id/reviews/:reviewId/reply { reply }
+router.post("/:id/reviews/:reviewId/reply", requireAuth, async (req: AuthRequest, res) => {
+  const parsed = z.object({ reply: z.string().trim().min(1).max(500) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Escribe una respuesta (máx 500)." });
+  const [store] = await db.select({ id: stores.id, ownerId: stores.ownerId }).from(stores).where(eq(stores.id, req.params.id)).limit(1);
+  if (!store) return res.status(404).json({ error: "Tienda no encontrada." });
+  if (store.ownerId !== req.userId) return res.status(403).json({ error: "Solo la dueña responde reseñas." });
+  const [review] = await db
+    .select({ id: storeReviews.id })
+    .from(storeReviews)
+    .where(and(eq(storeReviews.id, req.params.reviewId), eq(storeReviews.storeId, store.id)))
+    .limit(1);
+  if (!review) return res.status(404).json({ error: "Reseña no encontrada." });
+  const [updated] = await db
+    .update(storeReviews)
+    .set({ ownerReply: parsed.data.reply, repliedAt: new Date() })
+    .where(eq(storeReviews.id, review.id))
+    .returning();
+  // Avisar a la clienta que le respondieron (best-effort).
+  void (async () => {
+    try {
+      const { notifyUser } = await import("../lib/push");
+      const [full] = await db.select({ customerId: storeReviews.customerId }).from(storeReviews).where(eq(storeReviews.id, review.id)).limit(1);
+      if (full && full.customerId !== req.userId) {
+        const [s] = await db.select({ name: stores.name }).from(stores).where(eq(stores.id, store.id)).limit(1);
+        await notifyUser(full.customerId, {
+          title: `${String(s?.name ?? "La tienda").slice(0, 30)} respondió tu reseña`,
+          body: parsed.data.reply.slice(0, 120),
+          data: { type: "review_reply", storeId: store.id },
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+  })();
+  res.json(updated);
+});
+
+// Reportar reseña abusiva/falsa. POST /api/stores/:id/reviews/:reviewId/report { reason }
+router.post("/:id/reviews/:reviewId/report", requireAuth, async (req: AuthRequest, res) => {
+  const parsed = z.object({ reason: z.string().trim().min(5).max(500) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Cuéntanos por qué (mínimo 5 letras)." });
+  const [store] = await db.select({ id: stores.id }).from(stores).where(eq(stores.id, req.params.id)).limit(1);
+  if (!store) return res.status(404).json({ error: "Tienda no encontrada." });
+  const [review] = await db.select({ id: storeReviews.id }).from(storeReviews).where(and(eq(storeReviews.id, req.params.reviewId), eq(storeReviews.storeId, store.id))).limit(1);
+  if (!review) return res.status(404).json({ error: "Reseña no encontrada." });
+  const { insertViolation } = await import("../lib/moderation");
+  await insertViolation({
+    type: "review_report",
+    severity: "info",
+    storeId: store.id,
+    reporterId: req.userId!,
+    reason: parsed.data.reason.trim(),
+    metadata: { reviewId: review.id, storeId: store.id, kind: "review_report" },
+  });
+  res.status(201).json({ ok: true, message: "Reporte enviado. Lo revisaremos." });
 });
 
 router.post("/:id/reviews", requireAuth, async (req: AuthRequest, res) => {

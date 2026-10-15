@@ -3,7 +3,7 @@ import request from "supertest";
 import type { Express } from "express";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../src/db/client";
-import { users, stores, products, orders, orderItems, protectedPayments } from "../src/db/schema";
+import { users, stores, products, orders, orderItems, violations, protectedPayments } from "../src/db/schema";
 import { canTransition, payoutReport, releaseDueProtected, splitFees, storeBalance } from "../src/lib/protected";
 import { createPendingOrder } from "../src/lib/orders";
 import "dotenv/config";
@@ -65,6 +65,7 @@ describe("Pago protegido piloto", () => {
       await db.delete(orderItems).where(eq(orderItems.orderId, o.id));
     }
     await db.delete(protectedPayments).where(eq(protectedPayments.storeId, storeId));
+    await db.delete(violations).where(eq(violations.storeId, storeId));
     for (const o of ords) {
       await db.delete(orders).where(eq(orders.id, o.id));
     }
@@ -173,5 +174,32 @@ describe("Pago protegido piloto", () => {
     expect(withProt.length).toBeGreaterThanOrEqual(1);
   });
 
-
+  it("disputa congela la liberación y no se duplica", async () => {
+    // Pedido + pago retenido propio para disputar.
+    const [me] = await db.select({ id: users.id }).from(users).where(eq(users.email, customerEmail)).limit(1);
+    const [prod] = await db.select({ id: products.id }).from(products).where(eq(products.storeId, storeId)).limit(1);
+    const [order] = await db.insert(orders).values({ storeId, customerId: me!.id, status: "pending" }).returning();
+    await db.insert(orderItems).values({ orderId: order.id, productId: prod!.id, name: "Ruana", unitPrice: "100000", quantity: "1" });
+    await db.insert(protectedPayments).values({
+      orderId: order.id, storeId, customerId: me!.id, total: "100000", buyerFee: "2500",
+      sellerFee: "2500", collected: "102500", sellerNet: "97500", status: "held",
+    });
+    const bad = await request(app).post("/api/protected/dispute").set("Authorization", `Bearer ${customerToken}`).send({
+      orderId: order.id, reason: "corto",
+    });
+    expect(bad.status).toBe(400);
+    const ok = await request(app).post("/api/protected/dispute").set("Authorization", `Bearer ${customerToken}`).send({
+      orderId: order.id, reason: "Pagué hace días y no me ha llegado nada del pedido.",
+    });
+    expect(ok.status).toBe(201);
+    const dup = await request(app).post("/api/protected/dispute").set("Authorization", `Bearer ${customerToken}`).send({
+      orderId: order.id, reason: "Otra vez lo mismo con más letras.",
+    });
+    expect(dup.status).toBe(409);
+    // El cron NO libera lo disputado aunque pase el tiempo.
+    await db.update(protectedPayments).set({ createdAt: new Date(Date.now() - 60 * 60 * 1000) }).where(eq(protectedPayments.orderId, order.id));
+    await releaseDueProtected();
+    const [row] = await db.select({ status: protectedPayments.status }).from(protectedPayments).where(eq(protectedPayments.orderId, order.id)).limit(1);
+    expect(row!.status).toBe("held");
+  });
 });

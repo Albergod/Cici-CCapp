@@ -201,15 +201,21 @@ export async function createSale(
         .where(eq(products.id, item.productId));
 
       const [after] = await d
-        .select({ stock: products.stock })
+        .select({ stock: products.stock, name: products.name, storeId: products.storeId })
         .from(products)
         .where(eq(products.id, item.productId))
         .limit(1);
-      if (after && Number(after.stock) <= 0) {
+      const left = after ? Number(after.stock) : NaN;
+      if (after && Number.isFinite(left) && left <= 0) {
         await d
           .update(products)
           .set({ available: false })
           .where(eq(products.id, item.productId));
+        // Avisar a la dueña: su producto se agotó solo (transición única).
+        void notifyStockOut(storeId, item.productId, String(after.name ?? "Tu producto"));
+      } else if (after && Number.isFinite(left) && left <= 5) {
+        // Aviso diario de stock bajo (no cada venta).
+        void notifyLowStock(storeId, item.productId, String(after.name ?? "Tu producto"), left);
       }
     }
   }
@@ -228,4 +234,42 @@ export async function createSale(
     },
     antiFraudFlagged,
   };
+}
+
+async function storeOwnerId(storeId: string): Promise<string | null> {
+  const [s] = await db.select({ ownerId: stores.ownerId }).from(stores).where(eq(stores.id, storeId)).limit(1);
+  return s?.ownerId ?? null;
+}
+
+/** Push a la dueña cuando un producto se agota solo (una vez por transición). */
+async function notifyStockOut(storeId: string, productId: string, name: string): Promise<void> {
+  try {
+    const { notifyUser } = await import("./push");
+    const ownerId = await storeOwnerId(storeId);
+    if (!ownerId) return;
+    await notifyUser(ownerId, {
+      title: `Se agotó ${name.slice(0, 30)}`,
+      body: "Lo desactivamos para no sobrevender. Súbele stock para reactivarlo.",
+      data: { type: "stock_out", storeId, productId },
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Aviso diario (no por venta) cuando quedan ≤5 unidades. */
+async function notifyLowStock(storeId: string, productId: string, name: string, left: number): Promise<void> {
+  try {
+    const { notifyUser, pushAllowedDaily } = await import("./push");
+    if (!pushAllowedDaily(`lowstock:${storeId}:${productId}`)) return;
+    const ownerId = await storeOwnerId(storeId);
+    if (!ownerId) return;
+    await notifyUser(ownerId, {
+      title: `¡Solo quedan ${left} de ${name.slice(0, 30)}!`,
+      body: "Súbele stock antes de que se agote solo.",
+      data: { type: "stock_low", storeId, productId },
+    });
+  } catch {
+    /* best-effort */
+  }
 }

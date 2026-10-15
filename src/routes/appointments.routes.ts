@@ -7,6 +7,7 @@ import { z } from "zod";
 import { db } from "../db/client";
 import { appointments, sales, stores, storeServices, users } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
+import { myWorkStore } from "../lib/members";
 import { createBooking } from "../lib/appointments";
 import { createSale } from "../lib/sales";
 import { nowInTimezone, dateFromDb, normalizeSchedule } from "../lib/booking";
@@ -27,10 +28,12 @@ function daysFrom(base: string, days: number): string {
 // Disponible en todos los planes: en FREE el modo es manual (el local atiende
 // su agenda personalmente; la IA solo está en planes de pago).
 router.get("/agenda", requireAuth, async (req: AuthRequest, res) => {
+  const work = await myWorkStore(req.userId!);
+  if (!work) return res.status(404).json({ error: "No tienes una tienda." });
   const [store] = await db
     .select({ id: stores.id, businessType: stores.businessType, schedule: stores.schedule })
     .from(stores)
-    .where(eq(stores.ownerId, req.userId!))
+    .where(eq(stores.id, work.id))
     .limit(1);
   if (!store) return res.status(404).json({ error: "No tienes una tienda." });
 
@@ -167,10 +170,12 @@ router.post("/manual", requireAuth, async (req: AuthRequest, res) => {
   const parsed = manualBookSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+  const work = await myWorkStore(req.userId!);
+  if (!work) return res.status(404).json({ error: "No tienes una tienda." });
   const [store] = await db
     .select({ id: stores.id, businessType: stores.businessType })
     .from(stores)
-    .where(eq(stores.ownerId, req.userId!))
+    .where(eq(stores.id, work.id))
     .limit(1);
   if (!store) return res.status(404).json({ error: "No tienes una tienda." });
 

@@ -127,6 +127,20 @@
       "when": 1792024868245,
       "tag": "0017_protected_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792045901291,
+      "tag": "0018_review_replies",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792046178370,
+      "tag": "0019_store_members",
+      "breakpoints": true
     }
   ]
 }

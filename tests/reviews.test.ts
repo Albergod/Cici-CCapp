@@ -3,7 +3,7 @@ import request from "supertest";
 import type { Express } from "express";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../src/db/client";
-import { users, stores, products, storeReviews } from "../src/db/schema";
+import { users, stores, products, storeReviews, violations } from "../src/db/schema";
 import "dotenv/config";
 
 let app: Express;
@@ -36,6 +36,7 @@ describe("Reseñas: prueba social con foto", () => {
   });
 
   afterAll(async () => {
+    await db.delete(violations).where(eq(violations.storeId, storeId));
     await db.delete(storeReviews).where(eq(storeReviews.storeId, storeId));
     const prods = await db.select({ id: products.id }).from(products).where(eq(products.storeId, storeId));
     if (prods.length) await db.delete(products).where(inArray(products.id, prods.map((p) => p.id)));
@@ -81,5 +82,33 @@ describe("Reseñas: prueba social con foto", () => {
       rating: 9,
     });
     expect(r.status).toBe(400);
+  });
+
+  it("dueña responde su reseña y se ve en el listado; otra no puede", async () => {
+    const list = await request(app).get(`/api/stores/${storeId}/reviews`);
+    const reviewId = list.body.reviews[0].id as string;
+    const no = await request(app).post(`/api/stores/${storeId}/reviews/${reviewId}/reply`).set("Authorization", `Bearer ${customerToken}`).send({
+      reply: "Yo misma me respondo",
+    });
+    expect(no.status).toBe(403);
+    const ok = await request(app).post(`/api/stores/${storeId}/reviews/${reviewId}/reply`).set("Authorization", `Bearer ${ownerToken}`).send({
+      reply: "Gracias por tu compra, vuelve pronto!",
+    });
+    expect(ok.status).toBe(200);
+    const again = await request(app).get(`/api/stores/${storeId}/reviews`);
+    expect(again.body.reviews[0].ownerReply).toBe("Gracias por tu compra, vuelve pronto!");
+  });
+
+  it("clienta reporta reseña abusiva", async () => {
+    const list = await request(app).get(`/api/stores/${storeId}/reviews`);
+    const reviewId = list.body.reviews[0].id as string;
+    const short = await request(app).post(`/api/stores/${storeId}/reviews/${reviewId}/report`).set("Authorization", `Bearer ${customerToken}`).send({
+      reason: "x",
+    });
+    expect(short.status).toBe(400);
+    const ok = await request(app).post(`/api/stores/${storeId}/reviews/${reviewId}/report`).set("Authorization", `Bearer ${customerToken}`).send({
+      reason: "Esta reseña me parece falsa, nunca compró aquí.",
+    });
+    expect(ok.status).toBe(201);
   });
 });

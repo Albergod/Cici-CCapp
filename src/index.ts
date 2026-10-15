@@ -14,6 +14,7 @@ import fs from "fs";
 
 import authRoutes from "./routes/auth.routes";
 import googleAuthRoutes from "./routes/auth-google.routes";
+import usersRoutes from "./routes/users.routes";
 import devicesRoutes from "./routes/devices.routes";
 import protectedRoutes from "./routes/protected.routes";
 import storeRoutes from "./routes/store.routes";
@@ -84,6 +85,7 @@ export function createApp() {
   // ── Rutas de autenticación (rate-limit por endpoint dentro del router) ───
   app.use("/api/auth", authRoutes);
   app.use("/api/auth", googleAuthRoutes);
+  app.use("/api/users", usersRoutes);
   app.use("/api/devices", devicesRoutes);
   app.use("/api/protected", protectedRoutes);
   app.use("/api/stores", storeRoutes);
@@ -342,6 +344,25 @@ if (isMainModule) {
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS protected_order_unique ON protected_payments (order_id)`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS protected_tx_unique ON protected_payments (wompi_tx_id)`);
     await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS protected_enabled boolean NOT NULL DEFAULT false`);
+    // ── Respuestas de la dueña en reseñas ──────────────────────────────────
+    await db.execute(sql`ALTER TABLE store_reviews ADD COLUMN IF NOT EXISTS owner_reply text`);
+    await db.execute(sql`ALTER TABLE store_reviews ADD COLUMN IF NOT EXISTS replied_at timestamp`);
+    // ── Colaboradoras + invitaciones ───────────────────────────────────────
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS store_members (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      created_at timestamp DEFAULT now() NOT NULL,
+      store_id uuid NOT NULL REFERENCES stores(id),
+      user_id uuid NOT NULL REFERENCES users(id)
+    )`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS store_members_unique ON store_members (store_id, user_id)`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS store_invites (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      created_at timestamp DEFAULT now() NOT NULL,
+      store_id uuid NOT NULL REFERENCES stores(id),
+      code text NOT NULL
+    )`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS store_invites_store_unique ON store_invites (store_id)`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS store_invites_code_unique ON store_invites (code)`);
   }
 
   async function runMigrations(): Promise<void> {

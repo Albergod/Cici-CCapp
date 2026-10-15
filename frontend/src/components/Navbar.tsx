@@ -22,11 +22,22 @@ export function Navbar() {
   const [searchQuery, setSearchQuery] = useState('');
   const [unread, setUnread] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pingKey, setPingKey] = useState(0);
   const isChat = pathname.startsWith('/chat');
+
+  // El toast se auto-oculta a los 6s.
+  useEffect(() => {
+    if (!pingKey) return;
+    const t = setTimeout(() => setPingKey(0), 6000);
+    return () => clearTimeout(t);
+  }, [pingKey]);
 
   // Cierra el menú cuando se cambia de ruta.
   useEffect(() => {
     setMenuOpen(false);
+    if (pathname.startsWith('/chat')) {
+      document.title = 'CC Platform - Tu Centro Comercial Digital';
+    }
   }, [pathname]);
 
   useEffect(() => {
@@ -39,7 +50,23 @@ export function Navbar() {
       api.chat
         .unreadCount()
         .then(({ totalUnread }) => {
-          if (!cancelled) setUnread(totalUnread);
+          if (cancelled) return;
+          setUnread((prev) => {
+            // Subió y no estoy en un chat: toast + pestaña (si no lo apagó en Ajustes).
+            if (totalUnread > prev && !window.location.pathname.startsWith('/chat')) {
+              try {
+                if (localStorage.getItem('cici-notify-messages') !== 'off') {
+                  setPingKey((k) => k + 1);
+                  document.title = `(${totalUnread}) CiCi - Tu Centro Comercial Digital`;
+                }
+              } catch {
+                /* noop */
+              }
+            } else if (totalUnread === 0) {
+              document.title = 'CC Platform - Tu Centro Comercial Digital';
+            }
+            return totalUnread;
+          });
         })
         .catch(() => {});
     };
@@ -183,25 +210,22 @@ export function Navbar() {
                         <button
                           onClick={() => {
                             setMenuOpen(false);
-                            // Fuerza la apertura aunque ya se haya mostrado en esta pestaña.
-                            sessionStorage.removeItem('cici-tutorial-shown');
-                            navigate('/?tutorial=1');
+                            navigate('/como-funciona');
                           }}
                           className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-colors"
                         >
                           <CircleHelp className="w-4 h-4" />
-                          Ver tutorial
+                          Cómo funciona
                         </button>
                         <button
-                          disabled
-                          title="Próximamente"
-                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-surface-500 cursor-not-allowed opacity-70"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            window.dispatchEvent(new CustomEvent('cici:open-ajustes'));
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-colors"
                         >
                           <Settings className="w-4 h-4" />
                           Ajustes
-                          <span className="ml-auto text-[10px] font-bold uppercase tracking-wide text-surface-300 bg-surface-100 rounded-full px-2 py-0.5">
-                            Pronto
-                          </span>
                         </button>
                         <button
                           onClick={handleLogout}
@@ -250,6 +274,20 @@ export function Navbar() {
             </div>
           </form>
         </div>
+      )}
+
+      {pingKey > 0 && (
+        <button
+          onClick={() => {
+            setPingKey(0);
+            document.title = 'CC Platform - Tu Centro Comercial Digital';
+            navigate('/chat');
+          }}
+          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[90] inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-surface-900 text-white text-sm font-bold shadow-lift animate-bounce"
+        >
+          <MessageSquare className="w-4 h-4" />
+          Tienes mensajes nuevos · tocar para ver
+        </button>
       )}
     </nav>
   );

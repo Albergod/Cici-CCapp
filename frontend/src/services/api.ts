@@ -1,4 +1,4 @@
-import { AuthResponse, Conversation, Store, Product, Message, SaleStats, ReferralInfo, StoreService, Appointment, BusinessType, Order, StoreReview } from '@/types';
+import { AuthResponse, Conversation, Store, Product, Message, SaleStats, ReferralInfo, StoreService, Appointment, BusinessType, Order, StoreReview, User } from '@/types';
 
 const API_BASE = '/api';
 
@@ -179,8 +179,29 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    replyReview: (id: string, reviewId: string, reply: string) =>
+      request<StoreReview>(`/stores/${id}/reviews/${reviewId}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ reply }),
+      }),
+    reportReview: (id: string, reviewId: string, reason: string) =>
+      request<{ ok: boolean }>(`/stores/${id}/reviews/${reviewId}/report`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
   },
   upload: uploadImage,
+
+  users: {
+    me: () => request<User>('/users/me'),
+    update: (data: { name?: string; avatarUrl?: string | null }) =>
+      request<User>('/users/me', { method: 'PATCH', body: JSON.stringify(data) }),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      request<{ ok: boolean }>('/users/me/password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      }),
+  },
 
   payments: {
     createPreference: async (storeId: string | null | undefined, plan: 'PRO' | 'BUSINESS', cycle: 'MONTHLY' | 'BI_MONTHLY') =>
@@ -214,10 +235,18 @@ export const api = {
       const data = await request<Product[]>(`/products?take=${take}`);
       return data.map((p) => normalizeProduct({ ...p, price: toNumber(p.price) }));
     },
-    search: async (q: string, take = 20): Promise<Product[]> => {
-      const data = await request<Product[]>(
-        `/products?q=${encodeURIComponent(q)}&take=${take}`
-      );
+    search: async (
+      q: string,
+      take = 20,
+      filters?: { minPrice?: number; maxPrice?: number; businessType?: string; onOffer?: boolean; sort?: string },
+    ): Promise<Product[]> => {
+      const params = new URLSearchParams({ q, take: String(take) });
+      if (filters?.minPrice) params.set('minPrice', String(filters.minPrice));
+      if (filters?.maxPrice) params.set('maxPrice', String(filters.maxPrice));
+      if (filters?.businessType) params.set('businessType', filters.businessType);
+      if (filters?.onOffer) params.set('onOffer', '1');
+      if (filters?.sort) params.set('sort', filters.sort);
+      const data = await request<Product[]>(`/products?${params.toString()}`);
       return data.map((p) => normalizeProduct({ ...p, price: toNumber(p.price) }));
     },
     create: (storeId: string, data: any) =>
@@ -357,6 +386,11 @@ export const api = {
         total: number;
         count: number;
       }>('/protected/payout-report'),
+    dispute: (orderId: string, reason: string) =>
+      request<{ ok: boolean; message: string }>('/protected/dispute', {
+        method: 'POST',
+        body: JSON.stringify({ orderId, reason }),
+      }),
   },
 };
 

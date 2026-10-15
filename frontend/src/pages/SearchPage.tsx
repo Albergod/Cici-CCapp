@@ -10,17 +10,25 @@ export function SearchPage() {
   const query = searchParams.get('q') || '';
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
+  const [maxPrice, setMaxPrice] = useState('');
+  const [sort, setSort] = useState('recent');
+  const [onlyOffer, setOnlyOffer] = useState(false);
 
   useEffect(() => {
     if (query) {
       searchProducts();
     }
-  }, [query]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, maxPrice, sort, onlyOffer]);
 
   const searchProducts = async () => {
     try {
       setLoading(true);
-      const data = await api.products.search(query);
+      const data = await api.products.search(query, 20, {
+        maxPrice: maxPrice ? Number(maxPrice) : undefined,
+        sort,
+        onOffer: onlyOffer || undefined,
+      });
       setProducts(data);
     } catch (err) {
       console.error('Error searching products:', err);
@@ -39,6 +47,33 @@ export function SearchPage() {
           <p className="text-surface-500 mt-1">
             {products.length} producto{products.length !== 1 ? 's' : ''} encontrado{products.length !== 1 ? 's' : ''}
           </p>
+          <div className="flex flex-wrap items-center gap-2 mt-3">
+            <input
+              type="number"
+              min={0}
+              value={maxPrice}
+              onChange={(e) => setMaxPrice(e.target.value.replace(/\D/g, ''))}
+              placeholder="Precio máx."
+              className="input !w-32 !py-2 text-sm"
+            />
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+              className="input !w-auto !py-2 text-sm"
+              aria-label="Ordenar"
+            >
+              <option value="recent">Recientes</option>
+              <option value="price_asc">Menor precio</option>
+              <option value="price_desc">Mayor precio</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setOnlyOffer((v) => !v)}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors ${onlyOffer ? 'bg-accent-500 text-white' : 'bg-surface-100 text-surface-500 hover:bg-surface-200'}`}
+            >
+              Solo ofertas
+            </button>
+          </div>
         </div>
 
         {loading ? (

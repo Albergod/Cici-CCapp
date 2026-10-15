@@ -5,15 +5,13 @@ import { db } from "../db/client";
 import { stores, products, sales } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { createSale } from "../lib/sales";
+import { myWorkStore } from "../lib/members";
 
 const router = Router();
 
 async function getOwnStore(userId: string): Promise<string | null> {
-  const store = await db.query.stores.findFirst({
-    where: eq(stores.ownerId, userId),
-    columns: { id: true },
-  });
-  return store?.id ?? null;
+  const work = await myWorkStore(userId);
+  return work?.id ?? null;
 }
 
 // Registrar una venta manual (productos). El comerciante también puede cerrar

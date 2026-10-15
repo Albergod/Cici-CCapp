@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Package, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Loader2, Package, ShieldCheck, Flag } from 'lucide-react';
 import { Order } from '@/types';
 import { api } from '@/services/api';
 import { useAuth } from '@/stores/authStore';
@@ -32,14 +32,44 @@ export function MisComprasPage() {
   const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [payOrderId, setPayOrderId] = useState<string | null>(null);
+  const [disputeOrder, setDisputeOrder] = useState<Order | null>(null);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputeBusy, setDisputeBusy] = useState(false);
+  const [disputeMsg, setDisputeMsg] = useState<string | null>(null);
+
+  const reload = () => {
+    api.orders.mine().then(setOrders).catch(() => setOrders([]));
+  };
 
   useEffect(() => {
     if (!isAuthenticated) {
       navigate('/login');
       return;
     }
-    api.orders.mine().then(setOrders).catch(() => setOrders([]));
+    reload();
   }, [isAuthenticated, navigate]);
+
+  const sendDispute = async () => {
+    if (!disputeOrder || disputeReason.trim().length < 10) {
+      setDisputeMsg('Cuéntanos qué pasó (mínimo 10 letras).');
+      return;
+    }
+    setDisputeBusy(true);
+    try {
+      const r = await api.protected.dispute(disputeOrder.id, disputeReason.trim());
+      setDisputeMsg(r.message);
+      setDisputeReason('');
+      setTimeout(() => {
+        setDisputeOrder(null);
+        setDisputeMsg(null);
+        reload();
+      }, 2500);
+    } catch (err) {
+      setDisputeMsg(err instanceof Error ? err.message : 'No se pudo abrir la disputa.');
+    } finally {
+      setDisputeBusy(false);
+    }
+  };
 
   if (!isAuthenticated) return null;
 
@@ -93,6 +123,19 @@ export function MisComprasPage() {
                         Pagar protegido
                       </button>
                     )}
+                    {['collected', 'held', 'released'].includes(o.protectedStatus ?? '') && (
+                      <button
+                        onClick={() => {
+                          setDisputeOrder(o);
+                          setDisputeReason('');
+                          setDisputeMsg(null);
+                        }}
+                        className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-surface-200 text-surface-500 text-xs font-bold hover:text-red-500 hover:border-red-200 transition-colors"
+                      >
+                        <Flag className="w-3.5 h-3.5" />
+                        Reportar problema
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -109,6 +152,33 @@ export function MisComprasPage() {
               api.orders.mine().then(setOrders).catch(() => {});
             }}
           />
+        )}
+
+        {disputeOrder && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+            <div className="absolute inset-0 bg-surface-900/60 backdrop-blur-sm" onClick={() => setDisputeOrder(null)} />
+            <div className="relative card p-6 w-full max-w-sm">
+              <h3 className="font-display font-bold text-lg text-surface-900 mb-1">Reportar problema</h3>
+              <p className="text-sm text-surface-500 mb-3">
+                Cuéntanos qué pasó con este pedido. Se congela la liberación mientras lo revisamos.
+              </p>
+              <textarea
+                value={disputeReason}
+                onChange={(e) => setDisputeReason(e.target.value.slice(0, 500))}
+                placeholder="Ej. pagué hace 3 días y no me ha llegado nada…"
+                className="input w-full min-h-[90px]"
+              />
+              {disputeMsg && <p className="text-sm mt-2 text-surface-600">{disputeMsg}</p>}
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => setDisputeOrder(null)} className="btn-ghost flex-1">
+                  Cancelar
+                </button>
+                <button onClick={() => void sendDispute()} disabled={disputeBusy} className="btn-primary flex-1">
+                  Enviar reporte
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

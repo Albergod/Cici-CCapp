@@ -230,6 +230,7 @@ export interface StoreReview {
   rating: number;
   comment: string | null;
   imageUrl: string | null;
+  ownerReply?: string | null;
   createdAt?: string;
   customer?: { id?: string; name?: string; avatarUrl?: string | null } | null;
 }

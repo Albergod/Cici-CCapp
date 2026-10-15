@@ -90,6 +90,18 @@ export function pushAllowed(key: string): boolean {
   return true;
 }
 
+// Cooldown largo (stock bajo y similares): máx 1 push por clave cada 24h.
+const dailyCooldowns = new Map<string, number>();
+const DAILY_MS = 24 * 60 * 60 * 1000;
+
+export function pushAllowedDaily(key: string): boolean {
+  const last = dailyCooldowns.get(key) ?? 0;
+  if (Date.now() - last < DAILY_MS) return false;
+  dailyCooldowns.set(key, Date.now());
+  if (dailyCooldowns.size > 5000) dailyCooldowns.clear();
+  return true;
+}
+
 /**
  * Envía push a todos los dispositivos del usuario. Best-effort: sin config
  * de Firebase devuelve {sent:0} sin lanzar. Nunca rechaza.

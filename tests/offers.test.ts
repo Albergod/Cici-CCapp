@@ -157,3 +157,43 @@ describe("Ofertas estilo Shopee (precio promo + fin)", () => {
     expect(Number(ownerProd.stock)).toBe(0);
   });
 });
+
+describe("Búsqueda con filtros", () => {
+  const tag = `flt${Date.now()}`;
+  let token = "";
+
+  beforeAll(async () => {
+    const email = `${tag}@example.com`;
+    await request(app).post("/api/auth/register").send({ email, password: "demo123456", name: "Filtro", termsAccepted: true });
+    token = (await request(app).post("/api/auth/login").send({ email, password: "demo123456" })).body.token;
+    const s = await request(app).post("/api/stores").set("Authorization", `Bearer ${token}`).send({ name: `Filtros ${tag}`, businessType: "ROPA" });
+    const sid = s.body.id as string;
+    const mk = (name: string, price: number, offer?: number) =>
+      request(app).post(`/api/stores/${sid}/products`).set("Authorization", `Bearer ${token}`).send({ name, price, stock: 5 });
+    const a = await mk(`Barato ${tag}`, 20000);
+    const b = await mk(`Caro ${tag}`, 90000);
+    const c = await mk(`Oferta ${tag}`, 80000);
+    const ends = new Date(Date.now() + 5 * 86400000).toISOString();
+    await request(app).patch(`/api/products/${(c.body as { id: string }).id}`).set("Authorization", `Bearer ${token}`).send({ offerPrice: 50000, offerEndsAt: ends });
+    void a; void b;
+  });
+
+  it("filtra por precio, ofertas y orden", async () => {
+    const cheap = await request(app).get(`/api/products?q=${tag}&maxPrice=50000`);
+    expect(cheap.status).toBe(200);
+    expect((cheap.body as unknown[]).length).toBeGreaterThanOrEqual(1);
+    for (const p of cheap.body as Array<{ price: string | number }>) {
+      expect(Number(p.price)).toBeLessThanOrEqual(50000);
+    }
+    const onSale = await request(app).get(`/api/products?q=${tag}&onOffer=1`);
+    expect(onSale.status).toBe(200);
+    expect((onSale.body as unknown[]).length).toBeGreaterThanOrEqual(1);
+    for (const p of onSale.body as Array<{ onOffer: boolean }>) {
+      expect(p.onOffer).toBe(true);
+    }
+    const asc = await request(app).get(`/api/products?q=${tag}&sort=price_asc&take=50`);
+    const prices = (asc.body as Array<{ price: string | number }>).map((p) => Number(p.price));
+    expect(prices.length).toBeGreaterThanOrEqual(2);
+    expect(prices).toEqual([...prices].sort((a, b) => a - b));
+  });
+});
