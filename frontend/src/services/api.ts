@@ -106,7 +106,7 @@ export const api = {
           s.products?.map((p) => normalizeProduct({ ...p, price: toNumber(p.price) })) ?? [],
       }));
     },
-    mine: () => request<{ id: string; slug: string; name: string }>('/stores/mine'),
+    mine: () => request<{ id: string; slug: string; name: string; isOwner?: boolean }>('/stores/mine'),
     getBySlug: async (slug: string): Promise<Store> => {
       const data = await request<Store>(`/stores/${slug}`);
       return {
@@ -172,6 +172,22 @@ export const api = {
         body: JSON.stringify(data),
       }),
     referral: () => request<ReferralInfo>('/stores/referral'),
+    invites: (id: string) =>
+      request<{ code: string }>(`/stores/${id}/invites`, { method: 'POST' }),
+    revokeInvite: (id: string) =>
+      request<{ ok: boolean }>(`/stores/${id}/invites`, { method: 'DELETE' }),
+    members: (id: string) =>
+      request<{
+        members: Array<{ id: string; userId?: string; user?: { id: string; name: string; email: string } | null }>;
+        inviteCode: string | null;
+      }>(`/stores/${id}/members`),
+    removeMember: (id: string, userId: string) =>
+      request<{ ok: boolean }>(`/stores/${id}/members/${userId}`, { method: 'DELETE' }),
+    join: (code: string) =>
+      request<{ ok: boolean; storeId: string }>('/stores/join', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      }),
     reviews: (id: string) =>
       request<{ ratingAvg: number | null; ratingCount: number; reviews: StoreReview[] }>(`/stores/${id}/reviews`),
     postReview: (id: string, data: { rating: number; comment?: string; imageUrl?: string }) =>

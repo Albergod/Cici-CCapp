@@ -16,6 +16,7 @@ import { OrdersPanel } from '@/components/OrdersPanel';
 import { ShareStoreCard } from '@/components/ShareStoreCard';
 import { OfferModal } from '@/components/OfferModal';
 import { FinanzasPanel } from '@/components/FinanzasPanel';
+import { EquipoCard, JoinTeamBox } from '@/components/EquipoCard';
 import { fieldsFor, attributesToTitledList } from '@/lib/categoryFields';
 import { formatCOP } from '@/lib/format';
 import { isBusinessActivated } from '@/lib/business';
@@ -56,7 +57,7 @@ const EXPIRING_SOON_DAYS = 10;
 const URGENT_SOON_DAYS = 3;
 
 export function DashboardPage() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [store, setStore] = useState<Store | null>(null);
@@ -594,6 +595,7 @@ export function DashboardPage() {
               <Plus className="w-4 h-4" />
               Crear Mi Tienda
             </button>
+            <JoinTeamBox onJoined={() => loadUserStore()} />
           </div>
         ) : showCreateForm ? (
           <div className="card p-6 md:p-8 max-w-xl mx-auto">
@@ -893,6 +895,7 @@ export function DashboardPage() {
               store={store}
               onUpgrade={openUpgrade}
               onActivateTrial={handleActivateTrial}
+              readOnly={!user || store.ownerId !== user.id}
             />
 
             <div className="grid gap-6 md:grid-cols-2 items-start">
@@ -902,7 +905,9 @@ export function DashboardPage() {
                 icon={<Trophy className="w-5 h-5" />}
                 defaultOpen
               >
-                <PrestigeCard onUpgrade={openUpgrade} />
+                {(!user || store.ownerId === user.id) && (
+              <PrestigeCard onUpgrade={openUpgrade} />
+            )}
               </CollapsibleSection>
 
               <CollapsibleSection
@@ -916,6 +921,10 @@ export function DashboardPage() {
                 />
               </CollapsibleSection>
             </div>
+
+            {user && store.ownerId === user.id && (
+              <EquipoCard storeId={store.id} />
+            )}
 
             <SalesDashboard store={store} />
 
@@ -938,7 +947,13 @@ export function DashboardPage() {
             )}
             {dashTab === 'finanzas' && (
               <>
-            <FinanzasPanel />
+            {user && store.ownerId === user.id ? (
+              <FinanzasPanel />
+            ) : (
+              <div className="card p-6 text-sm text-surface-500">
+                Colaboras en esta tienda: las finanzas las ve su dueña.
+              </div>
+            )}
               </>
             )}
             {dashTab === 'catalogo' && (
@@ -1576,10 +1591,12 @@ function DashboardSubscription({
   store,
   onUpgrade,
   onActivateTrial,
+  readOnly = false,
 }: {
   store: Store;
   onUpgrade: () => void;
   onActivateTrial: () => void;
+  readOnly?: boolean;
 }) {
   const status = store.subscriptionStatus ?? 'free';
   const trialEndsAt = store.trialEndsAt;
@@ -1682,6 +1699,9 @@ function DashboardSubscription({
             recuperas el asistente IA, el sistema de prestigio, tu enlace de referidos y el
             límite ampliado de productos.
           </p>
+          {readOnly ? (
+            <p className="mt-2 text-xs text-surface-500">Colaboras en esta tienda: los planes los gestiona su dueña.</p>
+          ) : (
           <button
             onClick={onUpgrade}
             className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-gradient-to-r from-brand-600 to-accent-500 text-white rounded-full hover:from-brand-700 hover:to-accent-600 transition-all"
@@ -1689,6 +1709,7 @@ function DashboardSubscription({
             <CreditCard className="w-3.5 h-3.5" />
             Activar Espacio Premium
           </button>
+          )}
         </div>
       </div>
     );
@@ -1710,6 +1731,11 @@ function DashboardSubscription({
                 referidos, con todo el plan abierto. Cuando la actives, la IA se encarga del chat
                 de tu espacio desde el primer día.
               </p>
+              {readOnly ? (
+                <p className="mt-3 text-xs text-surface-500">
+                  Colaboras en esta tienda: los planes los gestiona su dueña.
+                </p>
+              ) : (
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -1728,6 +1754,7 @@ function DashboardSubscription({
                   Ir directo a un plan de pago
                 </button>
               </div>
+              )}
             </div>
           </div>
         </div>
@@ -1801,6 +1828,7 @@ function DashboardSubscription({
               ))}
             </ul>
             <div className="mt-3 flex flex-wrap items-center gap-2">
+              {!readOnly && (
               <button
                 onClick={onUpgrade}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-gradient-to-r from-brand-600 to-accent-500 text-white rounded-full hover:from-brand-700 hover:to-accent-600 transition-all"
@@ -1808,6 +1836,7 @@ function DashboardSubscription({
                 <CreditCard className="w-3.5 h-3.5" />
                 Continuar con mi plan
               </button>
+              )}
               <span className="text-xs text-surface-500">
                 Lo que te queda de prueba se suma a tu periodo de pago.
               </span>
@@ -1836,6 +1865,7 @@ function DashboardSubscription({
               </span>
             )}
           </p>
+          {!readOnly && (
           <button
             onClick={onUpgrade}
             className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-gradient-to-r from-brand-600 to-accent-500 text-white rounded-full hover:from-brand-700 hover:to-accent-600 transition-all"
@@ -1843,6 +1873,7 @@ function DashboardSubscription({
             <CreditCard className="w-3.5 h-3.5" />
             ¿Quieres continuar? Elige plan
           </button>
+          )}
         </div>
       </div>
     </div>
