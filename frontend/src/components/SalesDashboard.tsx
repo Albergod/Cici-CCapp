@@ -29,8 +29,10 @@ function fmtPct(n: number): string {
 
 export function SalesDashboard({ store }: { store: Store }) {
   const products = store.products ?? [];
-  const { stats, loading, refresh } = useSaleStats();
+  const [stats, setStats] = useState<SaleStats | null>(null);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showAllSales, setShowAllSales] = useState(false);
   const [rows, setRows] = useState<{ productId: string; quantity: string }[]>([
     { productId: '', quantity: '1' },
   ]);
@@ -39,9 +41,18 @@ export function SalesDashboard({ store }: { store: Store }) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const refreshStats = () => {
-    refresh();
+  const loadStats = async () => {
+    setLoading(true);
+    api.sales
+      .stats()
+      .then(setStats)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   };
+
+  useEffect(() => {
+    loadStats();
+  }, []);
 
   const subTotal = useMemo(() => {
     return rows.reduce((acc, r) => {
@@ -81,7 +92,7 @@ export function SalesDashboard({ store }: { store: Store }) {
       setRows([{ productId: '', quantity: '1' }]);
       setNote('');
       setShowForm(false);
-      refreshStats();
+      loadStats();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al registrar la venta');
     } finally {
@@ -261,83 +272,7 @@ export function SalesDashboard({ store }: { store: Store }) {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
 
-// Stats compartidas con caché corta (30s): varias tarjetas, una sola verdad.
-let statsCache: { at: number; data: SaleStats | null } | null = null;
-let statsInflight: Promise<SaleStats> | null = null;
-
-export function invalidateSaleStats() {
-  statsCache = null;
-}
-
-export function useSaleStats() {
-  const [stats, setStats] = useState<SaleStats | null>(
-    statsCache && Date.now() - statsCache.at < 30000 ? statsCache.data : null
-  );
-  const [loading, setLoading] = useState(!stats);
-  const refresh = () => {
-    statsCache = null;
-    setLoading(true);
-    statsInflight = null;
-    api.sales
-      .stats()
-      .then((d) => {
-        statsCache = { at: Date.now(), data: d };
-        setStats(d);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
-  useEffect(() => {
-    let alive = true;
-    if (statsCache && Date.now() - statsCache.at < 30000) {
-      setStats(statsCache.data);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    statsInflight ??= api.sales
-      .stats()
-      .then((d) => {
-        statsCache = { at: Date.now(), data: d };
-        return d;
-      })
-      .finally(() => {
-        statsInflight = null;
-      });
-    statsInflight
-      .then((d) => {
-        if (alive) {
-          setStats(d);
-          setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-  return { stats, loading, refresh };
-}
-
-function StatsLoading() {
-  return (
-    <div className="card p-10 flex items-center justify-center">
-      <Loader2 className="w-6 h-6 text-brand-500 animate-spin" />
-    </div>
-  );
-}
-
-
-export function TopListsRow() {
-  const { stats, loading } = useSaleStats();
-  if (loading && !stats) return <StatsLoading />;
-  return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card p-6">
           <div className="flex items-center gap-2 mb-4">
@@ -421,13 +356,7 @@ export function TopListsRow() {
           )}
         </div>
       </div>
-  );
-}
 
-export function ConversionAndBusiness() {
-  const { stats, loading } = useSaleStats();
-  if (loading && !stats) return <StatsLoading />;
-  return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card p-6">
           <div className="flex items-center gap-2 mb-4">
@@ -487,14 +416,7 @@ export function ConversionAndBusiness() {
           </div>
         </div>
       </div>
-  );
-}
 
-export function RecentSalesCard() {
-  const { stats, loading } = useSaleStats();
-  const [showAllSales, setShowAllSales] = useState(false);
-  if (loading && !stats) return <StatsLoading />;
-  return (
       <div className="card p-6">
         <div className="flex items-center gap-2 mb-4">
           <ShoppingCart className="w-5 h-5 text-brand-500" />
@@ -562,6 +484,7 @@ export function RecentSalesCard() {
           </>
         )}
       </div>
+    </div>
   );
 }
 
