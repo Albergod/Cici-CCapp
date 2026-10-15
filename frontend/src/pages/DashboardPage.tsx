@@ -19,7 +19,7 @@ import { FinanzasPanel } from '@/components/FinanzasPanel';
 import { fieldsFor, attributesToTitledList } from '@/lib/categoryFields';
 import { formatCOP } from '@/lib/format';
 import { isBusinessActivated } from '@/lib/business';
-import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp, Rocket, Wand2, Tag, LayoutGrid, ShoppingBag, ClipboardList, Wallet } from 'lucide-react';
+import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp, Rocket, Wand2, Tag, LayoutGrid, ShoppingBag, ClipboardList, Wallet, Trophy, Share2 } from 'lucide-react';
 
 // Datos de la tienda por crear, guardados mientras se paga. Sobreviven al
 // redirect de Mercado Pago para que la tienda se cree recién cuando el pago es
@@ -798,36 +798,43 @@ export function DashboardPage() {
               );
             })()}
             {/* ── Pestañas del panel ─────────────────────────────── */}
-            <div className="flex gap-1.5 p-1.5 rounded-2xl bg-white border border-surface-200 shadow-card overflow-x-auto">
+            <div className="md:sticky md:top-16 z-30 flex gap-1.5 p-1.5 rounded-2xl bg-white/95 md:backdrop-blur border border-surface-200 shadow-lift overflow-x-auto">
               {(
                 [
-                  ['resumen', 'Resumen', LayoutGrid],
-                  ['catalogo', 'Catálogo', ShoppingBag],
-                  ['pedidos', 'Pedidos', ClipboardList],
-                  ['finanzas', 'Finanzas', Wallet],
+                  ['resumen', 'Resumen', LayoutGrid, null],
+                  ['catalogo', 'Catálogo', ShoppingBag, store.products?.length ?? 0],
+                  ['pedidos', 'Pedidos', ClipboardList, null],
+                  ['finanzas', 'Finanzas', Wallet, null],
                 ] as const
-              ).map(([key, label, Icon]) => (
+              ).map(([key, label, Icon, count]) => (
                 <button
                   key={key}
                   type="button"
                   onClick={() => setDashTab(key)}
-                  className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${
+                  className={`flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl text-sm font-extrabold whitespace-nowrap transition-all ${
                     dashTab === key
-                      ? 'bg-gradient-to-r from-brand-600 to-accent-500 text-white shadow-soft'
+                      ? 'bg-gradient-to-r from-brand-600 to-accent-500 text-white shadow-soft scale-[1.02]'
                       : 'text-surface-500 hover:text-surface-800 hover:bg-surface-50'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
                   {label}
+                  {typeof count === 'number' && count > 0 && (
+                    <span className={`inline-flex items-center justify-center min-w-[1.4rem] h-5 px-1.5 rounded-full text-[11px] font-extrabold ${
+                      dashTab === key ? 'bg-white/25 text-white' : 'bg-brand-100 text-brand-700'
+                    }`}>
+                      {count}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
             {dashTab === 'resumen' && (
               <>
-            <div className="card p-6">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-600 to-accent-500 flex items-center justify-center shrink-0 shadow-soft">
+            <div className="card p-4 sm:p-5">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-600 to-accent-500 flex items-center justify-center shrink-0 shadow-soft">
                     {store.logoUrl ? (
                       <img src={store.logoUrl} alt="" className="w-full h-full object-cover rounded-2xl" />
                     ) : (
@@ -885,12 +892,27 @@ export function DashboardPage() {
               onActivateTrial={handleActivateTrial}
             />
 
-            <ShareStoreCard
-              url={`${window.location.origin}/store/${store.slug}`}
-              name={store.name}
-            />
+            <div className="grid gap-6 md:grid-cols-2 items-start">
+              <CollapsibleSection
+                title="Prestigio y referidos"
+                subtitle="Invita tenderas y gana el check verificado"
+                icon={<Trophy className="w-5 h-5" />}
+                defaultOpen
+              >
+                <PrestigeCard onUpgrade={openUpgrade} />
+              </CollapsibleSection>
 
-            <PrestigeCard onUpgrade={openUpgrade} />
+              <CollapsibleSection
+                title="Promociona tu tienda"
+                subtitle="Link, WhatsApp y QR para tus clientas"
+                icon={<Share2 className="w-5 h-5" />}
+              >
+                <ShareStoreCard
+                  url={`${window.location.origin}/store/${store.slug}`}
+                  name={store.name}
+                />
+              </CollapsibleSection>
+            </div>
 
             <SalesDashboard store={store} />
 
@@ -1488,6 +1510,42 @@ function formatDaysLeft(ms: number | undefined): string {
   if (!ms) return '';
   const days = Math.max(0, Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000)));
   return `${days} día${days !== 1 ? 's' : ''}`;
+}
+
+// Sección colapsable: resumen compacto siempre visible, detalle expandible.
+function CollapsibleSection({
+  title,
+  subtitle,
+  icon,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details
+      className="card overflow-hidden group"
+      open={defaultOpen}
+    >
+      <summary className="flex items-center gap-3 p-4 cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:bg-surface-50/60 transition-colors">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-600 to-accent-500 text-white flex items-center justify-center shrink-0">
+          {icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-extrabold text-surface-900 leading-tight">{title}</p>
+          <p className="text-xs text-surface-500 truncate">{subtitle}</p>
+        </div>
+        <ChevronDown className="w-5 h-5 text-surface-400 shrink-0 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="px-4 pb-4 [&>.card]:shadow-none [&>.card]:border-0 [&>.card]:p-0">
+        {children}
+      </div>
+    </details>
+  );
 }
 
 function DashboardSubscription({
