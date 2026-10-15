@@ -15,6 +15,7 @@ import fs from "fs";
 import authRoutes from "./routes/auth.routes";
 import googleAuthRoutes from "./routes/auth-google.routes";
 import devicesRoutes from "./routes/devices.routes";
+import protectedRoutes from "./routes/protected.routes";
 import storeRoutes from "./routes/store.routes";
 import productRoutes from "./routes/product.routes";
 import chatRoutes from "./routes/chat.routes";
@@ -84,6 +85,7 @@ export function createApp() {
   app.use("/api/auth", authRoutes);
   app.use("/api/auth", googleAuthRoutes);
   app.use("/api/devices", devicesRoutes);
+  app.use("/api/protected", protectedRoutes);
   app.use("/api/stores", storeRoutes);
   app.use("/api", productRoutes);
   app.use("/api", chatRoutes);
@@ -317,6 +319,29 @@ if (isMainModule) {
     )`);
     await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS device_tokens_token_unique
       ON device_tokens (token)`);
+    // ── Pago protegido piloto (tabla + enum + flag) ───────────────────────
+    await db.execute(sql`DO $$ BEGIN
+      CREATE TYPE protected_status AS ENUM('initiated','collected','held','released','paid_out','refunded','cancelled');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS protected_payments (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      created_at timestamp DEFAULT now() NOT NULL,
+      order_id uuid NOT NULL REFERENCES orders(id),
+      store_id uuid NOT NULL REFERENCES stores(id),
+      customer_id uuid REFERENCES users(id),
+      total numeric(10, 2) NOT NULL,
+      buyer_fee numeric(10, 2) NOT NULL,
+      seller_fee numeric(10, 2) NOT NULL,
+      collected numeric(10, 2),
+      seller_net numeric(10, 2) NOT NULL,
+      status protected_status NOT NULL DEFAULT 'initiated',
+      wompi_tx_id text,
+      released_at timestamp,
+      paid_out_at timestamp
+    )`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS protected_order_unique ON protected_payments (order_id)`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS protected_tx_unique ON protected_payments (wompi_tx_id)`);
+    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS protected_enabled boolean NOT NULL DEFAULT false`);
   }
 
   async function runMigrations(): Promise<void> {
@@ -358,9 +383,9 @@ if (isMainModule) {
       process.exit(1);
     });
 
-  // ── Cron de expiración de planes ─────────────────────────────────────────
-  // Baja automáticamente a FREE las tiendas cuyo plan (PRO/BUSINESS) venció.
-  // Corremos en el arranque (limpia vencidas) y cada hora: idempotente y barato.
+  // ── Cron de expiración de planes + liberación de pagos protegidos ──────
+  // Baja automáticamente a FREE las tiendas cuyo plan (PRO/BUSINESS) venció
+  // y libera lo retenido +48h. Idempotente y barato, cada hora.
   async function runExpiryCheck() {
     try {
       const expired = await expireStoresAndReturnCount();
@@ -369,6 +394,15 @@ if (isMainModule) {
       }
     } catch (err) {
       console.error("error en cron de expiración:", err);
+    }
+    try {
+      const { releaseDueProtected } = await import("./lib/protected");
+      const released = await releaseDueProtected();
+      if (released > 0) {
+        console.log(`🔓 ${released} pago(s) protegido(s) liberados (+48h)`);
+      }
+    } catch (err) {
+      console.error("error en cron de pagos protegidos:", err);
     }
   }
   runExpiryCheck();

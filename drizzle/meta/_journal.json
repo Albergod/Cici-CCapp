@@ -120,6 +120,13 @@
       "when": 1791427959202,
       "tag": "0016_device_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792024868245,
+      "tag": "0017_protected_payments",
+      "breakpoints": true
     }
   ]
 }

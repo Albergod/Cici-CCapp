@@ -327,6 +327,36 @@ export const api = {
     cancel: (id: string) =>
       request<Order>(`/orders/${id}/cancel`, { method: 'POST' }),
   },
+
+  // Pago protegido piloto: custodia 2.5/2.5 con liberación a las 48h.
+  protected: {
+    checkout: (orderId: string, phoneNumber: string) =>
+      request<{
+        transactionId: string;
+        statusTx: string;
+        charge: number;
+        sellerNet: number;
+        total: number;
+        buyerFee: number;
+        status: string;
+      }>('/protected/checkout', {
+        method: 'POST',
+        body: JSON.stringify({ orderId, phoneNumber }),
+      }),
+    status: (orderId: string) =>
+      request<{ status: string }>(`/protected/status?orderId=${encodeURIComponent(orderId)}`),
+    mine: () =>
+      request<{
+        balance: { pending: number; paid: number };
+        history: Array<Record<string, unknown>>;
+      }>('/protected/mine'),
+    payoutReport: () =>
+      request<{
+        rows: Array<{ id: string; orderId: string; storeId: string; sellerNet: number | string; total: number | string; createdAt: string }>;
+        total: number;
+        count: number;
+      }>('/protected/payout-report'),
+  },
 };
 
 // ── Admin API ──────────────────────────────────────────────────

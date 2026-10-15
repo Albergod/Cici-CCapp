@@ -138,6 +138,8 @@ export const stores = pgTable("stores", {
   suspensionEndsAt: timestamp("suspension_ends_at"),
   sanctionsCount: integer("sanctions_count").default(0).notNull(),
   banReason: text("ban_reason"),
+  // Piloto pago protegido: solo tiendas voluntarias (flag manual por admin).
+  protectedEnabled: boolean("protected_enabled").default(false).notNull(),
   // Configuración de la agenda para tiendas BELLEZA (opcional, ignorada en el
   // resto). JSON libre:
   //   { openTime: "08:00", closeTime: "21:00", lunchStart: "12:00",
@@ -464,6 +466,51 @@ export const paymentReports = pgTable("payment_reports", {
     .notNull()
     .references(() => stores.id),
 });
+
+// Pago protegido piloto: la compradora paga a la plataforma (Wompi/Nequi) y
+// la plata queda retenida hasta liberarse a la tendera (auto 48h o manual).
+// Comisión 5% repartida: 2.5% compradora (paga total×1.025) + 2.5% tendera
+// (recibe total×0.975). Estados: initiated → collected → held → released →
+// paid_out, o refunded/cancelled en cualquier punto previo al pago.
+export const protectedStatusEnum = pgEnum("protected_status", [
+  "initiated",
+  "collected",
+  "held",
+  "released",
+  "paid_out",
+  "refunded",
+  "cancelled",
+]);
+
+export const protectedPayments = pgTable(
+  "protected_payments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id),
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id),
+    customerId: uuid("customer_id").references(() => users.id),
+    // Montos en COP enteros: total del pedido, fee compradora, fee tendera,
+    // cobrado real y neto a pagar a la tienda.
+    total: numeric("total", { precision: 10, scale: 2 }).notNull(),
+    buyerFee: numeric("buyer_fee", { precision: 10, scale: 2 }).notNull(),
+    sellerFee: numeric("seller_fee", { precision: 10, scale: 2 }).notNull(),
+    collected: numeric("collected", { precision: 10, scale: 2 }),
+    sellerNet: numeric("seller_net", { precision: 10, scale: 2 }).notNull(),
+    status: protectedStatusEnum("status").notNull().default("initiated"),
+    wompiTxId: text("wompi_tx_id"),
+    releasedAt: timestamp("released_at"),
+    paidOutAt: timestamp("paid_out_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    protectedOrderUnique: uniqueIndex("protected_order_unique").on(t.orderId),
+    protectedTxUnique: uniqueIndex("protected_tx_unique").on(t.wompiTxId),
+  }),
+);
 
 // --- Relaciones (habilitan db.query.X.findMany({ with: {...} })) ---
 

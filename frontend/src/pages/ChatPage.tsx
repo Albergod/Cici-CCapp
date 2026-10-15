@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/stores/authStore';
 import { api } from '@/services/api';
 import { Conversation, Message } from '@/types';
-import { Loader2, Send, ArrowLeft, MessageSquare, Bot, MessageCircle, Receipt, ShoppingBag } from 'lucide-react';
+import { Loader2, Send, ArrowLeft, MessageSquare, Bot, MessageCircle, Receipt, ShoppingBag, ShieldCheck } from 'lucide-react';
+import { ProtectedCheckoutModal } from '@/components/ProtectedCheckoutModal';
 
 const isInvoice = (content: string) =>
   content.includes('Pedido Confirmado') || content.includes('✅ *Pedido*');
@@ -38,6 +39,9 @@ export function ChatPage() {
   const [bannerMuted, setBannerMuted] = useState(false);
   const [bookingNotice, setBookingNotice] = useState<string | null>(null);
   const [retractedIds, setRetractedIds] = useState<Set<string>>(new Set());
+  // Pago protegido piloto: último pedido creado en este chat (para el botón).
+  const [protectedOrderId, setProtectedOrderId] = useState<string | null>(null);
+  const [showProtected, setShowProtected] = useState(false);
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bookingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -206,6 +210,7 @@ export function ChatPage() {
             : 'Tu cita fue reservada. El local confirmará cuando estés por allá.',
         );
       } else if (data.type === 'order_created') {
+        if (data.orderId) setProtectedOrderId(data.orderId);
         showBookingNotice('Tu pedido quedó anotado. El comerciante lo confirmará y se comunicará contigo para coordinar la entrega.');
       } else if (data.type === 'chat_suspended') {
         showModBanner(data.message || 'El chat de esta tienda está suspendido temporalmente.', true);
@@ -242,7 +247,8 @@ export function ChatPage() {
       }
       // El WebSocket no está disponible: se usa el endpoint HTTP (el servidor
       // igual genera la respuesta IA y la guarda).
-      const { message, aiReply } = await api.chat.sendMessage(conversationId, content);
+      const { message, aiReply, orderId } = await api.chat.sendMessage(conversationId, content);
+      if (orderId) setProtectedOrderId(orderId);
       const appended = aiReply ? [message, aiReply] : [message];
       setMessages((prev) => [...prev, ...appended]);
       updateConversationReadState(conversationId, aiReply || message);
@@ -568,7 +574,16 @@ export function ChatPage() {
               )}
               {bookingNotice && (
                 <div className="mb-3 rounded-xl p-3 text-sm border bg-emerald-50 border-emerald-300 text-emerald-800">
-                  {bookingNotice}
+                  <p>{bookingNotice}</p>
+                  {protectedOrderId && (
+                    <button
+                      onClick={() => setShowProtected(true)}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      Pagar protegido (2.5% + 2.5%)
+                    </button>
+                  )}
                 </div>
               )}
               <div className="flex gap-2">
@@ -605,6 +620,13 @@ export function ChatPage() {
           </div>
         )}
       </div>
+      {showProtected && protectedOrderId && (
+        <ProtectedCheckoutModal
+          orderId={protectedOrderId}
+          onClose={() => setShowProtected(false)}
+          onPaid={() => setProtectedOrderId(null)}
+        />
+      )}
     </div>
   );
 }

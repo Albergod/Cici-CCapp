@@ -218,7 +218,12 @@ router.post("/webhook", async (req, res) => {
 
   try {
     const full = await getWompiTransaction(String(tx.id ?? ""));
-    if (full) await applyWompiApproved(full);
+    if (!full) return;
+    // Pago protegido piloto primero (por tx id); si lo maneja, no es un plan.
+    const { applyProtectedApproved } = await import("./protected.routes");
+    const prot = await applyProtectedApproved(full);
+    if (prot.handled) return;
+    await applyWompiApproved(full);
   } catch (err) {
     console.error("wompi webhook error:", err);
   }

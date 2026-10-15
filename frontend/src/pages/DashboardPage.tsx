@@ -15,10 +15,11 @@ import { BeautyServicesPanel } from '@/components/BeautyServicesPanel';
 import { OrdersPanel } from '@/components/OrdersPanel';
 import { ShareStoreCard } from '@/components/ShareStoreCard';
 import { OfferModal } from '@/components/OfferModal';
+import { FinanzasPanel } from '@/components/FinanzasPanel';
 import { fieldsFor, attributesToTitledList } from '@/lib/categoryFields';
 import { formatCOP } from '@/lib/format';
 import { isBusinessActivated } from '@/lib/business';
-import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp, Rocket, Wand2, Tag } from 'lucide-react';
+import { Loader2, StoreIcon, Plus, ExternalLink, X, Package, Users, LayoutDashboard, ShieldCheck, Clock, CreditCard, AlertTriangle, BadgeCheck, Pencil, Image as ImageIcon, Palette, Upload, Settings2, ChevronDown, ChevronUp, Bot, CheckCircle2, TrendingUp, Rocket, Wand2, Tag, LayoutGrid, ShoppingBag, ClipboardList, Wallet } from 'lucide-react';
 
 // Datos de la tienda por crear, guardados mientras se paga. Sobreviven al
 // redirect de Mercado Pago para que la tienda se cree recién cuando el pago es
@@ -86,6 +87,8 @@ export function DashboardPage() {
   });
   const [showProductForm, setShowProductForm] = useState(false);
   const [offerProduct, setOfferProduct] = useState<Product | null>(null);
+  // Pestañas del panel (mismos colores, sin cascada infinita).
+  const [dashTab, setDashTab] = useState<'resumen' | 'catalogo' | 'pedidos' | 'finanzas'>('resumen');
   const [addingProduct, setAddingProduct] = useState(false);
   const [showAnonPhoto, setShowAnonPhoto] = useState(false);
   const [productName, setProductName] = useState('');
@@ -794,6 +797,33 @@ export function DashboardPage() {
                 </div>
               );
             })()}
+            {/* ── Pestañas del panel ─────────────────────────────── */}
+            <div className="flex gap-1.5 p-1.5 rounded-2xl bg-white border border-surface-200 shadow-card overflow-x-auto">
+              {(
+                [
+                  ['resumen', 'Resumen', LayoutGrid],
+                  ['catalogo', 'Catálogo', ShoppingBag],
+                  ['pedidos', 'Pedidos', ClipboardList],
+                  ['finanzas', 'Finanzas', Wallet],
+                ] as const
+              ).map(([key, label, Icon]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setDashTab(key)}
+                  className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${
+                    dashTab === key
+                      ? 'bg-gradient-to-r from-brand-600 to-accent-500 text-white shadow-soft'
+                      : 'text-surface-500 hover:text-surface-800 hover:bg-surface-50'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {label}
+                </button>
+              ))}
+            </div>
+            {dashTab === 'resumen' && (
+              <>
             <div className="card p-6">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
@@ -864,14 +894,30 @@ export function DashboardPage() {
 
             <SalesDashboard store={store} />
 
+              </>
+            )}
+            {dashTab === 'catalogo' && (
+              <>
             {store.businessType === 'BELLEZA' && (
               <BeautyServicesPanel
                 store={store}
                 onStoreUpdated={(s) => setStore(s)}
               />
             )}
-
+              </>
+            )}
+            {dashTab === 'pedidos' && (
+              <>
             <OrdersPanel isFreePlan={store.plan === 'FREE'} />
+              </>
+            )}
+            {dashTab === 'finanzas' && (
+              <>
+            <FinanzasPanel />
+              </>
+            )}
+            {dashTab === 'catalogo' && (
+              <>
 
             <div className="card p-6">
               <div className="flex items-center justify-between mb-5">
@@ -1136,6 +1182,8 @@ export function DashboardPage() {
                 </>
               )}
             </div>
+              </>
+            )}
 
             {store.plan !== 'FREE' && !store.onTrial && store.subscriptionExpiresAt && (() => {
               const daysLeft = Math.max(
