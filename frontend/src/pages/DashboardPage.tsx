@@ -9,7 +9,7 @@ import { UpgradeSpaceModal } from '@/components/UpgradeSpaceModal';
 import { PremiumUnlockedModal } from '@/components/PremiumUnlockedModal';
 import { PaymentResultModal, PaymentResultState } from '@/components/PaymentResultModal';
 import { AnonymousPhotoModal } from '@/components/AnonymousPhotoModal';
-import { SalesDashboard } from '@/components/SalesDashboard';
+import { SalesDashboard, RecentSalesCard, TopListsRow, ConversionAndBusiness } from '@/components/SalesDashboard';
 import { PrestigeCard } from '@/components/PrestigeCard';
 import { BeautyServicesPanel } from '@/components/BeautyServicesPanel';
 import { OrdersPanel } from '@/components/OrdersPanel';
@@ -898,23 +898,30 @@ export function DashboardPage() {
               readOnly={!user || store.ownerId !== user.id}
             />
 
-            <div className="grid gap-6 md:grid-cols-2 items-stretch">
-              {user && store.ownerId === user.id && (
-                <EquipoCard storeId={store.id} />
-              )}
-              <div className="min-w-0">
+            <div className="grid gap-6 md:grid-cols-5 items-start">
+              <div className="md:col-span-2 min-w-0 space-y-6">
+                {user && store.ownerId === user.id && (
+                  <EquipoCard storeId={store.id} />
+                )}
+                {(!user || store.ownerId === user.id) && (
+                  <PrestigeCard onUpgrade={openUpgrade} />
+                )}
+              </div>
+              <div className="md:col-span-3 min-w-0">
                 <SalesDashboard store={store} />
               </div>
             </div>
+
+            <RecentSalesCard />
+
+            <TopListsRow />
+
+            <ConversionAndBusiness />
 
             <ShareStoreCard
               url={`${window.location.origin}/store/${store.slug}`}
               name={store.name}
             />
-
-            {(!user || store.ownerId === user.id) && (
-              <PrestigeCard onUpgrade={openUpgrade} />
-            )}
 
               </>
             )}
