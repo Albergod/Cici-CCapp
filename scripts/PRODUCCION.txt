@@ -57,7 +57,9 @@
    ── MIGRACIONES (única fuente de verdad: drizzle/) ──────
    El arranque valida el entorno y aplica `drizzle/` automáticamente.
    Si la BD nació con `db:push` (sin journal), adóptala UNA vez:
-     npm run db:baseline -- --yes --through=0019_store_members
+     npm run db:baseline -- --yes --through=0016_device_tokens   # legacy app 1.7
+     npm run db:migrate                                          # aplica 0017-0020
+   Si la base ya tiene pagos protegidos y equipo, adopta --through=0019_store_members.
    Luego `npm run db:migrate` aplica solo lo pendiente. NO uses db:push
    en producción: ya no existe sincronización manual de esquema.
 

@@ -58,8 +58,10 @@ npm run db:studio     # UI web para explorar los datos
 ```
 
 Si la base nació con `db:push` y no tiene journal de migraciones, adóptala
-una sola vez con `npm run db:baseline -- --yes --through=0019_store_members`
-y luego ejecuta `npm run db:migrate`. No se debe usar `db:push` en producción.
+una sola vez con `npm run db:baseline -- --yes --through=0016_device_tokens`
+(si quedó en el esquema de la app 1.7) o `--through=0019_store_members` (si ya
+tiene pagos protegidos y equipo). Luego ejecuta `npm run db:migrate` para
+aplicar 0017-0020. No se debe usar `db:push` en producción.
 
 Para apagar la base de datos: `docker compose stop` (los datos se
 conservan). Para borrarla del todo: `docker compose down -v`.

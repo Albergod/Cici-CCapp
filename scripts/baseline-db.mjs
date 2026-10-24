@@ -24,13 +24,20 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsFolder = path.join(root, "drizzle");
 const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
 
-const REQUIRED_TABLES = [
+// Tablas que deben existir según el punto del journal hasta el que se adopta.
+// No se exigen tablas de migraciones FUTURAS: una base legacy puede estar en
+// 0016 y luego recibir 0017-0020 con `db:migrate`.
+const BASE_TABLES = [
   "users",
   "stores",
   "products",
   "orders",
-  "protected_payments",
-  "store_members",
+  "order_items",
+  "store_services",
+  "appointments",
+  "store_reviews",
+  "password_resets",
+  "device_tokens",
 ];
 
 const args = process.argv.slice(2);
@@ -59,6 +66,12 @@ if (throughIndex < 0) {
   console.error(`--through no coincide con ninguna migración: ${through}`);
   process.exit(1);
 }
+const protectedIndex = journal.entries.findIndex((entry) => entry.tag.startsWith("0017_"));
+const membersIndex = journal.entries.findIndex((entry) => entry.tag.startsWith("0019_"));
+const requiredTables = new Set(BASE_TABLES);
+if (protectedIndex >= 0 && throughIndex >= protectedIndex) requiredTables.add("protected_payments");
+if (membersIndex >= 0 && throughIndex >= membersIndex) requiredTables.add("store_members");
+
 const migrations = journal.entries.slice(0, throughIndex + 1).map((entry) => {
   const file = path.join(migrationsFolder, `${entry.tag}.sql`);
   if (!fs.existsSync(file)) {
@@ -83,11 +96,11 @@ try {
     `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
   );
   const present = new Set(tables.map((row) => row.table_name));
-  const missing = REQUIRED_TABLES.filter((table) => !present.has(table));
+  const missing = [...requiredTables].filter((table) => !present.has(table));
   if (missing.length > 0) {
     throw new Error(
-      `La base no tiene el esquema completo. Faltan tablas: ${missing.join(", ")}. ` +
-        "Usa `npm run db:migrate` sobre una base vacía en vez de baseline.",
+      `La base no tiene el esquema esperado hasta ${through}. Faltan tablas: ${missing.join(", ")}. ` +
+        "Si la base está vacía, usa `npm run db:migrate`; si es más vieja, adopta hasta un punto anterior.",
     );
   }
 
@@ -124,7 +137,7 @@ try {
   await client.query("COMMIT");
 
   console.log(`Base: ${dbName} (usuario ${dbUser})`);
-  console.log(`Journal adoptado con ${migrations.length} migraciones:`);
+  console.log(`Journal adoptado hasta ${through} (${migrations.length} migraciones):`);
   for (const migration of migrations) console.log(`  ✓ ${migration.tag}`);
   console.log("\nListo. Las próximas migraciones se aplicarán desde la última.");
 } catch (error) {
