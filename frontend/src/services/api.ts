@@ -411,15 +411,31 @@ export const api = {
 };
 
 // ── Admin API ──────────────────────────────────────────────────
-// Requiere que el admin pegue su token en localStorage.getItem('adminToken').
-// Token generado en el .env del backend (ADMIN_TOKEN).
+// El panel canjea una vez el ADMIN_TOKEN del servidor por un JWT de 2 h
+// (POST /api/admin/login) y guarda SOLO ese JWT en localStorage. El secreto de
+// administración nunca se guarda ni viaja en cada petición.
 const ADMIN_TOKEN_KEY = 'adminToken';
+
+export async function adminLogin(bootstrapToken: string): Promise<string> {
+  const response = await fetch(`${API_BASE}/admin/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: bootstrapToken }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Token inválido' }));
+    throw new Error(error.error || `Error ${response.status}`);
+  }
+  const data = (await response.json()) as { token?: string };
+  if (!data.token) throw new Error('El servidor no devolvió una sesión de administrador.');
+  return data.token;
+}
 
 async function adminRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem(ADMIN_TOKEN_KEY);
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
-    ...(token && { 'X-Admin-Token': token }),
+    ...(token && { Authorization: `Bearer ${token}` }),
     ...options?.headers,
   };
 
@@ -428,6 +444,9 @@ async function adminRequest<T>(endpoint: string, options?: RequestInit): Promise
     headers,
   });
 
+  if (response.status === 401) {
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+  }
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Error de admin' }));
     throw new Error(error.error || `Error ${response.status}`);

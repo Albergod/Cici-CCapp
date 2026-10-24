@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    include: ["tests/**/*.test.ts"],
+    exclude: ["**/node_modules/**", "frontend/**", "dist/**"],
     testTimeout: 20000,
     hookTimeout: 20000,
     alias: {

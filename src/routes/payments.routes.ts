@@ -164,7 +164,8 @@ async function applyApprovedPayment(ref: string) {
     return { approved: true, status: "approved", alreadyProcessed: true, ...meta(plan, cycle) };
   }
 
-  // Idempotencia: insertamos el pago y activamos el plan.
+  // Idempotencia: la unique de mp_payment_id decide quién procesa. Si otra
+  // petición (webhook + polling) ganó la carrera, no se activa el plan dos veces.
   const [record] = await db
     .insert(mpPayments)
     .values({
@@ -176,7 +177,11 @@ async function applyApprovedPayment(ref: string) {
       storeId: storeId ?? null,
       ...(userId ? { userId } : {}),
     })
+    .onConflictDoNothing()
     .returning({ id: mpPayments.id });
+  if (!record) {
+    return { approved: true, status: "approved", alreadyProcessed: true, ...meta(plan, cycle) };
+  }
 
   // Si el pago fue para una tienda existente, la activamos ya. Si fue un pago
   // SIN tienda (referencia USER_...), el plan se activa en store.routes.ts al

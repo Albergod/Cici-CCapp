@@ -3,7 +3,7 @@
 // APPROVED (webhook firmado o verificación on-demand contra Wompi).
 import { Router } from "express";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "../db/client";
 import { users, stores, mpPayments } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
@@ -16,6 +16,7 @@ import {
   verifyWompiWebhook,
 } from "../lib/wompi";
 import { parseExternalRef } from "../lib/payment-ref";
+import { paymentEnvironmentError } from "../lib/env";
 import { priceFor, activatePaidPlan } from "../lib/plans";
 
 const router = Router();
@@ -34,6 +35,8 @@ const nequiSchema = z.object({
 // PENDING y queda registrada en mp_payments para que el webhook/polling la
 // cierre de forma idempotente.
 router.post("/nequi", requireAuth, async (req: AuthRequest, res) => {
+  const envError = paymentEnvironmentError();
+  if (envError) return res.status(503).json({ error: envError });
   if (!WOMPI_PRIVATE_KEY || !WOMPI_PUBLIC_KEY) {
     return res
       .status(503)
@@ -149,12 +152,18 @@ async function applyWompiApproved(tx: {
   }
 
   if (pending) {
-    await db
+    // Claim atómico: si dos webhooks/pollings llegan a la vez, solo uno pasa
+    // de pending a approved y activa el plan; el otro responde "ya procesado".
+    const [claimed] = await db
       .update(mpPayments)
       .set({ status: "approved" })
-      .where(eq(mpPayments.id, pending.id));
+      .where(and(eq(mpPayments.id, pending.id), ne(mpPayments.status, "approved")))
+      .returning({ id: mpPayments.id });
+    if (!claimed) {
+      return { approved: true, status: "approved", alreadyProcessed: true, ...meta(plan, cycle) };
+    }
   } else {
-    await db
+    const [inserted] = await db
       .insert(mpPayments)
       .values({
         mpPaymentId: tx.id,
@@ -165,7 +174,11 @@ async function applyWompiApproved(tx: {
         storeId,
         ...(userId ? { userId } : {}),
       })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: mpPayments.id });
+    if (!inserted) {
+      return { approved: true, status: "approved", alreadyProcessed: true, ...meta(plan, cycle) };
+    }
   }
 
   // Pago SIN tienda (reference USER_...): el plan se activa al crear la tienda

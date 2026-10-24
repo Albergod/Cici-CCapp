@@ -1,13 +1,13 @@
-# CC Platform — Centro Comercial Digital (MVP)
+# CiCi — Centro Comercial Digital
 
-Backend del MVP: cada persona crea su **Tienda** (su "canal"), publica
-**Productos**, otros usuarios pueden **seguir** la tienda y **descubrirla**
-en el feed, y hay un **chat contextual** (uno por cliente-tienda) vía REST +
-WebSocket.
+Plataforma para crear una **Tienda**, publicar **Productos** y **Servicios**,
+vender por **chat contextual** (REST + WebSocket), agendar citas, cobrar
+**planes** (Mercado Pago / Wompi-Nequi) y operar **pago protegido** con
+custodia y liberación a 48 h.
 
-Alcance a propósito reducido — sin pagos, sin delivery, sin livestreaming
-todavía. Primero se valida el núcleo: crear tienda → publicar → que te
-descubran → que te escriban.
+El proyecto está en fase de **piloto cerrado**, no es un MVP: el backend
+incluye migraciones versionadas, moderación, trial, referidos, prestigio y
+pruebas de integridad financiera.
 
 ## Stack
 
@@ -45,19 +45,21 @@ Dentro de la shell:
 
 ```bash
 npm install
-npm run db:push     # aplica el esquema directamente (rápido, para MVP)
+npm run db:migrate   # aplica drizzle/ (única fuente de verdad del esquema)
 npm run dev          # servidor con recarga en :3000
 ```
 
-Cuando el proyecto crezca y quieras migraciones versionadas en vez de
-`db:push`, usa:
+El esquema se versiona **solo** con migraciones Drizzle:
 
 ```bash
-npm run db:generate  # genera el SQL de migración en ./drizzle
-npm run db:migrate    # lo aplica
+npm run db:generate  # genera el SQL de una migración nueva en ./drizzle
+npm run db:migrate    # aplica las pendientes
+npm run db:studio     # UI web para explorar los datos
 ```
 
-`npm run db:studio` abre una UI web para explorar los datos.
+Si la base nació con `db:push` y no tiene journal de migraciones, adóptala
+una sola vez con `npm run db:baseline -- --yes --through=0019_store_members`
+y luego ejecuta `npm run db:migrate`. No se debe usar `db:push` en producción.
 
 Para apagar la base de datos: `docker compose stop` (los datos se
 conservan). Para borrarla del todo: `docker compose down -v`.

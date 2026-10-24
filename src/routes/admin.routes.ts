@@ -5,6 +5,13 @@ import { db } from "../db/client";
 import { stores, users, violations } from "../db/schema";
 import { AuthRequest } from "../middleware/auth";
 import {
+  ADMIN_SESSION_TTL_SECONDS,
+  requireAdmin,
+  signAdminToken,
+  verifyBootstrapToken,
+} from "../middleware/admin";
+import { authLimiter } from "../middleware/rate-limit";
+import {
   applySuspension,
   banStore,
   reauthorizeExpiredSuspensions,
@@ -12,15 +19,23 @@ import {
 
 const router = Router();
 
-// Requiere el header X-Admin-Token == ADMIN_TOKEN (el panel pregunta el token).
-const requireAdmin = (req: AuthRequest, res: any, next: any) => {
-  const adminToken = process.env.ADMIN_TOKEN;
-  if (!adminToken) return res.status(503).json({ error: "Admin endpoint deshabilitado" });
-  if (req.headers["x-admin-token"] !== adminToken) {
+// Canjea el ADMIN_TOKEN (bootstrap) por una sesión JWT de 2 horas. El panel
+// guarda ese JWT, nunca el secreto de administración.
+const adminLoginSchema = z.object({ token: z.string().min(1).max(512) });
+
+router.post("/login", authLimiter, async (req, res) => {
+  if (!process.env.ADMIN_TOKEN) {
+    return res.status(503).json({ error: "Admin endpoint deshabilitado" });
+  }
+  const parsed = adminLoginSchema.safeParse(req.body);
+  if (!parsed.success || !verifyBootstrapToken(parsed.data?.token)) {
     return res.status(403).json({ error: "Token de administrador inválido" });
   }
-  next();
-};
+  return res.json({
+    token: signAdminToken(),
+    expiresIn: ADMIN_SESSION_TTL_SECONDS,
+  });
+});
 
 // ── Lista de violaciones / sanciones (filtrables por estado y tipo) ─────────
 // GET /api/admin/violations?status=OPEN&type=buyer_report&page=&limit=

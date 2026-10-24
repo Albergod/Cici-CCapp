@@ -141,6 +141,13 @@
       "when": 1792046178370,
       "tag": "0019_store_members",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792050000000,
+      "tag": "0020_protected_payout_audit",
+      "breakpoints": true
     }
   ]
 }

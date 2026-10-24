@@ -14,7 +14,7 @@ import {
   AlertTriangle,
   Ban,
 } from 'lucide-react';
-import { adminApi } from '@/services/api';
+import { adminApi, adminLogin } from '@/services/api';
 import { formatCOP } from '@/lib/format';
 
 type Stats = {
@@ -119,10 +119,18 @@ export function AdminPage() {
       setError('Escribe tu token de administrador (es el valor de ADMIN_TOKEN en el entorno del servidor).');
       return;
     }
-    localStorage.setItem('adminToken', token);
     setLoading(true);
     setError(null);
     try {
+      // Canjea el ADMIN_TOKEN por un JWT corto. Si lo pegado ya es un JWT
+      // vigente, el login falla y se usa tal cual.
+      let session = token;
+      try {
+        session = await adminLogin(token);
+      } catch {
+        /* puede ser un JWT ya emitido */
+      }
+      localStorage.setItem('adminToken', session);
       const [statsData, paymentsData] = await Promise.all([adminApi.stats(), adminApi.payments()]);
       setStats(statsData);
       setPayments(paymentsData);

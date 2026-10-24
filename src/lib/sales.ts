@@ -1,4 +1,4 @@
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { products, sales, saleItems, storeServices, stores } from "../db/schema";
 import {
@@ -56,7 +56,13 @@ export async function createSale(
   input: CreateSaleInput,
   tx?: typeof db,
 ): Promise<CreateSaleResult> {
-  const d = tx ?? db;
+  // Sin transacción explícita, toda la venta (venta + ítems + stock + anti-
+  // fraude) se escribe de forma atómica. Quien ya tiene una transacción abierta
+  // (p. ej. confirmar un pedido) la pasa para que el commit sea conjunto.
+  if (!tx) {
+    return db.transaction((trx) => createSale(input, trx as unknown as typeof db));
+  }
+  const d = tx;
   const origin = input.origin ?? "manual";
   const storeId = input.storeId;
 
@@ -79,31 +85,77 @@ export async function createSale(
     return { ok: false, status: 400, error: "La venta necesita al menos un ítem." };
   }
 
-  // Precio vigente: oferta activa si la hay (con fallback si la columna aún
-  // no migró en la DB, para no tumbar ventas durante el deploy).
-  const productRows = await (async () => {
-    try {
-      const rows = await d.query.products.findMany({
-        where: eq(products.storeId, storeId),
-        columns: { id: true, price: true, offerPrice: true, offerEndsAt: true },
-      });
-      return rows.map((p) => ({
-        id: p.id,
+  // Cantidades pedidas por producto (agregadas): evita validar dos veces el
+  // mismo producto en líneas separadas y permite comparar contra el stock real.
+  const requestedByProduct = new Map<string, number>();
+  for (const item of input.items) {
+    if (!item.productId && !item.serviceId) {
+      return { ok: false, status: 400, error: "Cada ítem debe ser un producto o un servicio." };
+    }
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+      return { ok: false, status: 400, error: "La cantidad de cada ítem debe ser mayor que cero." };
+    }
+    if (item.productId) {
+      const qty = Math.floor(item.quantity);
+      if (qty < 1) return { ok: false, status: 400, error: "La cantidad de un producto debe ser un entero positivo." };
+      requestedByProduct.set(item.productId, (requestedByProduct.get(item.productId) ?? 0) + qty);
+    }
+  }
+
+  // Precio y stock vigentes. `FOR UPDATE` bloquea las filas de los productos
+  // implicados hasta el commit: dos ventas simultáneas del mismo producto se
+  // serializan y la segunda ve el stock ya descontado (nunca se sobrevende).
+  // El orden por id evita deadlocks entre ventas con varios productos.
+  const productIds = [...requestedByProduct.keys()].sort();
+  const productRows = productIds.length
+    ? await (async () => {
+        try {
+          return await d
+            .select({
+              id: products.id,
+              name: products.name,
+              price: products.price,
+              offerPrice: products.offerPrice,
+              offerEndsAt: products.offerEndsAt,
+              available: products.available,
+              stock: products.stock,
+            })
+            .from(products)
+            .where(and(eq(products.storeId, storeId), inArray(products.id, productIds)))
+            .orderBy(products.id)
+            .for("update");
+        } catch {
+          // Fallback si la DB aún no tiene las columnas de ofertas (deploy).
+          return await d
+            .select({
+              id: products.id,
+              name: products.name,
+              price: products.price,
+              available: products.available,
+              stock: products.stock,
+            })
+            .from(products)
+            .where(and(eq(products.storeId, storeId), inArray(products.id, productIds)))
+            .orderBy(products.id)
+            .for("update");
+        }
+      })()
+    : [];
+  const productInfo = new Map(
+    productRows.map((p) => [
+      p.id,
+      {
+        name: p.name,
+        stock: p.stock === null || p.stock === undefined ? null : Number(p.stock),
+        available: p.available,
         price: withOfferFlags({
           price: p.price,
-          offerPrice: (p.offerPrice as string | null) ?? null,
-          offerEndsAt: (p.offerEndsAt as Date | string | null) ?? null,
+          offerPrice: (p as { offerPrice?: string | null }).offerPrice ?? null,
+          offerEndsAt: (p as { offerEndsAt?: Date | string | null }).offerEndsAt ?? null,
         }).effectivePrice,
-      }));
-    } catch {
-      const rows = await d.query.products.findMany({
-        where: eq(products.storeId, storeId),
-        columns: { id: true, price: true },
-      });
-      return rows.map((p) => ({ id: p.id, price: Number(p.price) }));
-    }
-  })();
-  const productPrice = new Map(productRows.map((p) => [p.id, p.price]));
+      },
+    ]),
+  );
 
   const serviceRows = await d.query.storeServices.findMany({
     where: eq(storeServices.storeId, storeId),
@@ -112,10 +164,7 @@ export async function createSale(
   const servicePrice = new Map(serviceRows.map((s) => [s.id, Number(s.price)]));
 
   for (const item of input.items) {
-    if (!item.productId && !item.serviceId) {
-      return { ok: false, status: 400, error: "Cada ítem debe ser un producto o un servicio." };
-    }
-    if (item.productId && !productPrice.has(item.productId)) {
+    if (item.productId && !productInfo.has(item.productId)) {
       return { ok: false, status: 400, error: "El producto no pertenece a tu tienda o no existe." };
     }
     if (item.serviceId && !servicePrice.has(item.serviceId)) {
@@ -123,9 +172,24 @@ export async function createSale(
     }
   }
 
+  // Un pedido del chat JAMÁS se confirma sin stock. Las ventas manuales se
+  // permiten aunque el stock esté desactualizado: son una venta física que ya
+  // ocurrió y no se puede rechazar; el stock se ajusta con GREATEST(0, …).
+  if (origin === "order") {
+    for (const [productId, qty] of requestedByProduct) {
+      const p = productInfo.get(productId)!;
+      if (!p.available) {
+        return { ok: false, status: 409, error: `"${p.name}" ya no está disponible.` };
+      }
+      if (p.stock !== null && p.stock < qty) {
+        return { ok: false, status: 409, error: `Solo quedan ${p.stock} de "${p.name}".` };
+      }
+    }
+  }
+
   const total = input.items.reduce((acc, item) => {
     const unit = item.productId
-      ? productPrice.get(item.productId)!
+      ? productInfo.get(item.productId)!.price
       : servicePrice.get(item.serviceId!)!;
     return acc + unit * item.quantity;
   }, 0);
@@ -181,7 +245,7 @@ export async function createSale(
 
   for (const item of input.items) {
     const unitPrice = item.productId
-      ? productPrice.get(item.productId)!
+      ? productInfo.get(item.productId)!.price
       : servicePrice.get(item.serviceId!)!;
 
     await d.insert(saleItems).values({

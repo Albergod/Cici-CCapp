@@ -4,6 +4,7 @@ import { eq, and, sql, desc, count, isNull, lt, ne, isNotNull, inArray, gte } fr
 import { db } from "../db/client";
 import { stores, follows, users, products, mpPayments, violations, storeServices, storeReviews, businessTypeEnum } from "../db/schema";
 import { requireAuth, optionalAuth, AuthRequest } from "../middleware/auth";
+import { requireAdmin } from "../middleware/admin";
 import { getContactEligibility, isOnTrial, TRIAL_DURATION_MS } from "../lib/subscription";
 import { imageUrl } from "../lib/validators";
 import {
@@ -53,7 +54,7 @@ function withTrialFlags<T extends Record<string, unknown>>(row: T) {
 // ── Downgrade automático de tiendas vencidas ─────────────────────────────────
 // Baja a FREE las tiendas (PRO Y BUSINESS) cuyo subscriptionExpiresAt pasó.
 // Se dispara en cada arranque y luego por un cron interno (index.ts), además
-// del endpoint /admin/expire-stores (protegido con ADMIN_TOKEN) para forzarlo.
+// del endpoint /admin/expire-stores (protegido con sesión JWT de admin).
 // Idempotente: una tienda ya FREE nunca vuelve a pasar por aquí.
 export async function expireStoresAndReturnCount(): Promise<number> {
   const now = new Date();
@@ -71,15 +72,7 @@ export async function expireStoresAndReturnCount(): Promise<number> {
   return result.length;
 }
 
-router.post("/admin/expire-stores", async (_req: AuthRequest, res) => {
-  const adminToken = process.env.ADMIN_TOKEN;
-  if (!adminToken) {
-    return res.status(503).json({ error: "Admin endpoint deshabilitado" });
-  }
-  const provided = _req.headers["x-admin-token"];
-  if (provided !== adminToken) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
+router.post("/admin/expire-stores", requireAdmin, async (_req: AuthRequest, res) => {
   try {
     const updated = await expireStoresAndReturnCount();
     res.json({ ok: true as const, expiredCount: updated });
@@ -1112,15 +1105,8 @@ router.post("/:id/report", requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ── Admin: Stats del panel ─────────────────────────────────────────────
-// GET /api/admin/stats
-// Header: X-Admin-Token (valor de ADMIN_TOKEN en .env)
-const requireAdmin = (req: AuthRequest, res: any, next: any) => {
-  if (req.headers["x-admin-token"] !== process.env.ADMIN_TOKEN) {
-    return res.status(403).json({ error: "Token de administrador inválido" });
-  }
-  next();
-};
-
+// GET /api/stores/admin/stats
+// Requiere Authorization: Bearer <JWT admin obtenido en POST /api/admin/login>.
 router.get("/admin/stats", requireAdmin, async (_req: AuthRequest, res) => {
   try {
     const [totalStores] = await db.select({ c: count(stores.id) }).from(stores);

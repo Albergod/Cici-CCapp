@@ -6,7 +6,7 @@
 import { Router } from "express";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../db/client";
-import { orders, stores, protectedPayments } from "../db/schema";
+import { orders, orderItems, stores, protectedPayments } from "../db/schema";
 import { createSale } from "../lib/sales";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { myWorkStore } from "../lib/members";
@@ -73,6 +73,9 @@ async function attachProtected<T extends { id: string }>(rows: T[]): Promise<(T 
 }
 
 // Confirmar pedido → genera la venta (origin='order') y descuenta stock.
+// Todo ocurre en UNA transacción con el pedido bloqueado (FOR UPDATE): si dos
+// personas confirman a la vez, la segunda espera, ve status='sold' y recibe
+// 409. Nunca se generan dos ventas ni se descuenta stock dos veces.
 router.post("/:id/confirm", requireAuth, async (req: AuthRequest, res) => {
   if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
 
@@ -80,58 +83,82 @@ router.post("/:id/confirm", requireAuth, async (req: AuthRequest, res) => {
   if (!work) return res.status(404).json({ error: "No tienes una tienda." });
   const store = { id: work.id };
 
-  const order = await db.query.orders.findFirst({
-    where: and(eq(orders.id, req.params.id), eq(orders.storeId, store.id)),
-    with: { items: true },
+  const outcome = await db.transaction(async (tx) => {
+    const [order] = await tx
+      .select()
+      .from(orders)
+      .where(and(eq(orders.id, req.params.id), eq(orders.storeId, store.id)))
+      .limit(1)
+      .for("update");
+    if (!order) return { kind: "error" as const, status: 404, error: "Pedido no encontrado." };
+    if (order.status !== "pending") {
+      return {
+        kind: "error" as const,
+        status: 409,
+        error:
+          order.status === "sold"
+            ? "Este pedido ya fue confirmado."
+            : "Este pedido ya fue cancelado.",
+      };
+    }
+
+    const rows = await tx.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+    const items = rows
+      .filter((it) => it.productId != null)
+      .map((it) => ({ productId: it.productId!, quantity: Number(it.quantity) }));
+    if (!items.length) {
+      return { kind: "error" as const, status: 409, error: "Este pedido no tiene productos válidos." };
+    }
+
+    const result = await createSale(
+      {
+        storeId: store.id,
+        customerId: order.customerId ?? null,
+        origin: "order",
+        note: order.note ?? null,
+        items,
+      },
+      tx as unknown as typeof db,
+    );
+    if (!result.ok) {
+      return { kind: "error" as const, status: result.status, error: result.error };
+    }
+
+    const [updated] = await tx
+      .update(orders)
+      .set({ status: "sold", saleId: result.sale.id })
+      .where(and(eq(orders.id, order.id), eq(orders.status, "pending")))
+      .returning();
+    if (!updated) {
+      return { kind: "error" as const, status: 409, error: "El pedido ya cambió de estado." };
+    }
+    return { kind: "ok" as const, updated, customerId: order.customerId };
   });
-  if (!order) return res.status(404).json({ error: "Pedido no encontrado." });
-  if (order.status !== "pending") {
-    return res.status(409).json({ error: order.status === "sold" ? "Este pedido ya fue confirmado." : "Este pedido ya fue cancelado." });
+
+  if (outcome.kind === "error") {
+    return res.status(outcome.status).json({ error: outcome.error });
   }
 
-  // Todos los ítems del pedido (canasta de varios productos del chat).
-  const items = (order.items ?? [])
-    .filter((it) => it.productId != null)
-    .map((it) => ({ productId: it.productId!, quantity: Number(it.quantity) }));
-  if (!items.length) {
-    return res.status(409).json({ error: "Este pedido no tiene productos válidos." });
-  }
-
-  const result = await createSale({
-    storeId: store.id,
-    customerId: order.customerId ?? null,
-    origin: "order",
-    note: order.note ?? null,
-    items,
-  });
-  if (!result.ok) {
-    return res.status(result.status).json({ error: result.error });
-  }
-
-  const [updated] = await db
-    .update(orders)
-    .set({ status: "sold", saleId: result.sale.id })
-    .where(eq(orders.id, order.id))
-    .returning();
-  // Push a la clienta: pedido confirmado (best-effort).
+  // Push a la clienta: pedido confirmado (best-effort, después del commit).
   void (async () => {
     try {
-      if (order.customerId) {
+      if (outcome.customerId) {
         const { notifyUser } = await import("../lib/push");
-        await notifyUser(order.customerId, {
+        await notifyUser(outcome.customerId, {
           title: "¡Pedido confirmado!",
           body: "La tienda confirmó tu pedido y lo está preparando.",
-          data: { type: "order_confirmed", orderId: order.id, storeId: store.id },
+          data: { type: "order_confirmed", orderId: outcome.updated.id, storeId: store.id },
         });
       }
     } catch {
       /* push best-effort */
     }
   })();
-  res.json(updated);
+  res.json(outcome.updated);
 });
 
-// Cancelar pedido pendiente.
+// Cancelar pedido pendiente. El UPDATE condicional es atómico: si el pedido
+// pasa a 'sold' al mismo tiempo, no se cancela una venta ya generada.
 router.post("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
   if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
 
@@ -139,33 +166,38 @@ router.post("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
   if (!work) return res.status(404).json({ error: "No tienes una tienda." });
   const store = { id: work.id };
 
-  const [order] = await db
-    .select({ id: orders.id, status: orders.status })
-    .from(orders)
-    .where(and(eq(orders.id, req.params.id), eq(orders.storeId, store.id)))
-    .limit(1);
-  if (!order) return res.status(404).json({ error: "Pedido no encontrado." });
-  if (order.status !== "pending") {
-    return res.status(409).json({ error: order.status === "sold" ? "Este pedido ya fue confirmado." : "Este pedido ya fue cancelado." });
-  }
-
   const [updated] = await db
     .update(orders)
     .set({ status: "cancelled" })
-    .where(eq(orders.id, order.id))
+    .where(
+      and(
+        eq(orders.id, req.params.id),
+        eq(orders.storeId, store.id),
+        eq(orders.status, "pending"),
+      ),
+    )
     .returning();
+
+  if (!updated) {
+    const [order] = await db
+      .select({ id: orders.id, status: orders.status })
+      .from(orders)
+      .where(and(eq(orders.id, req.params.id), eq(orders.storeId, store.id)))
+      .limit(1);
+    if (!order) return res.status(404).json({ error: "Pedido no encontrado." });
+    return res.status(409).json({
+      error: order.status === "sold" ? "Este pedido ya fue confirmado." : "Este pedido ya fue cancelado.",
+    });
+  }
+
   void (async () => {
     try {
-      const full = await db.query.orders.findFirst({
-        where: eq(orders.id, order.id),
-        columns: { customerId: true },
-      });
-      if (full?.customerId) {
+      if (updated.customerId) {
         const { notifyUser } = await import("../lib/push");
-        await notifyUser(full.customerId, {
+        await notifyUser(updated.customerId, {
           title: "Pedido cancelado",
           body: "La tienda canceló tu pedido. Escríbeles por el chat si tienes dudas.",
-          data: { type: "order_cancelled", orderId: order.id, storeId: store.id },
+          data: { type: "order_cancelled", orderId: updated.id, storeId: store.id },
         });
       }
     } catch {

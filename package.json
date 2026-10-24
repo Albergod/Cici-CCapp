@@ -1,7 +1,7 @@
 {
   "name": "cc-platform",
   "version": "0.1.0",
-  "description": "Centro Comercial Digital — MVP backend (users, tiendas, productos, chat)",
+  "description": "Centro Comercial Digital \u2014 MVP backend (users, tiendas, productos, chat)",
   "type": "commonjs",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:baseline": "node scripts/baseline-db.mjs",
     "db:reset": "node scripts/reset-db.mjs",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
@@ -26,6 +27,7 @@
     "express": "^4.21.0",
     "express-async-errors": "^3.1.1",
     "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "multer": "^2.3.0",

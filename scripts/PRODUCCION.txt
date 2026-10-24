@@ -18,7 +18,10 @@
 
    ── IMPRESCINDIBLES (ya deben estar en Render) ──────────
    DATABASE_URL      → BD de Neon. NO la cambies.
-   JWT_SECRET        → secreto largo y aleatorio.
+   JWT_SECRET        → 32+ caracteres aleatorios.
+   ADMIN_TOKEN       → 16+ caracteres; bootstrap del panel /admin.
+   NODE_ENV          → production.
+   CORS_ORIGINS      → https://tu-dominio (lista separada por comas).
    TRUST_PROXY       → 1 (para rate-limit y URLs reales).
    PUBLIC_BASE_URL   → https://tu-dominio-o-URL-de-render
 
@@ -28,6 +31,10 @@
    WOMPI_PRIVATE_KEY
    WOMPI_INTEGRITY_KEY
    WOMPI_EVENTS_KEY     → para webhooks (en el panel de Wompi).
+
+   ⚠️ Con NODE_ENV=production el backend SE NIEGA a arrancar/cobrar
+   si las llaves de Wompi son _test_ (sandbox). Para un staging explícito
+   define ALLOW_SANDBOX_PAYMENTS=true; nunca en producción real.
 
    ── IA DEL CHAT (opcional) ──────────────────────────────
    GROQ_API_KEY · OPENAI_API_KEY · AI_BASE_URL · AI_MODEL
@@ -46,6 +53,13 @@
 
    Después de tocar env vars en Render → "Manual Deploy".
    La VITE_ se usa en el BUILD: si la cambias, hay que redesplegar.
+
+   ── MIGRACIONES (única fuente de verdad: drizzle/) ──────
+   El arranque valida el entorno y aplica `drizzle/` automáticamente.
+   Si la BD nació con `db:push` (sin journal), adóptala UNA vez:
+     npm run db:baseline -- --yes --through=0019_store_members
+   Luego `npm run db:migrate` aplica solo lo pendiente. NO uses db:push
+   en producción: ya no existe sincronización manual de esquema.
 
 ────────────────────────────────────────────────────────────────
 2) RESETEAR LA BASE DE DATOS (el día del lanzamiento)

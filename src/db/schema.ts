@@ -544,6 +544,10 @@ export const protectedPayments = pgTable(
     wompiTxId: text("wompi_tx_id"),
     releasedAt: timestamp("released_at"),
     paidOutAt: timestamp("paid_out_at"),
+    // Auditoría del desembolso manual: quién lo confirmó y con qué referencia
+    // (comprobante Nequi/bancario). Evita pagos sin trazabilidad.
+    paidOutBy: uuid("paid_out_by").references(() => users.id),
+    payoutReference: text("payout_reference"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => ({

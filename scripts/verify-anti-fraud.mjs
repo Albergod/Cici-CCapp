@@ -32,10 +32,23 @@ const login = async (email, password, xff) =>
   (await j("POST", "/auth/login", { email, password }, undefined, xff)).data.token;
 const register = async (email, password, name, xff) =>
   (await j("POST", "/auth/register", { email, password, name }, undefined, xff)).data;
+let adminJwt = null;
 const adminReq = async (method, url, body) => {
+  if (!adminJwt) {
+    const login = await fetch(BASE + "/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: ADMIN }),
+    });
+    const data = await login.json().catch(() => ({}));
+    if (!login.ok || !data.token) {
+      throw new Error(`No se pudo iniciar sesión de admin: ${login.status} ${data.error ?? ""}`);
+    }
+    adminJwt = data.token;
+  }
   const res = await fetch(BASE + url, {
     method,
-    headers: { "Content-Type": "application/json", "X-Admin-Token": ADMIN },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminJwt}` },
     body: body ? JSON.stringify(body) : undefined,
   });
   return { status: res.status, data: await res.json().catch(() => ({})) };

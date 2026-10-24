@@ -6,6 +6,7 @@ import "express-async-errors";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import helmet from "helmet";
 import morgan from "morgan";
 import compression from "compression";
 import http from "http";
@@ -34,6 +35,7 @@ import { expireStoresAndReturnCount } from "./routes/store.routes";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { db } from "./db/client";
 import { sql } from "drizzle-orm";
+import { allowedCorsOrigins, enforceEnv, isProduction } from "./lib/env";
 
 function escapeHtml(value: string): string {
   return value
@@ -56,10 +58,56 @@ export function createApp() {
     app.set("trust proxy", trustProxy === "true" ? 1 : Number(trustProxy) || 1);
   }
 
+  // ── Cabeceras de seguridad ────────────────────────────────────────────────
+  // CSP explícita para la SPA: solo scripts propios + Google Identity, fuentes
+  // de Google Fonts, imágenes propias/Cloudinary y conexiones HTTPS/WSS.
+  // HSTS y upgrade-insecure-requests solo en producción (en localhost forzar
+  // HTTPS rompería el desarrollo).
+  const prod = isProduction();
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          "default-src": ["'self'"],
+          "script-src": ["'self'", "https://accounts.google.com"],
+          "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+          "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
+          "img-src": ["'self'", "data:", "blob:", "https:"],
+          "connect-src": ["'self'", "https:", "wss:", "ws:"],
+          "frame-src": ["https://accounts.google.com"],
+          "object-src": ["'none'"],
+          "base-uri": ["'self'"],
+          "form-action": ["'self'"],
+          "frame-ancestors": ["'none'"],
+          "upgrade-insecure-requests": prod ? [] : null,
+        },
+      },
+      crossOriginEmbedderPolicy: false,
+      crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+      hsts: prod ? { maxAge: 15552000, includeSubDomains: true } : false,
+    }),
+  );
+
+  // ── CORS por allowlist ────────────────────────────────────────────────────
+  // Sin Origin (apps móviles, curl, same-origin) se permite. Un navegador con
+  // Origin solo recibe cabeceras CORS si está en CORS_ORIGINS o PUBLIC_BASE_URL.
+  const corsOrigins = allowedCorsOrigins();
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin) return callback(null, true);
+        return callback(null, corsOrigins.includes(origin));
+      },
+      methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+      maxAge: 86400,
+    }),
+  );
+
   // ── Rate limiting global ──────────────────────────────────────────────────
   app.use(globalLimiter);
 
-  app.use(cors());
   app.use(express.json());
   app.use(morgan("dev"));
   // Compresión gzip para JSON y estáticos: el feed y los catálogos pesan mucho
@@ -200,191 +248,25 @@ export const app = createApp();
 const isMainModule = process.argv[1] === __filename;
 if (isMainModule) {
   // ── Migraciones al arranque ───────────────────────────────────────────────
-  // Aplica el esquema nuevo de forma RESILIENTE, porque la DB de producción
-  // puede haber nacido por "db:push" (sin journal de migraciones) o por
-  // "drizzle-kit migrate" (con journal):
-  //   1. Si existe journal → aplica migraciones pendientes (p. ej. 0004) y listo.
-  //   2. Si no (o si el journal no aplica) → sincroniza el esquema esencial con
-  //      ALTER idempotentes (ADD COLUMN IF NOT EXISTS), sin tumbar el arranque.
-  // Así los deploys nunca revientan por esquema desincronizado.
-  async function syncEssentialSchema(): Promise<void> {
-    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at timestamp`);
-    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS moderation_status text NOT NULL DEFAULT 'ACTIVE'`);
-    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS moderation_until timestamp`);
-    // Trial manual: la prueba no arranca al crear la tienda, solo al activarla.
-    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_used_at timestamp`);
-    // La prueba no arranca al crear la tienda: trial_started_at debe aceptar NULL
-    // (una tienda FREE recién creada no lo fija). En prod pudo quedar NOT NULL de
-    // un esquema viejo creado con db:push → si no lo soltamos, INSERT falla.
-    await db.execute(sql`ALTER TABLE stores ALTER COLUMN trial_started_at DROP NOT NULL`);
-    await db.execute(sql`ALTER TABLE stores ALTER COLUMN trial_started_at DROP DEFAULT`);
-    await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS removed_at timestamp`);
-    await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS removed_reason text`);
-    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS referral_rewarded boolean NOT NULL DEFAULT false`);
-    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS prestige_goal integer NOT NULL DEFAULT 100`);
-    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS verified_at timestamp`);
-    // ── Belleza / agenda ────────────────────────────────────────────────────
-    // El enum no admite ADD VALUE ... IF NOT EXISTS en todas las versiones;
-    // se agrega condicionalmente y fuera de transacción (db.execute por auto).
-    try {
-      await db.execute(sql`ALTER TYPE business_type ADD VALUE IF NOT EXISTS 'BELLEZA'`);
-    } catch {
-      const has = await db.execute(sql`SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname='business_type' AND e.enumlabel='BELLEZA'`);
-      if (!has.rows.length) await db.execute(sql`ALTER TYPE business_type ADD VALUE 'BELLEZA'`);
-    }
-    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS schedule jsonb NOT NULL DEFAULT '{"openTime":"08:00","closeTime":"21:00","lunchStart":"12:00","lunchEnd":"13:00","workingDays":[1,2,3,4,5,6],"bookingHorizonDays":30,"timezone":"America/Bogota"}'::jsonb`);
-    await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS asserted_service_id uuid`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS store_services (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      name text NOT NULL,
-      description text,
-      price numeric(10, 2) NOT NULL,
-      duration_minutes integer NOT NULL,
-      created_at timestamp DEFAULT now() NOT NULL,
-      store_id uuid NOT NULL REFERENCES stores(id)
-    )`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS appointments (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      appointment_date timestamp NOT NULL,
-      start_time text NOT NULL,
-      end_time text NOT NULL,
-      status text DEFAULT 'confirmed' NOT NULL,
-      note text,
-      created_at timestamp DEFAULT now() NOT NULL,
-      store_id uuid NOT NULL REFERENCES stores(id),
-      service_id uuid NOT NULL REFERENCES store_services(id),
-      customer_id uuid REFERENCES users(id),
-      manual_customer_name text
-    )`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS appointments_store_date_unique
-      ON appointments (store_id, appointment_date, start_time)
-      WHERE status <> 'cancelled'`);
-    // Citas manuales (modo manual de las tiendas FREE): el comerciante agenda
-    // para un cliente sin cuenta, así que customer_id ya no es obligatorio.
-    await db.execute(sql`ALTER TABLE appointments ALTER COLUMN customer_id DROP NOT NULL`);
-    await db.execute(sql`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS manual_customer_name text`);
-    // ── Cita → venta ────────────────────────────────────────────────────────
-    await db.execute(sql`ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS service_id uuid`);
-    await db.execute(sql`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS sale_id uuid`);
-    await db.execute(sql`ALTER TABLE sales ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT 'manual'`);
-    // ── Pedidos del chat (Fase 2): venta automática de productos ────────────
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS orders (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      status text DEFAULT 'pending' NOT NULL,
-      created_at timestamp DEFAULT now() NOT NULL,
-      store_id uuid NOT NULL REFERENCES stores(id),
-      customer_id uuid REFERENCES users(id),
-      note text,
-      sale_id uuid REFERENCES sales(id)
-    )`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS order_items (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      order_id uuid NOT NULL REFERENCES orders(id),
-      product_id uuid REFERENCES products(id),
-      name text NOT NULL,
-      unit_price numeric(10, 2) NOT NULL,
-      quantity numeric(10, 0) NOT NULL
-    )`);
-    // ── Reseñas por tienda (prueba social): 1 por cliente y tienda (upsert).
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS store_reviews (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      created_at timestamp DEFAULT now() NOT NULL,
-      store_id uuid NOT NULL REFERENCES stores(id),
-      customer_id uuid NOT NULL REFERENCES users(id),
-      rating integer NOT NULL,
-      comment text,
-      image_url text
-    )`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS store_reviews_customer_store_unique
-      ON store_reviews (customer_id, store_id)`);
-    // ── Ofertas estilo Shopee (v1): precio promo + fin de vigencia ──────────
-    await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS offer_price numeric(10, 2)`);
-    await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS offer_ends_at timestamp`);
-    // ── Recuperación de contraseña (tokens en DB, no en memoria) ───────────
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS password_resets (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      created_at timestamp DEFAULT now() NOT NULL,
-      user_id uuid NOT NULL REFERENCES users(id),
-      token_hash text NOT NULL,
-      expires_at timestamp NOT NULL,
-      used_at timestamp
-    )`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS password_resets_token_hash_unique
-      ON password_resets (token_hash)`);
-    // ── Push FCM por dispositivo ───────────────────────────────────────────
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS device_tokens (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      created_at timestamp DEFAULT now() NOT NULL,
-      user_id uuid NOT NULL REFERENCES users(id),
-      token text NOT NULL,
-      platform text NOT NULL DEFAULT 'android'
-    )`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS device_tokens_token_unique
-      ON device_tokens (token)`);
-    // ── Pago protegido piloto (tabla + enum + flag) ───────────────────────
-    await db.execute(sql`DO $$ BEGIN
-      CREATE TYPE protected_status AS ENUM('initiated','collected','held','released','paid_out','refunded','cancelled');
-    EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS protected_payments (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      created_at timestamp DEFAULT now() NOT NULL,
-      order_id uuid NOT NULL REFERENCES orders(id),
-      store_id uuid NOT NULL REFERENCES stores(id),
-      customer_id uuid REFERENCES users(id),
-      total numeric(10, 2) NOT NULL,
-      buyer_fee numeric(10, 2) NOT NULL,
-      seller_fee numeric(10, 2) NOT NULL,
-      collected numeric(10, 2),
-      seller_net numeric(10, 2) NOT NULL,
-      status protected_status NOT NULL DEFAULT 'initiated',
-      wompi_tx_id text,
-      released_at timestamp,
-      paid_out_at timestamp
-    )`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS protected_order_unique ON protected_payments (order_id)`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS protected_tx_unique ON protected_payments (wompi_tx_id)`);
-    await db.execute(sql`ALTER TABLE stores ADD COLUMN IF NOT EXISTS protected_enabled boolean NOT NULL DEFAULT false`);
-    // ── Respuestas de la dueña en reseñas ──────────────────────────────────
-    await db.execute(sql`ALTER TABLE store_reviews ADD COLUMN IF NOT EXISTS owner_reply text`);
-    await db.execute(sql`ALTER TABLE store_reviews ADD COLUMN IF NOT EXISTS replied_at timestamp`);
-    // ── Colaboradoras + invitaciones ───────────────────────────────────────
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS store_members (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      created_at timestamp DEFAULT now() NOT NULL,
-      store_id uuid NOT NULL REFERENCES stores(id),
-      user_id uuid NOT NULL REFERENCES users(id)
-    )`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS store_members_unique ON store_members (store_id, user_id)`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS store_invites (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-      created_at timestamp DEFAULT now() NOT NULL,
-      store_id uuid NOT NULL REFERENCES stores(id),
-      code text NOT NULL
-    )`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS store_invites_store_unique ON store_invites (store_id)`);
-    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS store_invites_code_unique ON store_invites (code)`);
-  }
-
+  // La ÚNICA fuente de verdad del esquema es drizzle/schema.ts + drizzle/*.sql.
+  // No hay sincronización manual paralela: si una base nació con `db:push` y no
+  // tiene journal, se adopta una vez con `npm run db:baseline` o se resetea.
   async function runMigrations(): Promise<void> {
     const migrationsDir = path.join(path.resolve(__dirname, ".."), "drizzle");
-    if (fs.existsSync(migrationsDir)) {
-      try {
-        console.log("🧬 Aplicando migraciones de la base de datos…");
-        await migrate(db, { migrationsFolder: migrationsDir });
-        console.log("🧬 Migraciones aplicadas correctamente.");
-        return;
-      } catch (err) {
-        // Quien creó la DB con db:push no tiene journal → "migrate" no aplica.
-        // Se sigue con la sincronización idempotente (no es fatal).
-        console.warn(
-          "⚠️ Migración por journal no aplicable; sincronizando esquema esencial.",
-          err instanceof Error ? err.message : err,
-        );
-      }
+    if (!fs.existsSync(migrationsDir)) {
+      throw new Error(`No existe la carpeta de migraciones: ${migrationsDir}`);
     }
-    console.log("🧬 Sincronizando esquema esencial (idempotente)…");
-    await syncEssentialSchema();
-    console.log("🧬 Esquema sincronizado.");
+    console.log("🧬 Aplicando migraciones de la base de datos…");
+    await migrate(db, { migrationsFolder: migrationsDir });
+    console.log("🧬 Migraciones aplicadas correctamente.");
+  }
+
+  // La configuración crítica se valida ANTES de tocar la base o aceptar tráfico.
+  try {
+    enforceEnv();
+  } catch (err) {
+    console.error("❌ Configuración inválida:", err instanceof Error ? err.message : err);
+    process.exit(1);
   }
 
   const server = http.createServer(app);

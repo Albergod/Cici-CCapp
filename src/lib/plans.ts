@@ -29,12 +29,17 @@ export function generateReferralCode(length = 6): string {
  * persistiéndolo si aún no tiene. Evita enlaces `?ref=null` aunque la tienda
  * haya quedado con plan activo sin pasar por activatePaidPlan.
  */
-export async function ensureReferralCode(storeId: string, current?: string | null): Promise<string> {
+export async function ensureReferralCode(
+  storeId: string,
+  current?: string | null,
+  tx?: typeof db,
+): Promise<string> {
   if (current) return current;
+  const d = tx ?? db;
   let referralCode = generateReferralCode();
   let exists = true;
   while (exists) {
-    const dup = await db
+    const dup = await d
       .select({ id: stores.id })
       .from(stores)
       .where(eq(stores.referralCode, referralCode))
@@ -42,7 +47,7 @@ export async function ensureReferralCode(storeId: string, current?: string | nul
     exists = dup.length > 0;
     if (exists) referralCode = generateReferralCode();
   }
-  await db.update(stores).set({ referralCode }).where(eq(stores.id, storeId));
+  await d.update(stores).set({ referralCode }).where(eq(stores.id, storeId));
   return referralCode;
 }
 
@@ -55,12 +60,23 @@ export async function activatePaidPlan(
   storeId: string,
   plan: "PRO" | "BUSINESS",
   cycle: "MONTHLY" | "BI_MONTHLY",
+  tx?: typeof db,
 ): Promise<{ alreadyActive: boolean }> {
-  const [store] = await db
+  // Sin transacción externa se abre una propia. El FOR UPDATE serializa dos
+  // pagos simultáneos de la misma tienda: cada uno suma su período sin perder
+  // la fecha de vencimiento ni la meta de prestigio del otro.
+  if (!tx) {
+    return db.transaction((trx) =>
+      activatePaidPlan(storeId, plan, cycle, trx as unknown as typeof db),
+    );
+  }
+  const d = tx;
+  const [store] = await d
     .select()
     .from(stores)
     .where(eq(stores.id, storeId))
-    .limit(1);
+    .limit(1)
+    .for("update");
   if (!store) throw new Error("Tienda no encontrada");
 
   const alreadyActive =
@@ -70,7 +86,7 @@ export async function activatePaidPlan(
       store.subscriptionExpiresAt !== null &&
       new Date(store.subscriptionExpiresAt).getTime() > Date.now());
 
-  const referralCode = await ensureReferralCode(storeId, store.referralCode);
+  const referralCode = await ensureReferralCode(storeId, store.referralCode, d);
 
   // Meta de prestigio (puntos que hacen falta para el check):
   //  - Primera activación → base 100. Una tienda nueva NO arranca en 200.
@@ -85,7 +101,7 @@ export async function activatePaidPlan(
     ? Math.min(PRESTIGE_GOAL_MAX, currentGoal + PRESTIGE_GOAL_STEP)
     : PRESTIGE_BASE_GOAL;
 
-  await db
+  await d
     .update(stores)
     .set({
       plan,
