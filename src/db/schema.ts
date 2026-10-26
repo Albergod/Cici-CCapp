@@ -50,6 +50,10 @@ export const businessTypeEnum = pgEnum("business_type", [
   "OTRO",
 ]);
 
+// Rol dentro de una empresa. La dueña manda; ADMIN gestiona operación y
+// equipo; VIEWER solo consulta el consolidado.
+export const empresaRoleEnum = pgEnum("empresa_role", ["OWNER", "ADMIN", "VIEWER"]);
+
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: text("email").notNull().unique(),
@@ -507,6 +511,63 @@ export const storeInvites = pgTable(
   }),
 );
 
+// Cici Empresarios: una organización agrupa varias tiendas sin absorberlas.
+// Cada tienda conserva su dueña, su plan y su operación; la empresa solo
+// aporta una visión consolidada y roles de equipo transversal.
+export const empresas = pgTable("empresas", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  ownerId: uuid("owner_id")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const empresaMiembros = pgTable(
+  "empresa_miembros",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    empresaId: uuid("empresa_id")
+      .notNull()
+      .references(() => empresas.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    role: empresaRoleEnum("role").default("VIEWER").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    memberUnique: uniqueIndex("empresa_miembros_unique").on(t.empresaId, t.userId),
+  }),
+);
+
+// Vinculación empresa ↔ tienda. Una tienda pertenece como máximo a una
+// empresa a la vez; para vincularla se exige autorización de su dueña.
+export const empresaTiendas = pgTable(
+  "empresa_tiendas",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    empresaId: uuid("empresa_id")
+      .notNull()
+      .references(() => empresas.id),
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id),
+    linkedByUserId: uuid("linked_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    empresaStoreUnique: uniqueIndex("empresa_tiendas_empresa_store_unique").on(
+      t.empresaId,
+      t.storeId,
+    ),
+    storeUnique: uniqueIndex("empresa_tiendas_store_unique").on(t.storeId),
+  }),
+);
+
 // Solicitudes de acceso anticipado a Cici Empresarios. Son leads de la landing
 // de validación: todavía no crean una empresa ni vinculan tiendas. El estado
 // lo mueve el equipo desde el panel de administración.
@@ -584,6 +645,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   conversations: many(conversations),
   messages: many(messages),
   memberships: many(storeMembers),
+  empresas: many(empresas),
+  empresaMemberships: many(empresaMiembros),
 }));
 
 export const storeMembersRelations = relations(storeMembers, ({ one }) => ({
@@ -593,6 +656,23 @@ export const storeMembersRelations = relations(storeMembers, ({ one }) => ({
 
 export const storeInvitesRelations = relations(storeInvites, ({ one }) => ({
   store: one(stores, { fields: [storeInvites.storeId], references: [stores.id] }),
+}));
+
+export const empresasRelations = relations(empresas, ({ one, many }) => ({
+  owner: one(users, { fields: [empresas.ownerId], references: [users.id] }),
+  members: many(empresaMiembros),
+  stores: many(empresaTiendas),
+}));
+
+export const empresaMiembrosRelations = relations(empresaMiembros, ({ one }) => ({
+  empresa: one(empresas, { fields: [empresaMiembros.empresaId], references: [empresas.id] }),
+  user: one(users, { fields: [empresaMiembros.userId], references: [users.id] }),
+}));
+
+export const empresaTiendasRelations = relations(empresaTiendas, ({ one }) => ({
+  empresa: one(empresas, { fields: [empresaTiendas.empresaId], references: [empresas.id] }),
+  store: one(stores, { fields: [empresaTiendas.storeId], references: [stores.id] }),
+  linkedBy: one(users, { fields: [empresaTiendas.linkedByUserId], references: [users.id] }),
 }));
 
 export const storesRelations = relations(stores, ({ one, many }) => ({
@@ -608,6 +688,7 @@ export const storesRelations = relations(stores, ({ one, many }) => ({
   services: many(storeServices),
   appointments: many(appointments),
   orders: many(orders),
+  empresaTiendas: many(empresaTiendas),
 }));
 
 export const categoriesRelations = relations(categories, ({ one, many }) => ({

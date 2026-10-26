@@ -18,6 +18,7 @@ import { DownloadPage } from '@/pages/DownloadPage';
 import { MisComprasPage } from '@/pages/MisComprasPage';
 import { ComoFuncionaPage } from '@/pages/ComoFuncionaPage';
 import { EmpresariosPage } from '@/pages/EmpresariosPage';
+import { EmpresasPage } from '@/pages/EmpresasPage';
 import { AjustesModal } from '@/components/AjustesModal';
 
 const AUTH_PAGES = ['/login', '/register', '/forgot-password', '/reset-password'];
@@ -202,6 +203,14 @@ function App() {
         element={
           <AppLayout>
             <EmpresariosPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/empresas"
+        element={
+          <AppLayout>
+            <EmpresasPage />
           </AppLayout>
         }
       />

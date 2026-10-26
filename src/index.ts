@@ -30,6 +30,7 @@ import servicesRouter from "./routes/services.routes";
 import appointmentsRouter from "./routes/appointments.routes";
 import ordersRouter from "./routes/orders.routes";
 import empresariosRouter from "./routes/empresarios.routes";
+import empresasRouter from "./routes/empresas.routes";
 import { attachChatWebSocket } from "./ws/chatServer";
 import { globalLimiter } from "./middleware/rate-limit";
 import { expireStoresAndReturnCount } from "./routes/store.routes";
@@ -149,6 +150,7 @@ export function createApp() {
   app.use("/api/appointments", appointmentsRouter);
   app.use("/api/orders", ordersRouter);
   app.use("/api/empresarios", empresariosRouter);
+  app.use("/api/empresas", empresasRouter);
 
   const frontendDist = path.join(appRoot, "frontend", "dist");
   if (fs.existsSync(frontendDist)) {

@@ -89,12 +89,36 @@ conservan). Para borrarla del todo: `docker compose down -v`.
 `User → Store → Product / Category`, `User —follow→ Store`,
 `Conversation (customer + store) → Message`. Ver `src/db/schema.ts`.
 
+## Cici Empresarios
+
+La validación vive en `/empresarios` y guarda leads en `empresarios_leads`
+(migración `0021`). La capa operativa vive en `/empresas`:
+
+| Método | Ruta | Qué hace |
+|--------|------|----------|
+| GET | `/api/empresas/mine` | Empresas donde participo |
+| POST | `/api/empresas` | Crear empresa (exige al menos una tienda propia) |
+| GET | `/api/empresas/:id` | Detalle, tiendas, equipo y consolidado |
+| PATCH | `/api/empresas/:id` | Renombrar (OWNER/ADMIN) |
+| POST | `/api/empresas/:id/tiendas` | Vincular tienda propia |
+| DELETE | `/api/empresas/:id/tiendas/:storeId` | Desvincular tienda |
+| POST | `/api/empresas/:id/miembros` | Agregar miembro existente |
+| PATCH | `/api/empresas/:id/miembros/:userId` | Cambiar rol (solo OWNER) |
+| DELETE | `/api/empresas/:id/miembros/:userId` | Quitar miembro |
+
+Reglas: una tienda pertenece como máximo a una empresa; para vincular o
+desvincular hay que ser dueña de la tienda y OWNER/ADMIN de la empresa.
+Roles: `OWNER`, `ADMIN` y `VIEWER`; solo OWNER cambia roles y ADMIN solo
+gestiona VIEWER. Los roles de empresa no reemplazan los permisos de tienda.
+Los miembros se agregan por correo de una cuenta existente (todavía no hay
+invitaciones por email). La capa operativa se versiona en la migración
+`0022`.
+
 ## Próximos pasos sugeridos
 
 1. Endpoint de subida de imágenes (logo, banner, fotos de producto) — hoy se
    reciben como URL directa para no complicar el MVP.
-2. Niveles de plan (`FREE` / `PRO` / `BUSINESS`) ya están en el modelo pero
-   sin lógica de límites todavía (ej. tope de 20 productos en `FREE`).
-3. Frontend estilo feed (YouTube/Twitch) que consuma `/api/stores` y
-   `/api/products`.
+2. Lógica de límites por plan (`FREE` / `PRO` / `BUSINESS`) y cobro del plan
+   Empresarios.
+3. Invitaciones por email y notificaciones para miembros de empresa.
 4. Live shopping — cuando el resto esté validado, no antes.

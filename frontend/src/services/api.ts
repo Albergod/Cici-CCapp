@@ -1,5 +1,63 @@
 import { AuthResponse, Conversation, Store, Product, Message, SaleStats, ReferralInfo, StoreService, Appointment, BusinessType, Order, StoreReview, User } from '@/types';
 
+export type EmpresaRole = 'OWNER' | 'ADMIN' | 'VIEWER';
+
+export interface EmpresaListItem {
+  id: string;
+  name: string;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+  role: EmpresaRole;
+  tiendasCount: number;
+  miembrosCount: number;
+}
+
+export interface EmpresaStore {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  status: string;
+  logoUrl: string | null;
+  businessType: string;
+  linkedAt: string;
+  ventasTotal: number;
+  ventas30d: number;
+  ventasCount: number;
+  productos: number;
+}
+
+export interface EmpresaMember {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  role: EmpresaRole;
+  createdAt: string;
+}
+
+export interface EmpresaDetail {
+  id: string;
+  name: string;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+  role: EmpresaRole;
+  tiendas: EmpresaStore[];
+  miembros: EmpresaMember[];
+  tiendasDisponibles: Array<{ id: string; name: string; slug: string; logoUrl: string | null }>;
+  resumen: {
+    tiendas: number;
+    miembros: number;
+    ventasTotal: number;
+    ventas30d: number;
+    ventasCount: number;
+    productos: number;
+  };
+}
+
 const API_BASE = '/api';
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -219,6 +277,43 @@ export const api = {
       request<{ ok: boolean; message: string }>('/empresarios/leads', {
         method: 'POST',
         body: JSON.stringify(data),
+      }),
+  },
+  empresas: {
+    mine: () => request<EmpresaListItem[]>('/empresas/mine'),
+    get: (id: string) => request<EmpresaDetail>(`/empresas/${id}`),
+    create: (name: string) =>
+      request<EmpresaListItem>('/empresas', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      }),
+    rename: (id: string, name: string) =>
+      request<{ id: string; name: string }>(`/empresas/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      }),
+    linkStore: (id: string, storeId: string) =>
+      request<{ ok: boolean; storeId: string }>(`/empresas/${id}/tiendas`, {
+        method: 'POST',
+        body: JSON.stringify({ storeId }),
+      }),
+    unlinkStore: (id: string, storeId: string) =>
+      request<{ ok: boolean }>(`/empresas/${id}/tiendas/${storeId}`, {
+        method: 'DELETE',
+      }),
+    addMember: (id: string, email: string, role: 'ADMIN' | 'VIEWER') =>
+      request<EmpresaMember>(`/empresas/${id}/miembros`, {
+        method: 'POST',
+        body: JSON.stringify({ email, role }),
+      }),
+    updateMember: (id: string, userId: string, role: 'ADMIN' | 'VIEWER') =>
+      request<{ id: string; role: string }>(`/empresas/${id}/miembros/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      }),
+    removeMember: (id: string, userId: string) =>
+      request<{ ok: boolean }>(`/empresas/${id}/miembros/${userId}`, {
+        method: 'DELETE',
       }),
   },
 

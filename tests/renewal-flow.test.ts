@@ -19,11 +19,17 @@ async function getStore() {
   return s;
 }
 
-async function waitForGoal(expected: number, timeoutMs = 6000) {
+async function waitForPlanAndGoal(
+  plan: "PRO" | "BUSINESS",
+  expected: number,
+  timeoutMs = 6000,
+) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const s = await getStore();
-    if (Number(s?.prestigeGoal) === expected) return s;
+    // La meta inicial de una tienda FREE ya es 100: esperar solo la meta
+    // devuelve la fila antes de que el webhook active el plan (flaky).
+    if (s?.plan === plan && Number(s?.prestigeGoal) === expected) return s;
     await new Promise((r) => setTimeout(r, 100));
   }
   return getStore();
@@ -35,7 +41,7 @@ async function payAndWait(id: string, plan: "PRO" | "BUSINESS", cycle: "MONTHLY"
     .post("/api/payments/mercadopago/webhook")
     .send({ type: "payment", data: { id } });
   expect(r.status).toBe(200);
-  return waitForGoal(expectedGoal);
+  return waitForPlanAndGoal(plan, expectedGoal);
 }
 
 describe("Renovación / upgrade end-to-end vía webhook de pago", () => {

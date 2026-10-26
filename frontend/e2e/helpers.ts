@@ -37,3 +37,21 @@ export function apiContext(token?: string) {
     extraHTTPHeaders: token ? { Authorization: `Bearer ${token}` } : {},
   });
 }
+
+/** Registro + login por API para fixtures de segundo/tercer usuario. */
+export async function apiRegister(
+  email: string,
+  name: string,
+  pass = 'demo123456',
+) {
+  const ctx = await apiContext();
+  const reg = await ctx.post('/api/auth/register', {
+    data: { email, name, password: pass, termsAccepted: true },
+  });
+  expect(reg.status()).toBe(201);
+  const login = await ctx.post('/api/auth/login', {
+    data: { email, password: pass },
+  });
+  expect(login.status()).toBe(200);
+  return (await login.json()).token as string;
+}
