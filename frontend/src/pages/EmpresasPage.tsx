@@ -282,8 +282,8 @@ export function EmpresasPage() {
               Mi empresa
             </h1>
             <p className="text-surface-600 mt-2 max-w-2xl">
-              Agrupa tus tiendas, delega equipos y mira el negocio completo sin perder la
-              independencia de cada marca.
+              Agrupa tiendas, delega equipos y mira el negocio completo sin
+              perder la independencia de cada marca.
             </p>
           </div>
           <a
@@ -327,8 +327,9 @@ export function EmpresasPage() {
             </div>
             <h2 className="font-display text-2xl font-bold mt-4">Crea tu espacio empresarial</h2>
             <p className="text-surface-600 mt-2 leading-relaxed">
-              Una empresa reúne varias tiendas que ya son tuyas. No cambia su cuenta, su plan ni
-              su operación: solo te da una visión consolidada y roles para tu equipo.
+              Una empresa reúne tiendas de distintas dueñas bajo una misma organización.
+              Cada tienda conserva su cuenta, su plan y su operación: la empresa solo aporta
+              la visión consolidada y los roles de equipo.
             </p>
             <ul className="mt-5 space-y-2 text-sm text-surface-600">
               <li className="flex items-center gap-2">

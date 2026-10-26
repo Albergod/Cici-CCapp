@@ -106,13 +106,11 @@ La validación vive en `/empresarios` y guarda leads en `empresarios_leads`
 | PATCH | `/api/empresas/:id/miembros/:userId` | Cambiar rol (solo OWNER) |
 | DELETE | `/api/empresas/:id/miembros/:userId` | Quitar miembro |
 
-Reglas: una tienda pertenece como máximo a una empresa; para vincular o
-desvincular hay que ser dueña de la tienda y OWNER/ADMIN de la empresa.
-Roles: `OWNER`, `ADMIN` y `VIEWER`; solo OWNER cambia roles y ADMIN solo
-gestiona VIEWER. Los roles de empresa no reemplazan los permisos de tienda.
-Los miembros se agregan por correo de una cuenta existente (todavía no hay
-invitaciones por email). La capa operativa se versiona en la migración
-`0022`.
+Reglas: una tienda pertenece como máximo a una empresa y puede vincularse
+desde la cuenta de su dueña. Una empresa agrupa tiendas de distintas dueñas;
+cada tienda conserva su cuenta, plan y operación. Los miembros se agregan por
+correo de una cuenta existente (todavía no hay invitaciones por email). La capa
+operativa se versiona en la migración `0022`.
 
 ## Próximos pasos sugeridos
 
