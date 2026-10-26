@@ -507,6 +507,26 @@ export const storeInvites = pgTable(
   }),
 );
 
+// Solicitudes de acceso anticipado a Cici Empresarios. Son leads de la landing
+// de validación: todavía no crean una empresa ni vinculan tiendas. El estado
+// lo mueve el equipo desde el panel de administración.
+export const empresariosLeads = pgTable("empresarios_leads", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyName: text("company_name").notNull(),
+  contactName: text("contact_name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  storeCount: integer("store_count"),
+  website: text("website"),
+  message: text("message"),
+  source: text("source").default("landing").notNull(),
+  // NEW | CONTACTED | QUALIFIED | BETA | DISCARDED
+  status: text("status").default("NEW").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Pago protegido piloto: la compradora paga a la plataforma (Wompi/Nequi) y
 // la plata queda retenida hasta liberarse a la tendera (auto 48h o manual).
 // Comisión 5% repartida: 2.5% compradora (paga total×1.025) + 2.5% tendera

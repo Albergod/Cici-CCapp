@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   Ban,
+  Building2,
 } from 'lucide-react';
 import { adminApi, adminLogin } from '@/services/api';
 import { formatCOP } from '@/lib/format';
@@ -71,6 +72,45 @@ type AdminStoreRow = {
 
 type AdminStoreData = { rows: AdminStoreRow[]; total: number; page: number; totalPages: number };
 
+type EmpresariosLeadRow = {
+  id: string;
+  companyName: string;
+  contactName: string;
+  email: string;
+  phone: string | null;
+  storeCount: number | null;
+  website: string | null;
+  message: string | null;
+  source: string;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type EmpresariosLeadData = {
+  rows: EmpresariosLeadRow[];
+  total: number;
+  page: number;
+  totalPages: number;
+};
+
+const LEAD_STATUS_LABELS: Record<string, string> = {
+  NEW: 'Nueva',
+  CONTACTED: 'Contactada',
+  QUALIFIED: 'Calificada',
+  BETA: 'En beta',
+  DISCARDED: 'Descartada',
+};
+
+const LEAD_STATUS_STYLES: Record<string, string> = {
+  NEW: 'bg-sky-100 text-sky-700',
+  CONTACTED: 'bg-amber-100 text-amber-700',
+  QUALIFIED: 'bg-brand-100 text-brand-700',
+  BETA: 'bg-emerald-100 text-emerald-700',
+  DISCARDED: 'bg-surface-200 text-surface-600',
+};
+
 const VIOLATION_LABELS: Record<string, string> = {
   referral_farm: 'Granja de referidos',
   buyer_report: 'Reporte de comprador',
@@ -88,7 +128,7 @@ const SEVERITY_STYLES: Record<string, string> = {
 
 export function AdminPage() {
   const [step, setStep] = useState<'login' | 'loaded'>('login');
-  const [tab, setTab] = useState<'resumen' | 'moderacion'>('resumen');
+  const [tab, setTab] = useState<'resumen' | 'moderacion' | 'empresarios'>('resumen');
   const [sub, setSub] = useState<'violaciones' | 'tiendas'>('violaciones');
   const [stats, setStats] = useState<Stats | null>(null);
   const [payments, setPayments] = useState<PaymentData | null>(null);
@@ -96,6 +136,8 @@ export function AdminPage() {
   const [violFilter, setViolFilter] = useState<'OPEN' | 'RESOLVED' | ''>('OPEN');
   const [adminStores, setAdminStores] = useState<AdminStoreData | null>(null);
   const [storeFilter, setStoreFilter] = useState<'SUSPENDED' | 'BANNED' | 'ACTIVE' | ''>('SUSPENDED');
+  const [empresariosLeads, setEmpresariosLeads] = useState<EmpresariosLeadData | null>(null);
+  const [leadFilter, setLeadFilter] = useState<'NEW' | 'CONTACTED' | 'QUALIFIED' | 'BETA' | 'DISCARDED' | ''>('NEW');
   const [loading, setLoading] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -131,9 +173,14 @@ export function AdminPage() {
         /* puede ser un JWT ya emitido */
       }
       localStorage.setItem('adminToken', session);
-      const [statsData, paymentsData] = await Promise.all([adminApi.stats(), adminApi.payments()]);
+      const [statsData, paymentsData, leadsData] = await Promise.all([
+        adminApi.stats(),
+        adminApi.payments(),
+        adminApi.empresariosLeads({ status: 'NEW' }),
+      ]);
       setStats(statsData);
       setPayments(paymentsData);
+      setEmpresariosLeads(leadsData);
       await loadModeration('OPEN', 'SUSPENDED');
       setStep('loaded');
     } catch (err: unknown) {
@@ -148,9 +195,14 @@ export function AdminPage() {
     if (!stats) return;
     setLoading(true);
     try {
-      const [statsData, paymentsData] = await Promise.all([adminApi.stats(), adminApi.payments()]);
+      const [statsData, paymentsData, leadsData] = await Promise.all([
+        adminApi.stats(),
+        adminApi.payments(),
+        adminApi.empresariosLeads({ status: leadFilter }),
+      ]);
       setStats(statsData);
       setPayments(paymentsData);
+      setEmpresariosLeads(leadsData);
       await loadModeration(violFilter, storeFilter);
     } catch {
       /* ignore */
@@ -179,6 +231,29 @@ export function AdminPage() {
   const loadAdminStores = async (status: string, page = 1) => {
     const data = await adminApi.adminStores({ status, page });
     setAdminStores(data);
+  };
+
+  const loadLeads = async (status: string, page = 1) => {
+    const data = await adminApi.empresariosLeads({ status, page });
+    setEmpresariosLeads(data);
+  };
+
+  const updateLead = async (id: string, body: { status?: string; notes?: string }) => {
+    setPendingId(id);
+    try {
+      await adminApi.updateEmpresariosLead(id, body);
+      await loadLeads(leadFilter, 1);
+    } catch {
+      /* ignore */
+    } finally {
+      setPendingId(null);
+    }
+  };
+
+  const editLeadNotes = async (row: EmpresariosLeadRow) => {
+    const notes = window.prompt(`Nota interna para ${row.companyName}:`, row.notes ?? '');
+    if (notes === null) return;
+    await updateLead(row.id, { notes });
   };
 
   const resolveViolation = async (id: string) => {
@@ -322,6 +397,13 @@ export function AdminPage() {
             </span>
           )}
         </button>
+        <button
+          onClick={() => setTab('empresarios')}
+          className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors flex items-center gap-2 ${tab === 'empresarios' ? 'bg-brand-600 text-white' : 'bg-surface-100 text-surface-600 hover:bg-surface-200'}`}
+        >
+          <Building2 className="w-4 h-4" />
+          Empresarios
+        </button>
       </div>
 
       {tab === 'resumen' ? (
@@ -396,7 +478,7 @@ export function AdminPage() {
             )}
           </div>
         </>
-      ) : (
+      ) : tab === 'moderacion' ? (
         <>
           <div className="flex gap-2 mb-6">
             <button
@@ -551,6 +633,139 @@ export function AdminPage() {
               )}
             </div>
           )}
+        </>
+      ) : (
+        <>
+          <div className="flex gap-1.5 mb-6 flex-wrap">
+            {(['NEW', 'CONTACTED', 'QUALIFIED', 'BETA', 'DISCARDED', ''] as const).map((status) => (
+              <button
+                key={status || 'ALL'}
+                onClick={async () => {
+                  setLeadFilter(status);
+                  await loadLeads(status);
+                }}
+                className={`px-3 py-2 rounded-lg text-xs font-semibold ${
+                  leadFilter === status ? 'bg-brand-600 text-white' : 'bg-surface-100 text-surface-600'
+                }`}
+              >
+                {status === '' ? 'Todas' : LEAD_STATUS_LABELS[status]}
+              </button>
+            ))}
+          </div>
+
+          <div className="card overflow-hidden">
+            <div className="p-5 border-b border-surface-100 flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="font-display text-lg font-extrabold text-surface-900">
+                  Solicitudes de Cici Empresarios
+                </h2>
+                <p className="text-xs text-surface-500 mt-1">
+                  {empresariosLeads?.total ?? 0} solicitudes con este filtro — página{' '}
+                  {empresariosLeads?.page ?? 1} de {empresariosLeads?.totalPages ?? 1}
+                </p>
+              </div>
+              <Building2 className="w-6 h-6 text-brand-600" />
+            </div>
+
+            {!empresariosLeads || empresariosLeads.rows.length === 0 ? (
+              <div className="p-8 text-center text-sm text-surface-500">
+                <Building2 className="w-8 h-8 mx-auto mb-2 text-surface-300" />
+                No hay solicitudes con este estado.
+              </div>
+            ) : (
+              <>
+                <div className="divide-y divide-surface-100">
+                  {empresariosLeads.rows.map((row) => (
+                    <div key={row.id} className="p-4 hover:bg-surface-50 transition-colors">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-surface-900">{row.companyName}</span>
+                            <span
+                              className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                                LEAD_STATUS_STYLES[row.status] ?? 'bg-surface-100 text-surface-600'
+                              }`}
+                            >
+                              {LEAD_STATUS_LABELS[row.status] ?? row.status}
+                            </span>
+                            <span className="text-xs text-surface-400">
+                              {new Date(row.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-xs text-surface-600 mt-1">
+                            {row.contactName} ·{' '}
+                            <a href={`mailto:${row.email}`} className="text-brand-600 hover:underline">
+                              {row.email}
+                            </a>
+                            {row.phone ? ` · ${row.phone}` : ''}
+                            {row.storeCount ? ` · ${row.storeCount} tienda(s)` : ''}
+                          </p>
+                          {row.website && (
+                            <a
+                              href={row.website}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-brand-600 hover:underline"
+                            >
+                              {row.website}
+                            </a>
+                          )}
+                          {row.message && (
+                            <p className="text-sm text-surface-700 mt-2 whitespace-pre-wrap">{row.message}</p>
+                          )}
+                          {row.notes && (
+                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 mt-2">
+                              Nota interna: {row.notes}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <select
+                            value={row.status}
+                            onChange={(e) => updateLead(row.id, { status: e.target.value })}
+                            disabled={pendingId === row.id}
+                            className="text-xs font-semibold bg-surface-50 border border-surface-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                          >
+                            {(['NEW', 'CONTACTED', 'QUALIFIED', 'BETA', 'DISCARDED'] as const).map((status) => (
+                              <option key={status} value={status}>
+                                {LEAD_STATUS_LABELS[status]}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => editLeadNotes(row)}
+                            disabled={pendingId === row.id}
+                            className="btn-outline text-xs px-3 py-1.5"
+                          >
+                            Nota
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between p-4 border-t border-surface-100">
+                  <button
+                    onClick={() => loadLeads(leadFilter, (empresariosLeads?.page ?? 1) - 1)}
+                    disabled={(empresariosLeads?.page ?? 1) <= 1 || loading}
+                    className="btn-outline text-sm px-4 py-2 disabled:opacity-40"
+                  >
+                    ← Anterior
+                  </button>
+                  <span className="text-sm text-surface-600">
+                    {empresariosLeads?.page ?? 1} / {empresariosLeads?.totalPages ?? 1}
+                  </span>
+                  <button
+                    onClick={() => loadLeads(leadFilter, (empresariosLeads?.page ?? 1) + 1)}
+                    disabled={(empresariosLeads?.page ?? 1) >= (empresariosLeads?.totalPages ?? 1) || loading}
+                    className="btn-outline text-sm px-4 py-2 disabled:opacity-40"
+                  >
+                    Siguiente →
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </>
       )}
     </div>

@@ -29,6 +29,7 @@ import wompiRoutes from "./routes/wompi.routes";
 import servicesRouter from "./routes/services.routes";
 import appointmentsRouter from "./routes/appointments.routes";
 import ordersRouter from "./routes/orders.routes";
+import empresariosRouter from "./routes/empresarios.routes";
 import { attachChatWebSocket } from "./ws/chatServer";
 import { globalLimiter } from "./middleware/rate-limit";
 import { expireStoresAndReturnCount } from "./routes/store.routes";
@@ -147,6 +148,7 @@ export function createApp() {
   app.use("/api/services", servicesRouter);
   app.use("/api/appointments", appointmentsRouter);
   app.use("/api/orders", ordersRouter);
+  app.use("/api/empresarios", empresariosRouter);
 
   const frontendDist = path.join(appRoot, "frontend", "dist");
   if (fs.existsSync(frontendDist)) {
@@ -166,10 +168,46 @@ export function createApp() {
           .map((r) => `  <url><loc>${host}/store/${r.slug}</loc><changefreq>daily</changefreq></url>`)
           .join("\n");
         res.type("application/xml").send(
-          `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${host}/</loc><changefreq>daily</changefreq></url>\n${urls}\n</urlset>`,
+          `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${host}/</loc><changefreq>daily</changefreq></url>\n  <url><loc>${host}/empresarios</loc><changefreq>weekly</changefreq></url>\n${urls}\n</urlset>`,
         );
       } catch {
         res.status(500).type("application/xml").send(`<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`);
+      }
+    });
+
+    // ── Open Graph de Cici Empresarios ──────────────────────────────────────
+    // La landing B2B se comparte por WhatsApp/correo: necesita su propio
+    // título, descripción e imagen antes de que React hidrate.
+    app.get("/empresarios", (_req, res, next) => {
+      try {
+        const indexPath = path.join(frontendDist, "index.html");
+        if (!fs.existsSync(indexPath)) return next();
+        const host = _req.protocol + "://" + _req.get("host");
+        const title = "Cici Empresarios · Todos tus negocios. Una sola visión.";
+        const desc =
+          "Administra diferentes marcas, tiendas y equipos desde un único espacio empresarial, sin perder la independencia de cada tienda.";
+        const img = `${host}/icon-512.png`;
+        const url = `${host}/empresarios`;
+        let html = fs.readFileSync(indexPath, "utf8");
+        html = html.replace(/<title>.*?<\/title>/, `<title>${escapeHtml(title)}</title>`);
+        const og = [
+          `<meta property="og:type" content="website" />`,
+          `<meta property="og:site_name" content="Cici" />`,
+          `<meta property="og:title" content="${escapeHtml(title)}" />`,
+          `<meta property="og:description" content="${escapeHtml(desc)}" />`,
+          `<meta property="og:image" content="${escapeHtml(img)}" />`,
+          `<meta property="og:url" content="${escapeHtml(url)}" />`,
+          `<meta name="twitter:card" content="summary_large_image" />`,
+          `<meta name="twitter:title" content="${escapeHtml(title)}" />`,
+          `<meta name="twitter:description" content="${escapeHtml(desc)}" />`,
+          `<meta name="twitter:image" content="${escapeHtml(img)}" />`,
+          `<meta name="description" content="${escapeHtml(desc)}" />`,
+          `<link rel="canonical" href="${escapeHtml(url)}" />`,
+        ].join("\n    ");
+        html = html.replace("</head>", `    ${og}\n  </head>`);
+        res.type("html").send(html);
+      } catch {
+        return next();
       }
     });
 

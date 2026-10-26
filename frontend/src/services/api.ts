@@ -206,6 +206,22 @@ export const api = {
         body: JSON.stringify({ reason }),
       }),
   },
+  empresarios: {
+    createLead: (data: {
+      companyName: string;
+      contactName: string;
+      email: string;
+      phone?: string;
+      storeCount?: number;
+      website?: string;
+      message?: string;
+    }) =>
+      request<{ ok: boolean; message: string }>('/empresarios/leads', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+  },
+
   upload: uploadImage,
 
   users: {
@@ -568,6 +584,45 @@ export const adminApi = {
   unbanStore: (id: string, body: { reason?: string }) =>
     adminRequest<{ ok: true }>(`/admin/stores/${id}/unban`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  empresariosLeads: (opts: { status?: string; page?: number } = {}) =>
+    adminRequest<{
+      rows: Array<{
+        id: string;
+        companyName: string;
+        contactName: string;
+        email: string;
+        phone: string | null;
+        storeCount: number | null;
+        website: string | null;
+        message: string | null;
+        source: string;
+        status: string;
+        notes: string | null;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
+    }>(
+      `/admin/empresarios/leads?${new URLSearchParams({
+        ...(opts.status ? { status: opts.status } : {}),
+        page: String(opts.page ?? 1),
+      })}`,
+    ),
+
+  updateEmpresariosLead: (id: string, body: { status?: string; notes?: string }) =>
+    adminRequest<{
+      id: string;
+      status: string;
+      notes: string | null;
+    }>(`/admin/empresarios/leads/${id}`, {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),

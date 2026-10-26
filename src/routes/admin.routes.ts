@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { eq, and, desc, count, sql, isNull } from "drizzle-orm";
 import { db } from "../db/client";
-import { stores, users, violations } from "../db/schema";
+import { empresariosLeads, stores, users, violations } from "../db/schema";
 import { AuthRequest } from "../middleware/auth";
 import {
   ADMIN_SESSION_TTL_SECONDS,
@@ -243,6 +243,82 @@ router.post("/stores/:id/unban", requireAdmin, async (req: AuthRequest, res) => 
   });
 
   res.json({ ok: true });
+});
+
+// ── Cici Empresarios: solicitudes de acceso anticipado ──────────────────────
+const LEAD_STATUSES = ["NEW", "CONTACTED", "QUALIFIED", "BETA", "DISCARDED"] as const;
+type LeadStatus = (typeof LEAD_STATUSES)[number];
+
+// GET /api/admin/empresarios/leads?status=NEW&page=&limit=
+router.get("/empresarios/leads", requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+    const offset = (page - 1) * limit;
+    const status = typeof req.query.status === "string" ? req.query.status : undefined;
+
+    if (status && !LEAD_STATUSES.includes(status as LeadStatus)) {
+      return res.status(400).json({ error: "Estado de solicitud inválido." });
+    }
+
+    const where = status ? eq(empresariosLeads.status, status) : undefined;
+    const [totalRows] = await db
+      .select({ total: count(empresariosLeads.id) })
+      .from(empresariosLeads)
+      .where(where);
+
+    const rows = await db
+      .select()
+      .from(empresariosLeads)
+      .where(where)
+      .orderBy(desc(empresariosLeads.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    res.json({
+      rows,
+      total: Number(totalRows?.total ?? 0),
+      page,
+      limit,
+      totalPages: Math.ceil(Number(totalRows?.total ?? 0) / limit),
+    });
+  } catch (err) {
+    console.error("admin empresarios leads error:", err);
+    res.status(500).json({ error: "Error al obtener solicitudes de Empresarios" });
+  }
+});
+
+// PATCH /api/admin/empresarios/leads/:id  { status?, notes? }
+router.patch("/empresarios/leads/:id", requireAdmin, async (req: AuthRequest, res) => {
+  const parsed = z
+    .object({
+      status: z.enum(LEAD_STATUSES).optional(),
+      notes: z.string().max(2000).optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Datos inválidos." });
+
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) return res.status(400).json({ error: "Solicitud inválida." });
+
+  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  if (parsed.data.status !== undefined) patch.status = parsed.data.status;
+  if (parsed.data.notes !== undefined) patch.notes = parsed.data.notes;
+  if (Object.keys(patch).length === 1) return res.status(400).json({ error: "Nada que actualizar." });
+
+  try {
+    const [updated] = await db
+      .update(empresariosLeads)
+      .set(patch)
+      .where(eq(empresariosLeads.id, id.data))
+      .returning();
+
+    if (!updated) return res.status(404).json({ error: "Solicitud no encontrada." });
+    res.json(updated);
+  } catch (err) {
+    console.error("admin empresarios lead update error:", err);
+    res.status(500).json({ error: "Error al actualizar la solicitud" });
+  }
 });
 
 export default router;

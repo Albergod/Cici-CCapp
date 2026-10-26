@@ -38,3 +38,13 @@ export const paymentLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+// Formulario público de Cici Empresarios: frena spam sin bloquear una
+// solicitud legítima. En tests se amplía porque cada caso crea un lead.
+export const empresariosLeadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: process.env.NODE_ENV === "test" ? 100 : 8,
+  message: { error: "Recibimos varias solicitudes desde esta conexión. Intenta más tarde." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});

@@ -10,6 +10,7 @@ import {
   ShoppingBag,
   CircleHelp,
   ChevronDown,
+  Building2,
 } from 'lucide-react';
 import { useAuth } from '@/stores/authStore';
 import { api } from '@/services/api';
@@ -216,6 +217,16 @@ export function Navbar() {
                         >
                           <CircleHelp className="w-4 h-4" />
                           Cómo funciona
+                        </button>
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            navigate('/empresarios');
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-colors"
+                        >
+                          <Building2 className="w-4 h-4" />
+                          Cici Empresarios
                         </button>
                         <button
                           onClick={() => {

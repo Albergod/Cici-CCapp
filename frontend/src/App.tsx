@@ -17,6 +17,7 @@ import { AdminPage } from '@/pages/AdminPage';
 import { DownloadPage } from '@/pages/DownloadPage';
 import { MisComprasPage } from '@/pages/MisComprasPage';
 import { ComoFuncionaPage } from '@/pages/ComoFuncionaPage';
+import { EmpresariosPage } from '@/pages/EmpresariosPage';
 import { AjustesModal } from '@/components/AjustesModal';
 
 const AUTH_PAGES = ['/login', '/register', '/forgot-password', '/reset-password'];
@@ -193,6 +194,14 @@ function App() {
         element={
           <AppLayout>
             <ComoFuncionaPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/empresarios"
+        element={
+          <AppLayout>
+            <EmpresariosPage />
           </AppLayout>
         }
       />

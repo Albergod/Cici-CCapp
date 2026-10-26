@@ -198,6 +198,9 @@ export function HomePage() {
           <Link to="/register" className="hover:text-brand-600 transition-colors">
             Crear mi tienda
           </Link>
+          <Link to="/empresarios" className="hover:text-brand-600 transition-colors">
+            Cici Empresarios
+          </Link>
         </footer>
       </div>
     </div>

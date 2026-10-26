@@ -148,6 +148,13 @@
       "when": 1792050000000,
       "tag": "0020_protected_payout_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792993080787,
+      "tag": "0021_sturdy_black_queen",
+      "breakpoints": true
     }
   ]
 }
