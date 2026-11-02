@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Product } from '@/types';
-import { Eye, MessageSquare, Package, X } from 'lucide-react';
+import { Eye, MessageSquare, Package, ShoppingBag, X } from 'lucide-react';
 import { attributesToTitledList, BusinessType } from '@/lib/categoryFields';
 import { formatCOP } from '@/lib/format';
 
 interface ProductCardProps {
   product: Product;
   onContact?: (productId: string) => void;
+  /** Compra en línea sin cuenta (Cici Payments). */
+  onBuy?: (productId: string) => void;
   businessType?: BusinessType;
   /** Habilita el zoom por doble toque de la imagen (solo en la vista de tienda). */
   imageZoom?: boolean;
@@ -19,6 +21,7 @@ interface ProductCardProps {
 export function ProductCard({
   product,
   onContact,
+  onBuy,
   businessType,
   imageZoom = false,
   armedId = null,
@@ -150,14 +153,29 @@ export function ProductCard({
               {formatCOP(product.price)}
             </span>
           )}
-          {product.available && onContact && (
-            <button
-              onClick={() => onContact(product.id)}
-              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 transition-all active:scale-95"
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              Contactar
-            </button>
+          {product.available && (onBuy || onContact) && (
+            <div className="flex shrink-0 items-center gap-1.5">
+              {onBuy && (
+                <button
+                  onClick={() => onBuy(product.id)}
+                  title="Comprar sin crear cuenta"
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 transition-all active:scale-95"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  Comprar
+                </button>
+              )}
+              {onContact && (
+                <button
+                  onClick={() => onContact(product.id)}
+                  title="Preguntar por chat"
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1.5 rounded-lg text-xs font-semibold text-brand-700 bg-white border border-brand-200 hover:bg-brand-50 transition-all active:scale-95"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Contactar</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

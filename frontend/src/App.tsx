@@ -16,6 +16,9 @@ import { SearchPage } from '@/pages/SearchPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { DownloadPage } from '@/pages/DownloadPage';
 import { MisComprasPage } from '@/pages/MisComprasPage';
+import { GuestCheckoutPage } from '@/pages/GuestCheckoutPage';
+import { PayoutsPage } from '@/pages/PayoutsPage';
+import { GuestOrderPage } from '@/pages/GuestOrderPage';
 import { ComoFuncionaPage } from '@/pages/ComoFuncionaPage';
 import { EmpresariosPage } from '@/pages/EmpresariosPage';
 import { EmpresasPage } from '@/pages/EmpresasPage';
@@ -139,6 +142,30 @@ function App() {
         element={
           <AppLayout>
             <StorePage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/comprar/:slug"
+        element={
+          <AppLayout>
+            <GuestCheckoutPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/pedido"
+        element={
+          <AppLayout>
+            <GuestOrderPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/cobros"
+        element={
+          <AppLayout>
+            <PayoutsPage />
           </AppLayout>
         }
       />

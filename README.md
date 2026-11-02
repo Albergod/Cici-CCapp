@@ -112,6 +112,51 @@ cada tienda conserva su cuenta, plan y operación. Los miembros se agregan por
 correo de una cuenta existente (todavía no hay invitaciones por email). La capa
 operativa se versiona en la migración `0022`.
 
+## Cici Payments (PSE/Nequi + ledger + liquidaciones)
+
+La migración `0023` agrega pagos normalizados, ledger inmutable, cuentas
+bancarias cifradas, lotes de liquidación y eventos de webhook idempotentes.
+
+Flujo:
+
+1. La tienda se habilita con `stores.protected_enabled = true`.
+2. El comprador paga por **PSE** (redirect al banco) o **Nequi**, con o sin
+   cuenta (`POST /api/orders/guest`).
+3. Solo un **webhook firmado** de Wompi o la verificación directa contra Wompi
+   marcan el pago como aprobado; nunca la respuesta del frontend.
+4. El ledger registra `SALE (+total)` y `COMMISSION (−fee)` en `PENDING`.
+5. La tienda libera el pedido → movimientos `AVAILABLE`.
+6. `POST /api/payouts/request` bloquea el saldo en `IN_TRANSFER` y crea un
+   payout `PREPARED` idempotente.
+7. El operador transfiere y confirma con `POST /api/payouts/:id/mark-paid`
+   (o `fail` para devolver el saldo a `AVAILABLE`).
+
+Endpoints principales:
+
+| Método | Ruta | Qué hace |
+|--------|------|----------|
+| GET | `/api/payments/wompi/pse/institutions` | Bancos PSE (cache 10 min) |
+| POST | `/api/protected/checkout` | Cobro protegido autenticado (Nequi/PSE) |
+| GET | `/api/protected/balance` | Saldo por tienda |
+| POST | `/api/orders/guest` | Compra de invitado; devuelve código de acceso una vez |
+| GET | `/api/orders/guest?email=&code=` | Estado de compra de invitado |
+| GET/POST/DELETE | `/api/payouts/bank-accounts` | Cuentas cifradas (solo últimos 4) |
+| GET | `/api/payouts/balance` | Disponible, en tránsito, pendiente, pagado |
+| POST | `/api/payouts/request` | Prepara liquidación de todo el saldo |
+| POST | `/api/payouts/:id/mark-paid` | Confirma desembolso (idempotente) |
+| POST | `/api/payouts/:id/fail` | Falla y devuelve saldo a disponible |
+
+Variables nuevas: `PAYOUT_ENCRYPTION_KEY` (AES-256-GCM para datos bancarios) y
+`GUEST_CODE_PEPPER` (HMAC de códigos de invitado). Si faltan, se derivan de
+`JWT_SECRET`; en producción se recomienda definirlas y no rotarlas sin migrar
+los datos.
+
+> **Payouts:** en el piloto los desembolsos son **manuales** (`provider =
+> "MANUAL"`). El motor deja el payout `PREPARED`; la integración automática con
+> Wompi Pagos a Terceros requiere habilitación de la cuenta y no se ejecuta
+> todavía. El ledger es la fuente de verdad: nunca se editan montos, solo se
+> agregan movimientos compensatorios.
+
 ## Próximos pasos sugeridos
 
 1. Endpoint de subida de imágenes (logo, banner, fotos de producto) — hoy se

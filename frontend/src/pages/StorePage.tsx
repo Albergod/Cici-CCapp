@@ -92,6 +92,12 @@ export function StorePage() {
     }
   };
 
+  // Compra en línea sin cuenta (Cici Payments): checkout de invitado.
+  const handleBuy = (productId: string) => {
+    if (!store) return;
+    navigate(`/comprar/${store.slug}?product=${productId}`);
+  };
+
   // Reserva de un servicio (BELLEZA): abre el chat con la agenda del asistente.
   const handleReserve = async (service: { id: string; name: string }) => {
     if (!isAuthenticated || !store) {
@@ -465,6 +471,7 @@ export function StorePage() {
                   product={product}
                   businessType={store.businessType}
                   onContact={handleContact}
+                  onBuy={store.protectedEnabled ? handleBuy : undefined}
                   imageZoom
                   armedId={armedProductId}
                   onArm={setArmedProductId}

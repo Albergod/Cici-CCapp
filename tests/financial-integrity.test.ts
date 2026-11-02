@@ -12,6 +12,9 @@ import {
   sales,
   saleItems,
   protectedPayments,
+  ledgerEntries,
+  payouts,
+  payments,
 } from "../src/db/schema";
 import { createPendingOrder } from "../src/lib/orders";
 import "dotenv/config";
@@ -92,6 +95,9 @@ describe("Integridad financiera: concurrencia real contra PostgreSQL", () => {
     const orderIds = ords.map((o) => o.id);
     if (orderIds.length) await db.delete(orderItems).where(inArray(orderItems.orderId, orderIds));
     await db.delete(protectedPayments).where(eq(protectedPayments.storeId, storeId));
+    await db.delete(ledgerEntries).where(eq(ledgerEntries.storeId, storeId));
+    await db.delete(payouts).where(eq(payouts.storeId, storeId));
+    await db.delete(payments).where(eq(payments.storeId, storeId));
     // Primero los pedidos (FK orders.sale_id → sales), luego las ventas.
     if (orderIds.length) await db.delete(orders).where(inArray(orders.id, orderIds));
     const saleRows = await db.select({ id: sales.id }).from(sales).where(eq(sales.storeId, storeId));

@@ -38,6 +38,94 @@ export interface EmpresaMember {
   createdAt: string;
 }
 
+export interface PseInstitution {
+  code: string;
+  name: string;
+}
+
+export interface PseData {
+  userType: 0 | 1;
+  legalIdType: string;
+  legalId: string;
+  financialInstitutionCode: string;
+  fullName?: string;
+  description?: string;
+}
+
+export interface GuestCheckoutInput {
+  storeId: string;
+  items: Array<{ productId: string; quantity: number }>;
+  email: string;
+  phone?: string;
+  name?: string;
+  paymentMethod: 'NEQUI' | 'PSE';
+  phoneNumber?: string;
+  pse?: PseData;
+}
+
+export interface GuestCheckoutResult {
+  orderId: string;
+  guestCode: string;
+  total: number;
+  charge: number;
+  sellerNet: number;
+  payment: { transactionId: string; status: string; redirectUrl: string | null };
+  note: string;
+}
+
+export interface GuestOrderStatus {
+  orderId: string;
+  status: Order['status'];
+  createdAt: string;
+  note: string | null;
+  items: Array<{ name: string; quantity: number; unitPrice: number }>;
+  store: { id: string; name: string; slug: string; logoUrl: string | null; whatsapp?: string | null } | null;
+  payment: {
+    status: string;
+    method: string;
+    total: number;
+    charge: number;
+    sellerNet: number;
+    releasedAt: string | null;
+    paidOutAt: string | null;
+  } | null;
+}
+
+export interface LedgerBalance {
+  pending: number;
+  available: number;
+  inTransfer: number;
+  paidOut: number;
+  reversed: number;
+  total: number;
+}
+
+export interface MerchantBankAccount {
+  id: string;
+  bankCode: string;
+  bankName: string | null;
+  accountType: 'AHORROS' | 'CORRIENTE';
+  accountLast4: string;
+  holderName: string;
+  holderDocType: string | null;
+  verificationStatus: string;
+  isDefault: boolean;
+  createdAt: string;
+}
+
+export interface PayoutRow {
+  id: string;
+  storeId: string;
+  status: string;
+  provider: string;
+  amount: number | string;
+  idempotencyKey: string;
+  providerPayoutId: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  confirmedAt: string | null;
+}
+
 export interface EmpresaDetail {
   id: string;
   name: string;
@@ -355,6 +443,8 @@ export const api = {
       request<{ approved: boolean; status: string; detail?: string; plan?: 'PRO' | 'BUSINESS'; cycle?: 'MONTHLY' | 'BI_MONTHLY'; amount?: number }>(
         `/payments/wompi/status?transactionId=${encodeURIComponent(transactionId)}`
       ),
+    pseInstitutions: () =>
+      request<{ institutions: PseInstitution[] }>('/payments/wompi/pse/institutions'),
   },
 
   products: {
@@ -483,6 +573,48 @@ export const api = {
       request<Order>(`/orders/${id}/confirm`, { method: 'POST' }),
     cancel: (id: string) =>
       request<Order>(`/orders/${id}/cancel`, { method: 'POST' }),
+    guestCreate: (body: GuestCheckoutInput) =>
+      request<GuestCheckoutResult>('/orders/guest', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    guestStatus: (email: string, code: string) =>
+      request<GuestOrderStatus>(
+        `/orders/guest?email=${encodeURIComponent(email)}&code=${encodeURIComponent(code)}`,
+      ),
+  },
+
+  payouts: {
+    balance: () => request<LedgerBalance>('/payouts/balance'),
+    bankAccounts: () => request<MerchantBankAccount[]>('/payouts/bank-accounts'),
+    createBankAccount: (body: {
+      bankCode: string;
+      bankName?: string;
+      accountType: 'AHORROS' | 'CORRIENTE';
+      accountNumber: string;
+      holderName: string;
+      holderDocType?: 'CC' | 'CE' | 'NIT' | 'PP';
+      holderDoc?: string;
+      isDefault?: boolean;
+    }) =>
+      request<MerchantBankAccount>('/payouts/bank-accounts', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    deleteBankAccount: (id: string) =>
+      request<{ ok: boolean }>(`/payouts/bank-accounts/${id}`, { method: 'DELETE' }),
+    list: () => request<PayoutRow[]>('/payouts'),
+    request: () => request<PayoutRow>('/payouts/request', { method: 'POST' }),
+    markPaid: (id: string, providerPayoutId?: string) =>
+      request<PayoutRow>(`/payouts/${id}/mark-paid`, {
+        method: 'POST',
+        body: JSON.stringify(providerPayoutId ? { providerPayoutId } : {}),
+      }),
+    fail: (id: string, reason: string) =>
+      request<PayoutRow>(`/payouts/${id}/fail`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
   },
 
   // Pago protegido piloto: custodia 2.5/2.5 con liberación a las 48h.

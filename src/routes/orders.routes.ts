@@ -4,12 +4,17 @@
 // descuenta stock) o lo cancela. Ventas con origin='order' están respaldadas
 // por un cliente real: no cuentan como inflación de prestigio.
 import { Router } from "express";
+import { z } from "zod";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../db/client";
 import { orders, orderItems, stores, protectedPayments } from "../db/schema";
 import { createSale } from "../lib/sales";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { myWorkStore } from "../lib/members";
+import { createGuestOrder, findGuestOrder } from "../lib/guest";
+import { PSE_SCHEMA } from "../lib/pse";
+import { guestCheckoutLimiter, guestStatusLimiter } from "../middleware/rate-limit";
+import { getWompiTransaction } from "../lib/wompi";
 
 const router = Router();
 
@@ -205,6 +210,132 @@ router.post("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
     }
   })();
   res.json(updated);
+});
+
+// ── Compra de invitado (sin cuenta) ────────────────────────────────────────
+const GUEST_SCHEMA = z
+  .object({
+    storeId: z.string().uuid(),
+    items: z
+      .array(
+        z.object({
+          productId: z.string().uuid(),
+          quantity: z.number().int().min(1).max(100),
+        }),
+      )
+      .min(1)
+      .max(50),
+    email: z.string().trim().email().max(200),
+    phone: z.string().trim().max(30).optional(),
+    name: z.string().trim().max(120).optional(),
+    paymentMethod: z.enum(["NEQUI", "PSE"]).default("NEQUI"),
+    phoneNumber: z.string().regex(/^3\d{9}$/, "Número Nequi inválido.").optional(),
+    pse: PSE_SCHEMA.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.paymentMethod === "NEQUI" && !value.phoneNumber) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["phoneNumber"], message: "Falta el número Nequi." });
+    }
+    if (value.paymentMethod === "PSE" && !value.pse) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pse"], message: "Faltan los datos de PSE." });
+    }
+  });
+
+// POST /api/orders/guest — crea pedido + cobro sin registro. Devuelve el
+// código de acceso UNA sola vez: sin él no se puede consultar la compra.
+router.post("/guest", guestCheckoutLimiter, async (req, res) => {
+  const parsed = GUEST_SCHEMA.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Datos de compra inválidos.", detail: parsed.error.flatten() });
+  }
+  const result = await createGuestOrder(parsed.data);
+  if (!result.ok) return res.status(result.status).json({ error: result.message, code: result.code });
+  res.status(201).json({
+    orderId: result.orderId,
+    guestCode: result.guestCode,
+    total: result.total,
+    charge: result.charge,
+    sellerNet: result.sellerNet,
+    payment: {
+      transactionId: result.transactionId,
+      status: result.statusTx,
+      redirectUrl: result.redirectUrl,
+    },
+    note: "Guarda tu código: lo necesitas junto a tu email para consultar la compra.",
+  });
+});
+
+// GET /api/orders/guest?email=&code= — consulta de invitado. No revela si el
+// email existe: email y código incorrectos devuelven el mismo 404.
+router.get("/guest", guestStatusLimiter, async (req, res) => {
+  const email = String(req.query.email ?? "").trim();
+  const code = String(req.query.code ?? "").trim();
+  if (!email || email.length > 200 || !code || code.length > 64) {
+    return res.status(400).json({ error: "Email y código son obligatorios." });
+  }
+
+  const found = await findGuestOrder(email, code);
+  if (!found) return res.status(404).json({ error: "No encontramos una compra con esos datos." });
+
+  const [order] = await db.query.orders.findMany({
+    where: eq(orders.id, found.id),
+    limit: 1,
+    with: {
+      items: true,
+      store: { columns: { id: true, name: true, slug: true, logoUrl: true, whatsapp: true } },
+    },
+  });
+  if (!order) return res.status(404).json({ error: "No encontramos una compra con esos datos." });
+
+  const [pay] = await db
+    .select()
+    .from(protectedPayments)
+    .where(eq(protectedPayments.orderId, order.id))
+    .limit(1);
+
+  // Auto-reparación: si PSE/Nequi ya aprobó pero el webhook no llegó, se
+  // consulta el estado real en Wompi. El código de invitado es la credencial.
+  if (pay && (pay.status === "initiated" || pay.status === "collected") && pay.wompiTxId) {
+    try {
+      const tx = await getWompiTransaction(pay.wompiTxId);
+      if (tx) {
+        const { applyProtectedApproved } = await import("./protected.routes");
+        await applyProtectedApproved(tx);
+      }
+    } catch {
+      /* polling best-effort */
+    }
+  }
+
+  const [fresh] = await db
+    .select()
+    .from(protectedPayments)
+    .where(eq(protectedPayments.orderId, order.id))
+    .limit(1);
+
+  res.json({
+    orderId: order.id,
+    status: order.status,
+    createdAt: order.createdAt,
+    note: order.note,
+    items: order.items.map((item) => ({
+      name: item.name,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unitPrice),
+    })),
+    store: order.store,
+    payment: fresh
+      ? {
+          status: fresh.status,
+          method: fresh.paymentMethod,
+          total: Number(fresh.total),
+          charge: Math.round(Number(fresh.total) + Number(fresh.buyerFee)),
+          sellerNet: Number(fresh.sellerNet),
+          releasedAt: fresh.releasedAt,
+          paidOutAt: fresh.paidOutAt,
+        }
+      : null,
+  });
 });
 
 export default router;

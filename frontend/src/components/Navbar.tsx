@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Building2,
   Briefcase,
+  Wallet,
 } from 'lucide-react';
 import { useAuth } from '@/stores/authStore';
 import { api } from '@/services/api';
@@ -208,6 +209,16 @@ export function Navbar() {
                         >
                           <ShoppingBag className="w-4 h-4" />
                           Mis compras
+                        </button>
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            navigate('/cobros');
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-surface-700 hover:bg-surface-50 transition-colors"
+                        >
+                          <Wallet className="w-4 h-4" />
+                          Mis cobros
                         </button>
                         <button
                           onClick={() => {

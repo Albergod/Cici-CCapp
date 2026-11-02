@@ -54,6 +54,57 @@ export const businessTypeEnum = pgEnum("business_type", [
 // equipo; VIEWER solo consulta el consolidado.
 export const empresaRoleEnum = pgEnum("empresa_role", ["OWNER", "ADMIN", "VIEWER"]);
 
+// ── Cici Payments ──────────────────────────────────────────────────────────
+// Métodos de cobro soportados por el orquestador (hoy todos vía Wompi).
+export const paymentMethodEnum = pgEnum("payment_method_type", [
+  "NEQUI",
+  "PSE",
+  "CARD",
+]);
+
+// Estado normalizado de una transacción del proveedor. Es independiente del
+// estado comercial del pedido y del estado de custodia (protected_status).
+export const paymentRecordStatusEnum = pgEnum("payment_record_status", [
+  "PENDING",
+  "APPROVED",
+  "DECLINED",
+  "VOIDED",
+  "ERROR",
+]);
+
+// Tipo de movimiento contable. Convención de signo: positivo = crédito a
+// favor del comerciante; negativo = débito (comisión, tarifa, devolución).
+export const ledgerEntryTypeEnum = pgEnum("ledger_entry_type", [
+  "SALE",
+  "COMMISSION",
+  "PROCESSOR_FEE",
+  "PAYOUT",
+  "REFUND",
+  "ADJUSTMENT",
+  "RESERVE",
+  "RESERVE_RELEASE",
+]);
+
+// Estado del movimiento. PENDING = retenido; AVAILABLE = liquidable;
+// IN_TRANSFER = comprometido en una liquidación; PAID_OUT = desembolsado;
+// REVERSED = anulado por un movimiento compensatorio (nunca se borra).
+export const ledgerEntryStatusEnum = pgEnum("ledger_entry_status", [
+  "PENDING",
+  "AVAILABLE",
+  "IN_TRANSFER",
+  "PAID_OUT",
+  "REVERSED",
+]);
+
+export const payoutStatusEnum = pgEnum("payout_status", [
+  "PREPARED",
+  "SENT",
+  "PROCESSING",
+  "SUCCESS",
+  "FAILED",
+  "CANCELLED",
+]);
+
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: text("email").notNull().unique(),
@@ -421,6 +472,13 @@ export const orders = pgTable("orders", {
     .references(() => stores.id),
   customerId: uuid("customer_id").references(() => users.id),
   note: text("note"),
+  // Compra de invitado (sin cuenta): el pedido se identifica por email y un
+  // código de acceso de alta entropía. Se guarda SOLO el hash del código; el
+  // código en claro se devuelve una vez al crear la compra.
+  customerName: text("customer_name"),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone"),
+  guestCodeHash: text("guest_code_hash"),
   // Venta generada al confirmar el pedido. Idempotencia: un pedido → máx 1 venta.
   saleId: uuid("sale_id").references(() => sales.id),
 });
@@ -622,6 +680,11 @@ export const protectedPayments = pgTable(
     collected: numeric("collected", { precision: 10, scale: 2 }),
     sellerNet: numeric("seller_net", { precision: 10, scale: 2 }).notNull(),
     status: protectedStatusEnum("status").notNull().default("initiated"),
+    // Método y proveedor del cobro. El orquestador normaliza la transacción en
+    // `payments`; esta fila conserva el estado de custodia del pedido.
+    paymentMethod: paymentMethodEnum("payment_method").notNull().default("NEQUI"),
+    provider: text("provider").notNull().default("WOMPI"),
+    paymentId: uuid("payment_id").references(() => payments.id),
     wompiTxId: text("wompi_tx_id"),
     releasedAt: timestamp("released_at"),
     paidOutAt: timestamp("paid_out_at"),
@@ -634,6 +697,162 @@ export const protectedPayments = pgTable(
   (t) => ({
     protectedOrderUnique: uniqueIndex("protected_order_unique").on(t.orderId),
     protectedTxUnique: uniqueIndex("protected_tx_unique").on(t.wompiTxId),
+  }),
+);
+
+// ── Cici Payments: registro financiero ─────────────────────────────────────
+// Transacción normalizada del proveedor. Es la fuente de verdad del cobro y
+// enlaza el pedido con el ledger. `provider_transaction_id` es único por
+// proveedor: el reintento de un webhook no puede crear dos pagos.
+export const payments = pgTable(
+  "payments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orderId: uuid("order_id").references(() => orders.id),
+    storeId: uuid("store_id").references(() => stores.id),
+    customerId: uuid("customer_id").references(() => users.id),
+    customerEmail: text("customer_email"),
+    provider: text("provider").notNull().default("WOMPI"),
+    providerTransactionId: text("provider_transaction_id").notNull(),
+    reference: text("reference").notNull(),
+    paymentMethod: paymentMethodEnum("payment_method").notNull(),
+    amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+    currency: text("currency").notNull().default("COP"),
+    status: paymentRecordStatusEnum("status").notNull().default("PENDING"),
+    failureReason: text("failure_reason"),
+    idempotencyKey: text("idempotency_key"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    providerTxUnique: uniqueIndex("payments_provider_tx_unique").on(
+      t.provider,
+      t.providerTransactionId,
+    ),
+    referenceUnique: uniqueIndex("payments_reference_unique").on(t.reference),
+    idempotencyUnique: uniqueIndex("payments_idempotency_unique").on(t.idempotencyKey),
+  }),
+);
+
+// Movimientos contables inmutables. Nunca se editan ni se borran: una
+// corrección se registra como un movimiento compensatorio (ADJUSTMENT).
+export const ledgerEntries = pgTable(
+  "ledger_entries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    paymentId: uuid("payment_id").references(() => payments.id),
+    orderId: uuid("order_id").references(() => orders.id),
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id),
+    payoutId: uuid("payout_id").references(() => payouts.id),
+    entryType: ledgerEntryTypeEnum("entry_type").notNull(),
+    // Signo: + crédito al comerciante, − débito al comerciante.
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull().default("COP"),
+    status: ledgerEntryStatusEnum("status").notNull().default("PENDING"),
+    description: text("description"),
+    // Idempotencia: un mismo hecho contable no se registra dos veces aunque
+    // lleguen webhooks duplicados o se reintente la operación.
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    idempotencyUnique: uniqueIndex("ledger_entries_idempotency_unique").on(
+      t.idempotencyKey,
+    ),
+  }),
+);
+
+// Cuenta bancaria autorizada para liquidar. El número se cifra en reposo
+// (AES-256-GCM); solo se guarda por separado el último 4 para mostrar en el
+// panel. Nunca se devuelve el número completo por la API.
+export const merchantBankAccounts = pgTable(
+  "merchant_bank_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id),
+    bankCode: text("bank_code").notNull(),
+    bankName: text("bank_name"),
+    accountType: text("account_type").notNull(), // AHORROS | CORRIENTE
+    encryptedAccountNumber: text("encrypted_account_number").notNull(),
+    accountLast4: text("account_last4").notNull(),
+    holderName: text("holder_name").notNull(),
+    holderDocType: text("holder_doc_type"),
+    encryptedHolderDoc: text("encrypted_holder_doc"),
+    verificationStatus: text("verification_status").notNull().default("PENDING"),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    storeDefaultIdx: uniqueIndex("merchant_bank_accounts_store_default_idx")
+      .on(t.storeId, t.isDefault)
+      .where(sql`${t.isDefault} = true`),
+  }),
+);
+
+export const payoutBatches = pgTable("payout_batches", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  status: text("status").notNull().default("OPEN"), // OPEN | PROCESSING | CLOSED
+  totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).default("0").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
+});
+
+// Liquidación a un comerciante. `idempotencyKey` es persistente y única: un
+// reintento no puede generar una segunda transferencia.
+export const payouts = pgTable(
+  "payouts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id),
+    batchId: uuid("batch_id").references(() => payoutBatches.id),
+    bankAccountId: uuid("bank_account_id").references(() => merchantBankAccounts.id),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull().default("COP"),
+    provider: text("provider").notNull().default("MANUAL"),
+    providerPayoutId: text("provider_payout_id"),
+    status: payoutStatusEnum("status").notNull().default("PREPARED"),
+    failureReason: text("failure_reason"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    completedAt: timestamp("completed_at"),
+  },
+  (t) => ({
+    idempotencyUnique: uniqueIndex("payouts_idempotency_unique").on(t.idempotencyKey),
+    providerPayoutUnique: uniqueIndex("payouts_provider_payout_unique").on(t.providerPayoutId),
+  }),
+);
+
+// Eventos de webhook recibidos. `eventId` se calcula de forma determinista con
+// los datos firmados: el reenvío del mismo evento se reconoce y no se procesa
+// dos veces. Se conserva el payload para auditoría y conciliación.
+export const paymentWebhookEvents = pgTable(
+  "payment_webhook_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    provider: text("provider").notNull().default("WOMPI"),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type"),
+    status: text("status").notNull().default("RECEIVED"), // RECEIVED | PROCESSED | IGNORED | FAILED
+    payload: jsonb("payload").$type<Record<string, unknown>>(),
+    error: text("error"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    processedAt: timestamp("processed_at"),
+  },
+  (t) => ({
+    providerEventUnique: uniqueIndex("payment_webhook_events_provider_event_unique").on(
+      t.provider,
+      t.eventId,
+    ),
   }),
 );
 
@@ -785,4 +1004,36 @@ export const paymentReportsRelations = relations(paymentReports, ({ one }) => ({
 
 export const mpPaymentsRelations = relations(mpPayments, ({ one }) => ({
   store: one(stores, { fields: [mpPayments.storeId], references: [stores.id] }),
+}));
+
+export const paymentsRelations = relations(payments, ({ one, many }) => ({
+  order: one(orders, { fields: [payments.orderId], references: [orders.id] }),
+  store: one(stores, { fields: [payments.storeId], references: [stores.id] }),
+  customer: one(users, { fields: [payments.customerId], references: [users.id] }),
+  ledgerEntries: many(ledgerEntries),
+}));
+
+export const ledgerEntriesRelations = relations(ledgerEntries, ({ one }) => ({
+  payment: one(payments, { fields: [ledgerEntries.paymentId], references: [payments.id] }),
+  store: one(stores, { fields: [ledgerEntries.storeId], references: [stores.id] }),
+  order: one(orders, { fields: [ledgerEntries.orderId], references: [orders.id] }),
+  payout: one(payouts, { fields: [ledgerEntries.payoutId], references: [payouts.id] }),
+}));
+
+export const merchantBankAccountsRelations = relations(merchantBankAccounts, ({ one }) => ({
+  store: one(stores, { fields: [merchantBankAccounts.storeId], references: [stores.id] }),
+}));
+
+export const payoutsRelations = relations(payouts, ({ one, many }) => ({
+  store: one(stores, { fields: [payouts.storeId], references: [stores.id] }),
+  batch: one(payoutBatches, { fields: [payouts.batchId], references: [payoutBatches.id] }),
+  bankAccount: one(merchantBankAccounts, {
+    fields: [payouts.bankAccountId],
+    references: [merchantBankAccounts.id],
+  }),
+  ledgerEntries: many(ledgerEntries),
+}));
+
+export const payoutBatchesRelations = relations(payoutBatches, ({ many }) => ({
+  payouts: many(payouts),
 }));

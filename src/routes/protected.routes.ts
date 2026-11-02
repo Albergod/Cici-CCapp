@@ -4,12 +4,13 @@ import { Router } from "express";
 import { z } from "zod";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { orders, orderItems, stores, users, violations, protectedPayments } from "../db/schema";
+import { orders, orderItems, stores, users, violations, protectedPayments, payouts, ledgerEntries } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import {
   WOMPI_PRIVATE_KEY,
   WOMPI_PUBLIC_KEY,
   createNequiTransaction,
+  createPseTransaction,
   getWompiTransaction,
 } from "../lib/wompi";
 import { paymentEnvironmentError } from "../lib/env";
@@ -20,10 +21,42 @@ import {
   splitFees,
   storeBalance,
 } from "../lib/protected";
+import {
+  markPaymentAvailable,
+  markPaymentPaidOut,
+  recordSaleLedger,
+  reversePaymentLedger,
+  balanceForStore,
+} from "../lib/ledger";
+import { PSE_SCHEMA } from "../lib/pse";
 
 const router = Router();
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PHONE_RX = /^3\d{9}$/;
+
+const CHECKOUT_SCHEMA = z
+  .object({
+    orderId: z.string().uuid(),
+    paymentMethod: z.enum(["NEQUI", "PSE"]).default("NEQUI"),
+    phoneNumber: z.string().regex(PHONE_RX, "Número Nequi inválido (10 dígitos, empieza en 3).").optional(),
+    pse: PSE_SCHEMA.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.paymentMethod === "NEQUI" && !value.phoneNumber) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["phoneNumber"],
+        message: "Falta el número Nequi.",
+      });
+    }
+    if (value.paymentMethod === "PSE" && !value.pse) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["pse"],
+        message: "Faltan los datos de PSE.",
+      });
+    }
+  });
 
 function wompiReady(res: any): boolean {
   const envError = paymentEnvironmentError();
@@ -45,6 +78,8 @@ export async function applyProtectedApproved(tx: {
   id: string;
   status: string;
   amountInCents: number | null;
+  reference?: string | null;
+  paymentMethodType?: string | null;
 }): Promise<{ handled: boolean; approved?: boolean }> {
   return db.transaction(async (trx) => {
     const [row] = await trx
@@ -63,6 +98,28 @@ export async function applyProtectedApproved(tx: {
     if (tx.amountInCents !== null && tx.amountInCents > 0 && tx.amountInCents !== expected * 100) {
       return { handled: true, approved: false };
     }
+
+    // Datos del pedido para el registro financiero (email de invitado incluido).
+    const [order] = await trx
+      .select({
+        id: orders.id,
+        customerId: orders.customerId,
+        customerEmail: orders.customerEmail,
+      })
+      .from(orders)
+      .where(eq(orders.id, row.orderId))
+      .limit(1);
+    let customerEmail = order?.customerEmail ?? null;
+    const customerId = order?.customerId ?? row.customerId ?? null;
+    if (!customerEmail && customerId) {
+      const [customer] = await trx
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, customerId))
+        .limit(1);
+      customerEmail = customer?.email ?? null;
+    }
+
     // Cobrado → retenido directo (la retención arranca al cobrarse). El WHERE
     // por estado evita pisar una devolución/cancelación concurrente.
     const [updated] = await trx
@@ -75,7 +132,35 @@ export async function applyProtectedApproved(tx: {
         ),
       )
       .returning({ id: protectedPayments.id });
-    return { handled: true, approved: Boolean(updated) };
+    if (!updated) return { handled: true, approved: false };
+
+    // Registro contable: venta + comisión quedan retenidas (PENDING) hasta la
+    // liberación. Idempotente por (provider, txId) y por clave de movimiento:
+    // un webhook duplicado no duplica el ledger.
+    const method =
+      tx.paymentMethodType === "PSE" || tx.paymentMethodType === "CARD"
+        ? tx.paymentMethodType
+        : row.paymentMethod;
+    const { paymentId } = await recordSaleLedger(trx, {
+      providerTransactionId: tx.id,
+      reference: tx.reference ?? `PROT_${row.orderId}`,
+      paymentMethod: method,
+      paymentStatus: "APPROVED",
+      amount: expected,
+      total: Number(row.total),
+      sellerFee: Number(row.sellerFee),
+      sellerNet: Number(row.sellerNet),
+      orderId: row.orderId,
+      storeId: row.storeId,
+      customerId,
+      customerEmail,
+    });
+    await trx
+      .update(protectedPayments)
+      .set({ paymentId, paymentMethod: method })
+      .where(eq(protectedPayments.id, row.id));
+
+    return { handled: true, approved: true };
   });
 }
 
@@ -86,11 +171,11 @@ export async function applyProtectedApproved(tx: {
 // cobro en Wompi. Dos pestañas simultáneas no pueden generar dos cobros: la
 // segunda encuentra la reserva y recibe 409 mientras la primera termina.
 router.post("/checkout", requireAuth, async (req: AuthRequest, res) => {
-  const parsed = z
-    .object({ orderId: z.string().uuid(), phoneNumber: z.string().regex(PHONE_RX, "Número Nequi inválido (10 dígitos, empieza en 3).") })
-    .safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Pedido o Nequi inválidos." });
-  const { orderId, phoneNumber } = parsed.data;
+  const parsed = CHECKOUT_SCHEMA.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Pedido o método de pago inválido.", detail: parsed.error.flatten() });
+  }
+  const { orderId, paymentMethod, phoneNumber, pse } = parsed.data;
 
   const reservation = await db.transaction(async (trx) => {
     // Bloquea el pedido: evita pagar un pedido que se confirma/cancela a la vez.
@@ -153,6 +238,7 @@ router.post("/checkout", requireAuth, async (req: AuthRequest, res) => {
         sellerFee: String(split.sellerFee),
         sellerNet: String(split.sellerNet),
         status: "initiated",
+        paymentMethod,
       })
       .onConflictDoNothing()
       .returning();
@@ -181,13 +267,29 @@ router.post("/checkout", requireAuth, async (req: AuthRequest, res) => {
 
   const reference = `PROT_${orderId.slice(0, 8)}_${Date.now().toString(36)}`;
   const [me] = await db.select({ email: users.email }).from(users).where(eq(users.id, req.userId!)).limit(1);
+  const customerEmail = me?.email ?? "cliente@ccplatform.com";
   try {
-    const tx = await createNequiTransaction({
-      amountInCents: reservation.split.charge * 100,
-      reference,
-      customerEmail: me?.email ?? "cliente@ccplatform.com",
-      phoneNumber,
-    });
+    const tx =
+      paymentMethod === "PSE"
+        ? await createPseTransaction({
+            amountInCents: reservation.split.charge * 100,
+            reference,
+            customerEmail,
+            pse: {
+              userType: pse!.userType,
+              legalIdType: pse!.legalIdType,
+              legalId: pse!.legalId,
+              financialInstitutionCode: pse!.financialInstitutionCode,
+              fullName: pse!.fullName,
+              description: pse!.description ?? "Compra en Cici",
+            },
+          })
+        : await createNequiTransaction({
+            amountInCents: reservation.split.charge * 100,
+            reference,
+            customerEmail,
+            phoneNumber: phoneNumber!,
+          });
     if (!tx.id) throw new Error("Wompi no devolvió el id de la transacción");
     const [row] = await db
       .update(protectedPayments)
@@ -199,6 +301,7 @@ router.post("/checkout", requireAuth, async (req: AuthRequest, res) => {
       ...row,
       transactionId: tx.id,
       statusTx: tx.status,
+      redirectUrl: tx.redirectUrl,
       charge: reservation.split.charge,
       sellerNet: reservation.split.sellerNet,
     });
@@ -209,7 +312,7 @@ router.post("/checkout", requireAuth, async (req: AuthRequest, res) => {
       .delete(protectedPayments)
       .where(and(eq(protectedPayments.id, reservation.row.id), sql`${protectedPayments.wompiTxId} IS NULL`))
       .catch(() => undefined);
-    res.status(502).json({ error: "No se pudo crear el cobro por Nequi." });
+    res.status(502).json({ error: "No se pudo crear el cobro." });
   }
 });
 
@@ -270,6 +373,8 @@ router.post("/:id/release", requireAuth, async (req: AuthRequest, res) => {
       .where(and(eq(protectedPayments.id, row.id), eq(protectedPayments.status, "held")))
       .returning();
     if (!updated) return { kind: "error" as const, status: 409, error: "Ya cambió de estado." };
+    // El dinero pasa de retenido a liquidable en el ledger.
+    if (row.paymentId) await markPaymentAvailable(trx, row.paymentId);
     return { kind: "ok" as const, updated };
   });
   if (outcome.kind === "error") return res.status(outcome.status).json({ error: outcome.error });
@@ -302,6 +407,18 @@ router.post("/:id/refund", requireAuth, async (req: AuthRequest, res) => {
         status: 409,
         error: `No se puede devolver desde ${row.status}.`,
       };
+    }
+    // Nunca se borra el movimiento: se marca REVERSED. Si el dinero ya está en
+    // transferencia o pagado, se bloquea (requiere proceso compensatorio manual).
+    if (row.paymentId) {
+      const reversed = await reversePaymentLedger(trx, row.paymentId);
+      if (!reversed.ok) {
+        return {
+          kind: "error" as const,
+          status: 409,
+          error: "El dinero ya está en una liquidación o fue pagado; requiere revisión manual.",
+        };
+      }
     }
     const [updated] = await trx
       .update(protectedPayments)
@@ -378,8 +495,9 @@ router.get("/mine", requireAuth, async (req: AuthRequest, res) => {
   const [store] = await db.select({ id: stores.id }).from(stores).where(eq(stores.ownerId, req.userId!)).limit(1);
   if (!store) return res.status(404).json({ error: "No tienes una tienda." });
   const { storeBalance } = await import("../lib/protected");
-  const [balance, history] = await Promise.all([
+  const [legacy, ledger, history] = await Promise.all([
     storeBalance(store.id),
+    balanceForStore(store.id),
     db
       .select()
       .from(protectedPayments)
@@ -387,7 +505,28 @@ router.get("/mine", requireAuth, async (req: AuthRequest, res) => {
       .orderBy(desc(protectedPayments.createdAt))
       .limit(50),
   ]);
-  res.json({ balance, history });
+  // Compatibilidad: pending/paid se conservan; el ledger añade available,
+  // inTransfer y paidOut (saldos reconstruidos de movimientos inmutables).
+  res.json({
+    balance: {
+      ...legacy,
+      pending: ledger.pending,
+      paid: ledger.paidOut,
+      available: ledger.available,
+      inTransfer: ledger.inTransfer,
+      reversed: ledger.reversed,
+      total: ledger.total,
+    },
+    history,
+  });
+});
+
+// Saldo reconstruido desde el ledger (Cici Payments). GET /api/protected/balance
+router.get("/balance", requireAuth, async (req: AuthRequest, res) => {
+  const [store] = await db.select({ id: stores.id }).from(stores).where(eq(stores.ownerId, req.userId!)).limit(1);
+  if (!store) return res.status(404).json({ error: "No tienes una tienda." });
+  const balance = await balanceForStore(store.id);
+  res.json(balance);
 });
 
 // Reporte semanal para los Nequis manuales (operador = dueño revisando sus
@@ -427,10 +566,74 @@ router.post("/:id/mark-paid", requireAuth, async (req: AuthRequest, res) => {
     if (store?.ownerId !== req.userId) {
       return { kind: "error" as const, status: 403, error: "Solo la dueña marca el pago." };
     }
-    // Idempotencia real: un segundo clic devuelve el pago ya marcado.
-    if (row.status === "paid_out") return { kind: "ok" as const, updated: row };
-    if (row.status !== "released") {
+    if (row.status !== "released" && row.status !== "paid_out") {
       return { kind: "error" as const, status: 409, error: "Solo lo liberado se marca pagado." };
+    }
+
+    // Blindaje contra doble desembolso: si el saldo ya está comprometido en
+    // una liquidación del motor de payouts, este endpoint legacy no puede
+    // volver a pagarlo. Si ya fue pagado por el motor, sincronizamos la fila.
+    if (row.paymentId) {
+      const entries = await trx
+        .select({ status: ledgerEntries.status })
+        .from(ledgerEntries)
+        .where(eq(ledgerEntries.paymentId, row.paymentId));
+      if (entries.some((e) => e.status === "IN_TRANSFER")) {
+        return {
+          kind: "error" as const,
+          status: 409,
+          error: "El saldo ya está comprometido en una liquidación. Confirma o falla esa liquidación.",
+        };
+      }
+      if (entries.length > 0 && entries.every((e) => e.status === "PAID_OUT")) {
+        const [synced] = await trx
+          .update(protectedPayments)
+          .set({ status: "paid_out", paidOutAt: new Date(), paidOutBy: req.userId! })
+          .where(
+            and(
+              eq(protectedPayments.id, row.id),
+              inArray(protectedPayments.status, ["released", "paid_out"]),
+            ),
+          )
+          .returning();
+        return { kind: "ok" as const, updated: synced ?? row };
+      }
+    }
+
+    // Registro de auditoría del desembolso. Idempotente por el id del pago
+    // protegido: repetir el clic no crea una segunda liquidación ni una
+    // segunda transferencia, solo devuelve la existente.
+    const payoutKey = `manual-payout:${row.id}`;
+    const reference = parsed.data.payoutReference;
+    const [inserted] = await trx
+      .insert(payouts)
+      .values({
+        storeId: row.storeId,
+        amount: String(Math.round(Number(row.sellerNet) * 100) / 100),
+        provider: "MANUAL",
+        providerPayoutId: reference
+          ? `MANUAL:${row.id}:${reference.slice(0, 90)}`
+          : `MANUAL:${row.id}`,
+        status: "SUCCESS",
+        idempotencyKey: payoutKey,
+        createdBy: req.userId!,
+        completedAt: new Date(),
+      })
+      .onConflictDoNothing()
+      .returning();
+    const [payout] =
+      inserted
+        ? [inserted]
+        : await trx
+            .select()
+            .from(payouts)
+            .where(eq(payouts.idempotencyKey, payoutKey))
+            .limit(1);
+
+    // Idempotencia real: un segundo clic devuelve el pago ya marcado.
+    if (row.status === "paid_out") {
+      if (row.paymentId && payout) await markPaymentPaidOut(trx, row.paymentId, payout.id);
+      return { kind: "ok" as const, updated: row };
     }
     const [updated] = await trx
       .update(protectedPayments)
@@ -438,11 +641,12 @@ router.post("/:id/mark-paid", requireAuth, async (req: AuthRequest, res) => {
         status: "paid_out",
         paidOutAt: new Date(),
         paidOutBy: req.userId!,
-        payoutReference: parsed.data.payoutReference ?? null,
+        payoutReference: reference ?? null,
       })
       .where(and(eq(protectedPayments.id, row.id), eq(protectedPayments.status, "released")))
       .returning();
     if (!updated) return { kind: "error" as const, status: 409, error: "Ya cambió de estado." };
+    if (row.paymentId && payout) await markPaymentPaidOut(trx, row.paymentId, payout.id);
     return { kind: "ok" as const, updated };
   });
   if (outcome.kind === "error") return res.status(outcome.status).json({ error: outcome.error });

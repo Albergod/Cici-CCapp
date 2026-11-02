@@ -8,3 +8,5 @@ frontend/dist/
 uploads/
 Cici-CCapp/
 query_test.ts
+
+coverage/

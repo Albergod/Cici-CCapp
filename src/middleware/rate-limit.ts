@@ -39,6 +39,36 @@ export const paymentLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Catálogo público de bancos PSE. Se cachea en el servidor; el límite frena
+// scraping sin afectar una compra normal.
+export const pseInstitutionsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "test" ? 500 : 60,
+  message: { error: "Demasiadas consultas de bancos. Intenta en unos minutos." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Checkout de invitado (sin cuenta): limita creación de órdenes por IP. En
+// tests se amplía porque cada caso crea su propia compra.
+export const guestCheckoutLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "test" ? 500 : 20,
+  message: { error: "Demasiados intentos de compra desde esta conexión. Intenta más tarde." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Consulta de estado con email + código: un límite estricto evita fuerza bruta
+// contra códigos de invitado.
+export const guestStatusLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "test" ? 500 : 40,
+  message: { error: "Demasiadas consultas. Espera unos minutos." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Formulario público de Cici Empresarios: frena spam sin bloquear una
 // solicitud legítima. En tests se amplía porque cada caso crea un lead.
 export const empresariosLeadLimiter = rateLimit({

@@ -170,6 +170,16 @@ export function validateEnv(env: EnvLike = process.env): EnvValidation {
     if (!hasValue(env.CORS_ORIGINS) && !hasValue(env.PUBLIC_BASE_URL)) {
       warnings.push("CORS_ORIGINS no está definido: solo se permitirá el mismo origen.");
     }
+    if (!hasValue(env.PAYOUT_ENCRYPTION_KEY)) {
+      warnings.push(
+        "PAYOUT_ENCRYPTION_KEY no está definida: los datos bancarios se cifran con JWT_SECRET. Rotar JWT_SECRET los volverá ilegibles; define una clave dedicada.",
+      );
+    }
+    if (!hasValue(env.GUEST_CODE_PEPPER)) {
+      warnings.push(
+        "GUEST_CODE_PEPPER no está definido: los códigos de invitado se derivan de JWT_SECRET. Rotar JWT_SECRET invalidará los códigos pendientes.",
+      );
+    }
   }
 
   const payments = validatePaymentEnvironment(env);

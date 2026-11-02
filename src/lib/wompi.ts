@@ -76,28 +76,40 @@ export function wompiIntegritySignature(
   return crypto.createHash("sha256").update(raw, "utf8").digest("hex");
 }
 
-export async function createNequiTransaction(params: {
-  amountInCents: number;
-  reference: string;
-  customerEmail: string;
-  phoneNumber: string;
-}): Promise<{ id: string; status: string }> {
+interface WompiTransactionResult {
+  id: string;
+  status: string;
+  /** URL del banco para completar un pago asíncrono (PSE). */
+  redirectUrl: string | null;
+}
+
+function extractRedirectUrl(data: Record<string, any>): string | null {
+  const extra = data?.payment_method?.extra ?? {};
+  return (
+    extra.async_payment_url ??
+    extra.redirect_url ??
+    extra.pse_payment_url ??
+    data?.redirect_url ??
+    data?.url ??
+    null
+  );
+}
+
+async function createWompiTransaction(
+  params: Record<string, unknown>,
+): Promise<WompiTransactionResult> {
   const acceptance = await getWompiAcceptance();
   if (!acceptance.acceptanceToken) {
     throw new Error("Wompi no devolvió el token de aceptación");
   }
 
+  const reference = String(params.reference ?? "");
+  const amountInCents = Number(params.amount_in_cents ?? 0);
   const payload: Record<string, unknown> = {
-    amount_in_cents: params.amountInCents,
+    ...params,
     currency: "COP",
-    customer_email: params.customerEmail,
-    reference: params.reference,
     acceptance_token: acceptance.acceptanceToken,
-    signature: wompiIntegritySignature(params.reference, params.amountInCents),
-    payment_method: {
-      type: "NEQUI",
-      phone_number: params.phoneNumber,
-    },
+    signature: wompiIntegritySignature(reference, amountInCents),
   };
   // accept_personal_auth solo se envía si Wompi entregó el token de Habeas Data.
   if (acceptance.personalDataAuthToken) {
@@ -117,11 +129,101 @@ export async function createNequiTransaction(params: {
     const body = await res.text();
     throw new Error(`Wompi transaction: ${res.status} ${body.slice(0, 300)}`);
   }
-  const data = ((await res.json()) as { data?: { id?: string; status?: string } }).data ?? {};
+  const data = ((await res.json()) as { data?: Record<string, any> }).data ?? {};
   return {
     id: String(data.id ?? ""),
     status: data.status ?? "PENDING",
+    redirectUrl: extractRedirectUrl(data),
   };
+}
+
+export async function createNequiTransaction(params: {
+  amountInCents: number;
+  reference: string;
+  customerEmail: string;
+  phoneNumber: string;
+}): Promise<WompiTransactionResult> {
+  return createWompiTransaction({
+    amount_in_cents: params.amountInCents,
+    customer_email: params.customerEmail,
+    reference: params.reference,
+    payment_method: {
+      type: "NEQUI",
+      phone_number: params.phoneNumber,
+    },
+  });
+}
+
+export interface PsePaymentData {
+  /** 0 = persona natural, 1 = persona jurídica (Wompi). */
+  userType: 0 | 1;
+  /** CC, CE, NIT, PP, etc. */
+  legalIdType: string;
+  legalId: string;
+  /** Código de la institución financiera (GET /pse/financial_institutions). */
+  financialInstitutionCode: string;
+  fullName?: string;
+  description?: string;
+}
+
+// PSE es asíncrono: la transacción nace PENDING y el comprador completa el
+// pago en el banco. La respuesta trae la URL del banco. NUNCA se asume que el
+// pago se aprobó por volver a Cici: se confirma por webhook y/o /status.
+export async function createPseTransaction(params: {
+  amountInCents: number;
+  reference: string;
+  customerEmail: string;
+  pse: PsePaymentData;
+}): Promise<WompiTransactionResult> {
+  return createWompiTransaction({
+    amount_in_cents: params.amountInCents,
+    customer_email: params.customerEmail,
+    reference: params.reference,
+    payment_method: {
+      type: "PSE",
+      user_type: params.pse.userType,
+      user_legal_id_type: params.pse.legalIdType,
+      user_legal_id: params.pse.legalId,
+      financial_institution_code: params.pse.financialInstitutionCode,
+      payment_description:
+        (params.pse.description ?? "Compra en Cici").slice(0, 80),
+      ...(params.pse.fullName ? { full_name: params.pse.fullName } : {}),
+    },
+  });
+}
+
+export interface PseInstitution {
+  code: string;
+  name: string;
+}
+
+/** Instituciones financieras habilitadas para PSE en la cuenta Wompi. */
+export async function getWompiPseInstitutions(): Promise<PseInstitution[]> {
+  const res = await fetch(`${WOMPI_BASE}/pse/financial_institutions`, {
+    headers: { Authorization: `Bearer ${WOMPI_PUBLIC_KEY}` },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Wompi PSE institutions: ${res.status} ${body.slice(0, 300)}`);
+  }
+  const payload = (await res.json()) as { data?: any[] };
+  const rows = Array.isArray(payload.data) ? payload.data : [];
+  return rows
+    .map((row) => ({
+      code: String(
+        row.financial_institution_code ??
+          row.code ??
+          row.id ??
+          "",
+      ),
+      name: String(
+        row.financial_institution_name ??
+          row.name ??
+          row.description ??
+          "",
+      ),
+    }))
+    .filter((row) => row.code && row.name);
 }
 
 export async function getWompiTransaction(id: string): Promise<{
@@ -129,6 +231,7 @@ export async function getWompiTransaction(id: string): Promise<{
   status: string;
   reference: string | null;
   amountInCents: number | null;
+  paymentMethodType: string | null;
 } | null> {
   const res = await fetch(`${WOMPI_BASE}/transactions/${id}`, {
     headers: { Authorization: `Bearer ${WOMPI_PRIVATE_KEY}` },
@@ -145,6 +248,7 @@ export async function getWompiTransaction(id: string): Promise<{
       status?: string;
       reference?: string | null;
       amount_in_cents?: number | string | null;
+      payment_method?: { type?: string | null } | null;
     };
   }).data ?? {};
   return {
@@ -157,6 +261,7 @@ export async function getWompiTransaction(id: string): Promise<{
         : data.amount_in_cents
           ? Number(data.amount_in_cents)
           : null,
+    paymentMethodType: data.payment_method?.type ?? null,
   };
 }
 

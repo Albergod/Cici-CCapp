@@ -67,6 +67,8 @@ export interface Store {
   bannerUrl: string | null;
   whatsapp?: string | null;
   plan: 'FREE' | 'PRO' | 'BUSINESS';
+  /** Tienda habilitada para Cici Payments (compra en línea sin cuenta). */
+  protectedEnabled?: boolean;
   businessType?: BusinessType;
   subscriptionCycle?: 'MONTHLY' | 'BI_MONTHLY' | null;
   schedule?: ScheduleConfig;

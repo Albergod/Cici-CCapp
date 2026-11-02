@@ -1,20 +1,29 @@
 // Pagos con Nequi vía Wompi. Comparte la misma regla de negocio que Mercado
 // Pago: el plan se activa SOLO cuando Wompi confirma la transacción como
 // APPROVED (webhook firmado o verificación on-demand contra Wompi).
+import crypto from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "../db/client";
-import { users, stores, mpPayments } from "../db/schema";
+import {
+  users,
+  stores,
+  mpPayments,
+  payments,
+  paymentWebhookEvents,
+} from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import {
   WOMPI_PRIVATE_KEY,
   WOMPI_PUBLIC_KEY,
   WOMPI_EVENTS_KEY,
   createNequiTransaction,
+  getWompiPseInstitutions,
   getWompiTransaction,
   verifyWompiWebhook,
 } from "../lib/wompi";
+import { pseInstitutionsLimiter } from "../middleware/rate-limit";
 import { parseExternalRef } from "../lib/payment-ref";
 import { paymentEnvironmentError } from "../lib/env";
 import { priceFor, activatePaidPlan } from "../lib/plans";
@@ -211,6 +220,39 @@ router.get("/status", requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
+// Bancos disponibles para PSE. Es información pública de catálogo (no cobra
+// nada): se cachea unos minutos para no golpear a Wompi en cada checkout.
+let pseCache: { at: number; data: { code: string; name: string }[] } | null = null;
+
+router.get("/pse/institutions", pseInstitutionsLimiter, async (_req, res) => {
+  if (!WOMPI_PUBLIC_KEY) {
+    return res.status(503).json({ error: "Wompi no está configurado aún (llaves WOMPI_*)" });
+  }
+  if (pseCache && Date.now() - pseCache.at < 10 * 60 * 1000) {
+    return res.json({ institutions: pseCache.data });
+  }
+  try {
+    const institutions = await getWompiPseInstitutions();
+    pseCache = { at: Date.now(), data: institutions };
+    res.json({ institutions });
+  } catch (err) {
+    console.error("wompi pse institutions error:", err);
+    res.status(502).json({ error: "No se pudieron cargar los bancos de PSE." });
+  }
+});
+
+/** Id determinista del evento firmado: el reenvío no se procesa dos veces. */
+function webhookEventId(body: Record<string, any>): string {
+  const tx = body?.data?.transaction ?? {};
+  const raw = [
+    body?.event ?? "",
+    tx.id ?? "",
+    tx.status ?? "",
+    body?.signature?.timestamp ?? "",
+  ].join("|");
+  return crypto.createHash("sha256").update(raw, "utf8").digest("hex");
+}
+
 // Webhook de Wompi: nos notifica transaction.updated. Responde 200 primero;
 // el procesamiento es idempotente y solo activa el plan si la firma es válida
 // y la transacción está APPROVED. URL en el panel de Wompi:
@@ -226,19 +268,84 @@ router.post("/webhook", async (req, res) => {
     return;
   }
 
+  // Idempotencia a nivel de evento: si Wompi reenvía el mismo, se ignora.
+  const eventId = webhookEventId(body);
+  const [eventRow] = await db
+    .insert(paymentWebhookEvents)
+    .values({
+      provider: "WOMPI",
+      eventId,
+      eventType: String(body?.event ?? "").slice(0, 120),
+      status: "RECEIVED",
+      payload: body as Record<string, unknown>,
+    })
+    .onConflictDoNothing()
+    .returning({ id: paymentWebhookEvents.id });
+  if (!eventRow) return;
+
   const tx = body?.data?.transaction;
-  if (!tx || tx.status !== "APPROVED") return;
+  if (!tx) {
+    await db
+      .update(paymentWebhookEvents)
+      .set({ status: "IGNORED", processedAt: new Date() })
+      .where(eq(paymentWebhookEvents.id, eventRow.id));
+    return;
+  }
 
   try {
     const full = await getWompiTransaction(String(tx.id ?? ""));
-    if (!full) return;
+    if (!full) {
+      await db
+        .update(paymentWebhookEvents)
+        .set({ status: "IGNORED", processedAt: new Date() })
+        .where(eq(paymentWebhookEvents.id, eventRow.id));
+      return;
+    }
+
+    // Mantén el estado del pago normalizado aunque no sea APPROVED.
+    if (full.status !== "APPROVED") {
+      const mapped =
+        full.status === "DECLINED" || full.status === "VOIDED" || full.status === "ERROR"
+          ? full.status
+          : null;
+      if (mapped) {
+        await db
+          .update(payments)
+          .set({ status: mapped, updatedAt: new Date() })
+          .where(
+            and(
+              eq(payments.provider, "WOMPI"),
+              eq(payments.providerTransactionId, full.id),
+            ),
+          );
+      }
+      await db
+        .update(paymentWebhookEvents)
+        .set({ status: "PROCESSED", processedAt: new Date() })
+        .where(eq(paymentWebhookEvents.id, eventRow.id));
+      return;
+    }
+
     // Pago protegido piloto primero (por tx id); si lo maneja, no es un plan.
     const { applyProtectedApproved } = await import("./protected.routes");
     const prot = await applyProtectedApproved(full);
-    if (prot.handled) return;
-    await applyWompiApproved(full);
+    if (!prot.handled) await applyWompiApproved(full);
+
+    await db
+      .update(paymentWebhookEvents)
+      .set({ status: "PROCESSED", processedAt: new Date() })
+      .where(eq(paymentWebhookEvents.id, eventRow.id));
   } catch (err) {
     console.error("wompi webhook error:", err);
+    await db
+      .update(paymentWebhookEvents)
+      .set({
+        status: "FAILED",
+        error: err instanceof Error ? err.message.slice(0, 500) : "error",
+        processedAt: new Date(),
+      })
+      .where(eq(paymentWebhookEvents.id, eventRow.id))
+      .catch(() => undefined);
   }
 });
 

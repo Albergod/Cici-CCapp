@@ -3,7 +3,18 @@ import request from "supertest";
 import type { Express } from "express";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../src/db/client";
-import { users, stores, products, orders, orderItems, violations, protectedPayments } from "../src/db/schema";
+import {
+  users,
+  stores,
+  products,
+  orders,
+  orderItems,
+  violations,
+  protectedPayments,
+  payouts,
+  ledgerEntries,
+  payments,
+} from "../src/db/schema";
 import { canTransition, payoutReport, releaseDueProtected, splitFees, storeBalance } from "../src/lib/protected";
 import { createPendingOrder } from "../src/lib/orders";
 import "dotenv/config";
@@ -65,6 +76,9 @@ describe("Pago protegido piloto", () => {
       await db.delete(orderItems).where(eq(orderItems.orderId, o.id));
     }
     await db.delete(protectedPayments).where(eq(protectedPayments.storeId, storeId));
+    await db.delete(ledgerEntries).where(eq(ledgerEntries.storeId, storeId));
+    await db.delete(payouts).where(eq(payouts.storeId, storeId));
+    await db.delete(payments).where(eq(payments.storeId, storeId));
     await db.delete(violations).where(eq(violations.storeId, storeId));
     for (const o of ords) {
       await db.delete(orders).where(eq(orders.id, o.id));
