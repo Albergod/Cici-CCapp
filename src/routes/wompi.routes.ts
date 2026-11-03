@@ -4,7 +4,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import { db } from "../db/client";
 import {
   users,
@@ -12,6 +12,7 @@ import {
   mpPayments,
   payments,
   paymentWebhookEvents,
+  protectedPayments,
 } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import {
@@ -27,6 +28,7 @@ import { pseInstitutionsLimiter } from "../middleware/rate-limit";
 import { parseExternalRef } from "../lib/payment-ref";
 import { paymentEnvironmentError } from "../lib/env";
 import { priceFor, activatePaidPlan } from "../lib/plans";
+import { applyProtectedApproved } from "./protected.routes";
 
 const router = Router();
 
@@ -347,6 +349,59 @@ router.post("/webhook", async (req, res) => {
       .where(eq(paymentWebhookEvents.id, eventRow.id))
       .catch(() => undefined);
   }
+});
+
+/** Reconciliación manual: verifica pagos protegidos pendientes contra Wompi y
+ * aplica los aprobados. Útil si un webhook se perdió entre que la app respondió
+ * 200 y terminó de procesar. Solo aplica a pagos de la propia tienda. */
+router.post("/reconcile", requireAuth, async (req: AuthRequest, res) => {
+  if (!WOMPI_PRIVATE_KEY || !WOMPI_PUBLIC_KEY) {
+    return res.status(503).json({ error: "Wompi no está configurado." });
+  }
+  const [store] = await db
+    .select({ id: stores.id })
+    .from(stores)
+    .where(eq(stores.ownerId, req.userId!))
+    .limit(1);
+  if (!store) return res.status(404).json({ error: "No tienes una tienda." });
+
+  const rows = await db
+    .select({
+      id: protectedPayments.id,
+      orderId: protectedPayments.orderId,
+      wompiTxId: protectedPayments.wompiTxId,
+      status: protectedPayments.status,
+    })
+    .from(protectedPayments)
+    .where(
+      and(
+        eq(protectedPayments.storeId, store.id),
+        isNotNull(protectedPayments.wompiTxId),
+        inArray(protectedPayments.status, ["initiated", "collected"]),
+      ),
+    );
+
+  const results = [];
+  let reconciled = 0;
+  for (const row of rows) {
+    try {
+      const tx = await getWompiTransaction(String(row.wompiTxId ?? ""));
+      if (!tx) {
+        results.push({ orderId: row.orderId, wompiTxId: row.wompiTxId, applied: false, reason: "no_tx" });
+        continue;
+      }
+      if (tx.status === "APPROVED") {
+        const prot = await applyProtectedApproved(tx);
+        if (prot.handled) reconciled++;
+        results.push({ orderId: row.orderId, wompiTxId: row.wompiTxId, applied: prot.handled, status: tx.status });
+      } else {
+        results.push({ orderId: row.orderId, wompiTxId: row.wompiTxId, applied: false, status: tx.status });
+      }
+    } catch (err) {
+      results.push({ orderId: row.orderId, wompiTxId: row.wompiTxId, applied: false, error: String(err) });
+    }
+  }
+  res.json({ reconciled, results });
 });
 
 router.get("/webhook", (_req, res) => {
