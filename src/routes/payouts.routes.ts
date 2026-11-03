@@ -7,11 +7,17 @@ import { Router } from "express";
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "../db/client";
-import { merchantBankAccounts, stores } from "../db/schema";
+import { merchantBankAccounts, payouts as payoutsTable, stores } from "../db/schema";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { canEncrypt, encryptSecret, last4 } from "../lib/crypto";
 import { balanceForStore } from "../lib/ledger";
-import { confirmPayout, failPayout, listPayouts, requestPayout } from "../lib/payouts";
+import {
+  confirmPayout,
+  failPayout,
+  listPayouts,
+  requestPayout,
+} from "../lib/payouts";
+import { pagarTercero } from "../lib/wompi-pagos-terceros";
 
 const router = Router();
 router.use(requireAuth);
@@ -184,6 +190,47 @@ router.post("/:id/fail", async (req: AuthRequest, res) => {
   const result = await failPayout(req.params.id, store.id, parsed.data.reason);
   if (!result.ok) return res.status(result.status).json({ error: result.message, code: result.code });
   res.json(result.payout);
+});
+
+// POST /api/payouts/:id/auto — desembolso automático vía Wompi Pagos a Terceros.
+// Solo está activo si WOMPI_PAGOS_A_TERCEROS_ENABLED=true. Si Wompi rechaza o falla,
+// el payout se marca FAILED y el saldo vuelve a AVAILABLE (no se pierde dinero).
+router.post("/:id/auto", async (req: AuthRequest, res) => {
+  if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
+  if (process.env.WOMPI_PAGOS_A_TERCEROS_ENABLED !== "true") {
+    return res.status(501).json({ error: "Desembolso automático no habilitado." });
+  }
+  const store = await ownerStore(req.userId!);
+  if (!store) return res.status(404).json({ error: "No tienes una tienda." });
+
+  const [payout] = await db
+    .select()
+    .from(payoutsTable)
+    .where(and(eq(payoutsTable.id, req.params.id), eq(payoutsTable.storeId, store.id)))
+    .limit(1);
+  if (!payout) return res.status(404).json({ error: "Liquidación no encontrada." });
+  if (payout.status !== "PREPARED") {
+    return res.status(409).json({ error: `No se puede desembolsar una liquidación ${payout.status}.` });
+  }
+
+  const result = await pagarTercero({
+    storeId: store.id,
+    bankAccountId: payout.bankAccountId!,
+    amount: Number(payout.amount),
+    reference: `PAYOUT_${payout.id.slice(0, 8)}`,
+    description: `Liquidación ${store.name}`,
+  });
+
+  if (!result.ok) {
+    const failed = await failPayout(req.params.id, store.id, result.error ?? "Error en Wompi pagos a terceros.");
+    return res.status(402).json({ error: result.error, payout: (failed as any).payout ?? null });
+  }
+
+  const confirmed = await confirmPayout(req.params.id, store.id, result.providerPayoutId);
+  if (!confirmed.ok) {
+    return res.status(confirmed.status).json({ error: confirmed.message, code: confirmed.code });
+  }
+  res.json(confirmed.payout);
 });
 
 export default router;

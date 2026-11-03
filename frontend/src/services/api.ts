@@ -610,6 +610,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(providerPayoutId ? { providerPayoutId } : {}),
       }),
+    auto: (id: string) =>
+      request<PayoutRow>(`/payouts/${id}/auto`, { method: 'POST', body: JSON.stringify({}) }),
     fail: (id: string, reason: string) =>
       request<PayoutRow>(`/payouts/${id}/fail`, {
         method: 'POST',

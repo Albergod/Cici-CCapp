@@ -159,6 +159,11 @@ describe("Cici Payments: PSE, ledger y liquidaciones", () => {
         return jsonResponse({ data: tx });
       }
 
+      // Wompi Pagos a Terceros (sandbox): acepta el desembolso por defecto.
+      if (u.includes("payouts.wompi.co/v1/payouts") && method === "POST") {
+        return jsonResponse({ data: { id: `payout-auto-${++counter}`, status: "PROCESSING" } });
+      }
+
       return { ok: false, status: 404, json: async () => ({}), text: async () => "not found" } as unknown as Response;
     });
 
@@ -484,6 +489,20 @@ describe("Cici Payments: PSE, ledger y liquidaciones", () => {
       .post(`/api/protected/${pay2!.id}/refund`)
       .set("Authorization", `Bearer ${ownerToken}`);
     expect(blocked.status).toBe(409);
+
+    // Limpieza: resolver el payout pendiente para no dejar saldo en IN_TRANSFER.
+    const [payout2] = await db
+      .select()
+      .from(payouts)
+      .where(eq(payouts.storeId, storeId))
+      .orderBy(({ createdAt }) => ({ createdAt: "desc" }))
+      .limit(1);
+    if (payout2 && payout2.status === "PREPARED") {
+      await request(app)
+        .post(`/api/payouts/${payout2.id}/mark-paid`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({ providerPayoutId: "cleanup-refund" });
+    }
   });
 
   it("payouts exige autenticación y propiedad de la tienda", async () => {
@@ -497,5 +516,162 @@ describe("Cici Payments: PSE, ledger y liquidaciones", () => {
       .set("Authorization", `Bearer ${otherToken}`);
     expect(other.status).toBe(404);
     await db.delete(users).where(eq(users.email, otherEmail));
+  });
+
+  it("desembolso automático: sin flag habilitado devuelve 501 y no toca el saldo", async () => {
+    const orderId = await makeOrder();
+    const checkout = await pseCheckout(orderId);
+    const txId = checkout.body.transactionId as string;
+    await approve(orderId, txId);
+    const [pay] = await db
+      .select()
+      .from(protectedPayments)
+      .where(eq(protectedPayments.orderId, orderId))
+      .limit(1);
+    await request(app)
+      .post(`/api/protected/${pay!.id}/release`)
+      .set("Authorization", `Bearer ${ownerToken}`);
+
+    const requested = await request(app)
+      .post("/api/payouts/request")
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(requested.status).toBe(201);
+    const payoutId = requested.body.id as string;
+
+    // Sin flag: 501, sin tocar el dinero.
+    const auto = await request(app)
+      .post(`/api/payouts/${payoutId}/auto`)
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(auto.status).toBe(501);
+
+    // Limpieza: marcar como pagado para no dejar saldo en IN_TRANSFER.
+    await request(app)
+      .post(`/api/payouts/${payoutId}/mark-paid`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ providerPayoutId: "cleanup-test" });
+
+    const [payoutRow] = await db
+      .select({ status: payouts.status })
+      .from(payouts)
+      .where(eq(payouts.id, payoutId))
+      .limit(1);
+    expect(payoutRow!.status).toBe("SUCCESS");
+  });
+
+  it("desembolso automático: Wompi acepta y el payout pasa a SUCCESS", async () => {
+    process.env.WOMPI_PAGOS_A_TERCEROS_ENABLED = "true";
+    process.env.WOMPI_PAGOS_A_TERCEROS_USER_PRINCIPAL_ID = "test-principal";
+    process.env.WOMPI_PAGOS_A_TERCEROS_API_KEY = "test-api-key";
+
+    const orderId = await makeOrder();
+    const checkout = await pseCheckout(orderId);
+    const txId = checkout.body.transactionId as string;
+    await approve(orderId, txId);
+    const [pay] = await db
+      .select()
+      .from(protectedPayments)
+      .where(eq(protectedPayments.orderId, orderId))
+      .limit(1);
+    await request(app)
+      .post(`/api/protected/${pay!.id}/release`)
+      .set("Authorization", `Bearer ${ownerToken}`);
+
+    const requested = await request(app)
+      .post("/api/payouts/request")
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(requested.status).toBe(201);
+    const payoutId = requested.body.id as string;
+
+    // Cuenta bancaria para el desembolso.
+    await request(app)
+      .post("/api/payouts/bank-accounts")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({
+        bankCode: "1",
+        bankName: "Banco Uno",
+        accountType: "AHORROS",
+        accountNumber: "123456789012",
+        holderName: "Dueña Test",
+        holderDocType: "CC",
+        holderDoc: "987654321",
+        isDefault: true,
+      });
+
+    const auto = await request(app)
+      .post(`/api/payouts/${payoutId}/auto`)
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(auto.status).toBe(200);
+    expect(auto.body.status).toBe("SUCCESS");
+
+    const balance = await balanceForStore(storeId);
+    expect(balance.paidOut).toBeGreaterThan(0);
+  });
+
+  it("desembolso automático: Wompi rechaza y el payout pasa a FAILED con saldo en AVAILABLE", async () => {
+    process.env.WOMPI_PAGOS_A_TERCEROS_ENABLED = "true";
+    process.env.WOMPI_PAGOS_A_TERCEROS_USER_PRINCIPAL_ID = "test-principal";
+    process.env.WOMPI_PAGOS_A_TERCEROS_API_KEY = "test-api-key";
+
+    const orderId = await makeOrder();
+    const checkout = await pseCheckout(orderId);
+    const txId = checkout.body.transactionId as string;
+    await approve(orderId, txId);
+    const [pay] = await db
+      .select()
+      .from(protectedPayments)
+      .where(eq(protectedPayments.orderId, orderId))
+      .limit(1);
+    await request(app)
+      .post(`/api/protected/${pay!.id}/release`)
+      .set("Authorization", `Bearer ${ownerToken}`);
+
+    const requested = await request(app)
+      .post("/api/payouts/request")
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(requested.status).toBe(201);
+    const payoutId = requested.body.id as string;
+
+    // Cuenta bancaria para el desembolso.
+    await request(app)
+      .post("/api/payouts/bank-accounts")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({
+        bankCode: "1",
+        bankName: "Banco Uno",
+        accountType: "AHORROS",
+        accountNumber: "123456789012",
+        holderName: "Dueña Test",
+        holderDocType: "CC",
+        holderDoc: "987654321",
+        isDefault: true,
+      });
+
+    // Sobrescribe fetch para que Wompi rechace el desembolso.
+    const originalFetch = globalThis.fetch;
+    (globalThis as any).fetch = async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("payouts.wompi.co/v1/payouts") && (init as any)?.method === "POST") {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({ error: "cuenta invalida" }),
+          text: async () => '{"error":"cuenta invalida"}',
+        } as unknown as Response;
+      }
+      return originalFetch(url, init);
+    };
+
+    const auto = await request(app)
+      .post(`/api/payouts/${payoutId}/auto`)
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(auto.status).toBe(402);
+    expect(auto.body.error).toContain("cuenta invalida");
+
+    // Restaura fetch.
+    (globalThis as any).fetch = originalFetch;
+
+    // El saldo debe haber vuelto a AVAILABLE.
+    const balance = await balanceForStore(storeId);
+    expect(balance.available).toBeGreaterThan(0);
   });
 });
