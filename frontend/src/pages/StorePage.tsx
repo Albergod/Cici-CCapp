@@ -470,7 +470,7 @@ export function StorePage() {
                   key={product.id}
                   product={product}
                   businessType={store.businessType}
-                  onContact={handleContact}
+                  onContact={store.protectedEnabled ? undefined : handleContact}
                   onBuy={store.protectedEnabled ? handleBuy : undefined}
                   imageZoom
                   armedId={armedProductId}
