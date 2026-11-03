@@ -229,7 +229,7 @@ const GUEST_SCHEMA = z
     email: z.string().trim().email().max(200),
     phone: z.string().trim().max(30).optional(),
     name: z.string().trim().max(120).optional(),
-    paymentMethod: z.enum(["NEQUI", "PSE", "NEQUI_DIRECTO"]).default("NEQUI"),
+    paymentMethod: z.enum(["NEQUI", "PSE", "NEQUI_DIRECTO"]).default("NEQUI_DIRECTO"),
     phoneNumber: z.string().regex(/^3\d{9}$/, "Número Nequi inválido.").optional(),
     pse: PSE_SCHEMA.optional(),
   })
@@ -259,11 +259,7 @@ router.post("/guest", guestCheckoutLimiter, async (req, res) => {
     sellerNet: result.sellerNet,
     paymentMethod: result.paymentMethod,
     directNequi: result.directNequi ?? null,
-    payment: {
-      transactionId: result.transactionId ?? null,
-      status: result.statusTx ?? null,
-      redirectUrl: result.redirectUrl ?? null,
-    },
+    payment: null,
     note: "Guarda tu código: lo necesitas junto a tu email para consultar la compra.",
   });
 });

@@ -71,7 +71,7 @@ export interface GuestCheckoutResult {
   sellerNet: number;
   paymentMethod?: 'NEQUI' | 'PSE' | 'NEQUI_DIRECTO';
   directNequi?: { phone: string; holder: string } | null;
-  payment: { transactionId: string | null; status: string | null; redirectUrl: string | null };
+  payment: { transactionId: string | null; status: string | null; redirectUrl: string | null } | null;
   note: string;
 }
 

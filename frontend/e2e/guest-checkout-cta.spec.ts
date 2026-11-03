@@ -15,7 +15,10 @@ test.describe('Guest checkout CTA (compra sin registro)', () => {
     const storeId = storeBody.id;
     await ownerAuthed.post(`/api/stores/${storeId}/products`, { data: { name: `Producto CTA ${tag}`, price: 10000, stock: 5 } });
 
-    execSync('/home/kaydo/.nvm/versions/node/v20.20.2/bin/npx', ['tsx', '/home/kaydo/Desktop/cc-platform/scripts/set-protected-enabled.ts', storeId], { stdio: 'inherit' });
+    execSync(
+      `/home/kaydo/.nvm/versions/node/v20.20.2/bin/npx tsx /home/kaydo/Desktop/cc-platform/scripts/set-payment-nequi.ts ${storeId} 3001234567`,
+      { stdio: 'inherit' },
+    );
 
     await page.goto(`/store/${storeBody.slug}`);
     const buy = page.getByRole('button', { name: /comprar/i }).first();
@@ -23,5 +26,8 @@ test.describe('Guest checkout CTA (compra sin registro)', () => {
 
     await buy.click();
     await expect(page).toHaveURL(/\/comprar\//, { timeout: 15000 });
+    await expect(page.getByText(/pago directo por nequi/i).first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('3001234567').first()).toBeVisible({ timeout: 15000 });
+    await expect(page).not.toHaveURL(/\/login/);
   });
 });

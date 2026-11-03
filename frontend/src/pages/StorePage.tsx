@@ -97,6 +97,10 @@ export function StorePage() {
     if (!store) return;
     navigate(`/comprar/${store.slug}?product=${productId}`);
   };
+  // Invitado: en vez de mandarlo a login, lo llevamos al catálogo para comprar.
+  const scrollToProducts = () => {
+    document.getElementById('productos')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   // Reserva de un servicio (BELLEZA): abre el chat con la agenda del asistente.
   const handleReserve = async (service: { id: string; name: string }) => {
@@ -333,11 +337,11 @@ export function StorePage() {
                 {following ? 'Siguiendo' : 'Seguir'}
               </button>
               <button
-                onClick={() => handleContact()}
+                onClick={() => (isAuthenticated ? handleContact() : scrollToProducts())}
                 className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl text-sm font-semibold transition-all active:scale-[0.98] text-surface-900 bg-white border border-surface-200 hover:border-brand-300 hover:shadow-soft"
               >
                 <MessageSquare className="w-4 h-4 text-brand-500" />
-                Contactar
+                {isAuthenticated ? 'Preguntar' : 'Ver productos'}
               </button>
               <a
                 href={whatsappShareUrl}
@@ -465,7 +469,7 @@ export function StorePage() {
             </div>
           ) : (
             <>
-              {!store.paymentNequi && !store.protectedEnabled && (
+              {!store.paymentNequi && (
                 <div className="card p-4 mb-4 flex items-start gap-2.5">
                   <TriangleAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                   <p className="text-sm text-surface-600">
@@ -474,7 +478,7 @@ export function StorePage() {
                   </p>
                 </div>
               )}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div id="productos" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {store.products.map((product) => (
                   <ProductCard
                     key={product.id}
