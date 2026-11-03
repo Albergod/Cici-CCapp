@@ -165,14 +165,14 @@ export function ProductCard({
                   Comprar
                 </button>
               )}
-              {onContact && !onBuy && (
+              {onContact && (
                 <button
                   onClick={() => onContact(product.id)}
                   title="Preguntar por chat"
                   className="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1.5 rounded-lg text-xs font-semibold text-brand-700 bg-white border border-brand-200 hover:bg-brand-50 transition-all active:scale-95"
                 >
                   <MessageSquare className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Contactar</span>
+                  <span className="hidden sm:inline">Preguntar</span>
                 </button>
               )}
             </div>

@@ -162,6 +162,8 @@ export const stores = pgTable("stores", {
   logoUrl: text("logo_url"),
   bannerUrl: text("banner_url"),
   whatsapp: text("whatsapp"),
+  // Número de Nequi del comerciante para recibir pagos directos (sin custodia).
+  paymentNequi: text("payment_nequi"),
   plan: planEnum("plan").default("FREE").notNull(),
   businessType: businessTypeEnum("business_type").default("OTRO").notNull(),
   subscriptionCycle: cycleEnum("subscription_cycle"),

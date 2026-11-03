@@ -111,6 +111,7 @@ export function DashboardPage() {
   const [editLogoUrl, setEditLogoUrl] = useState('');
   const [editBannerUrl, setEditBannerUrl] = useState('');
   const [editWhatsapp, setEditWhatsapp] = useState('');
+  const [editPaymentNequi, setEditPaymentNequi] = useState('');
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -402,6 +403,7 @@ export function DashboardPage() {
     setEditLogoUrl(store.logoUrl ?? '');
     setEditBannerUrl(store.bannerUrl ?? '');
     setEditWhatsapp(store.whatsapp ?? '');
+    setEditPaymentNequi(store.paymentNequi ?? '');
     setShowEditModal(true);
   };
 
@@ -417,6 +419,7 @@ export function DashboardPage() {
         logoUrl: editLogoUrl.trim() || undefined,
         bannerUrl: editBannerUrl.trim() || undefined,
         whatsapp: editWhatsapp.trim() || undefined,
+        paymentNequi: editPaymentNequi.trim() || undefined,
       });
       // Refresca desde el endpoint de detalle para traer los contadores actualizados.
       const detail = await api.stores.getBySlug(updated.slug);
@@ -1440,6 +1443,23 @@ export function DashboardPage() {
                   />
                   <p className="text-xs text-surface-400 mt-1">
                     Usado para que los clientes cierren la compra por WhatsApp.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-surface-700 mb-1.5">
+                    Nequi para recibir pagos (solo número, ej: 3001234567)
+                  </label>
+                  <input
+                    type="text"
+                    value={editPaymentNequi}
+                    onChange={(e) => setEditPaymentNequi(e.target.value)}
+                    className="input"
+                    placeholder="3001234567"
+                    maxLength={20}
+                  />
+                  <p className="text-xs text-surface-400 mt-1">
+                    Los compradores te transfieren directo a este Nequi. Recibes el 100% del valor.
                   </p>
                 </div>
 

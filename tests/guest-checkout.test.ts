@@ -247,4 +247,49 @@ describe("Compra de invitado (sin cuenta)", () => {
     expect(disabled.status).toBe(409);
     await db.update(stores).set({ protectedEnabled: true }).where(eq(stores.id, storeId));
   });
+
+  it("pago directo: usa el Nequi del comerciante, sin custodia ni comisión", async () => {
+    await db
+      .update(stores)
+      .set({ protectedEnabled: false, paymentNequi: "3001234567" })
+      .where(eq(stores.id, storeId));
+
+    const r = await request(app)
+      .post("/api/orders/guest")
+      .send(guestBody({ paymentMethod: "NEQUI_DIRECTO", pse: undefined }));
+    expect(r.status).toBe(201);
+    expect(r.body.paymentMethod).toBe("NEQUI_DIRECTO");
+    expect(r.body.total).toBe(50000);
+    expect(r.body.charge).toBe(50000);
+    expect(r.body.sellerNet).toBe(50000);
+    expect(r.body.directNequi.phone).toBe("3001234567");
+
+    // Sin custodia: no se crea registro de pago protegido.
+    const [pay] = await db
+      .select()
+      .from(protectedPayments)
+      .where(eq(protectedPayments.orderId, r.body.orderId))
+      .limit(1);
+    expect(pay).toBeUndefined();
+
+    const status = await request(app).get(
+      `/api/orders/guest?email=${encodeURIComponent(guestEmail)}&code=${r.body.guestCode}`,
+    );
+    expect(status.status).toBe(200);
+    expect(status.body.payment).toBeNull();
+    expect(status.body.store.paymentNequi).toBe("3001234567");
+
+    // Sin Nequi configurado no se puede cobrar directo.
+    await db.update(stores).set({ paymentNequi: null }).where(eq(stores.id, storeId));
+    const noChannel = await request(app)
+      .post("/api/orders/guest")
+      .send(guestBody({ paymentMethod: "NEQUI_DIRECTO", pse: undefined }));
+    expect(noChannel.status).toBe(409);
+    expect(noChannel.body.code).toBe("no_nequi_channel");
+
+    await db
+      .update(stores)
+      .set({ protectedEnabled: true, paymentNequi: "3001234567" })
+      .where(eq(stores.id, storeId));
+  });
 });

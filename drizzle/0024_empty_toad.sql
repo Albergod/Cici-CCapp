@@ -1,0 +1,1 @@
+ALTER TABLE "stores" ADD COLUMN "payment_nequi" text;

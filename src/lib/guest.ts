@@ -32,9 +32,12 @@ export type GuestOrderResult =
       total: number;
       charge: number;
       sellerNet: number;
-      transactionId: string;
-      statusTx: string;
-      redirectUrl: string | null;
+      paymentMethod: "NEQUI" | "PSE" | "NEQUI_DIRECTO";
+      transactionId?: string;
+      statusTx?: string;
+      redirectUrl?: string | null;
+      /** Pago directo: número Nequi del comerciante (sin custodia). */
+      directNequi?: { phone: string; holder: string };
     }
   | { ok: false; status: number; code: string; message: string };
 
@@ -49,11 +52,12 @@ export async function createGuestOrder(input: {
   email: string;
   phone?: string;
   name?: string;
-  paymentMethod: "NEQUI" | "PSE";
+  paymentMethod: "NEQUI" | "PSE" | "NEQUI_DIRECTO";
   phoneNumber?: string;
   pse?: PsePaymentData;
 }): Promise<GuestOrderResult> {
   const email = input.email.trim().toLowerCase();
+  const isDirect = input.paymentMethod === "NEQUI_DIRECTO";
 
   if (input.paymentMethod === "PSE" && !input.pse) {
     return { ok: false, status: 400, code: "pse_required", message: "Faltan los datos de PSE." };
@@ -68,6 +72,7 @@ export async function createGuestOrder(input: {
       name: stores.name,
       status: stores.status,
       protectedEnabled: stores.protectedEnabled,
+      paymentNequi: stores.paymentNequi,
     })
     .from(stores)
     .where(eq(stores.id, input.storeId))
@@ -75,7 +80,16 @@ export async function createGuestOrder(input: {
   if (!store || store.status !== "ACTIVE") {
     return { ok: false, status: 404, code: "store_not_found", message: "Tienda no encontrada." };
   }
-  if (!store.protectedEnabled) {
+  if (isDirect) {
+    if (!store.paymentNequi) {
+      return {
+        ok: false,
+        status: 409,
+        code: "no_nequi_channel",
+        message: "Esta tienda aún no tiene un Nequi para recibir pagos.",
+      };
+    }
+  } else if (!store.protectedEnabled) {
     return { ok: false, status: 409, code: "store_not_available", message: "Esta tienda aún no acepta pagos en línea." };
   }
 
@@ -133,7 +147,7 @@ export async function createGuestOrder(input: {
   if (!(total > 0)) {
     return { ok: false, status: 400, code: "invalid_total", message: "El pedido no tiene monto válido." };
   }
-  if (total > PROTECTED_MAX_TOTAL) {
+  if (!isDirect && total > PROTECTED_MAX_TOTAL) {
     return {
       ok: false,
       status: 400,
@@ -142,7 +156,10 @@ export async function createGuestOrder(input: {
     };
   }
 
-  const split = splitFees(total);
+  // Pago directo: el 100% va al comerciante (la plataforma solo cobra el plan).
+  const split = isDirect
+    ? { charge: total, sellerNet: total, buyerFee: 0, sellerFee: 0 }
+    : splitFees(total);
   const guestCode = generateGuestCode();
   const guestCodeHash = hashGuestCode(guestCode);
 
@@ -171,26 +188,43 @@ export async function createGuestOrder(input: {
       })),
     );
 
-    const [pay] = await trx
-      .insert(protectedPayments)
-      .values({
-        orderId: order.id,
-        storeId: store.id,
-        customerId: null,
-        total: String(total),
-        buyerFee: String(split.buyerFee),
-        sellerFee: String(split.sellerFee),
-        sellerNet: String(split.sellerNet),
-        status: "initiated",
-        paymentMethod: input.paymentMethod,
-      })
-      .returning({ id: protectedPayments.id });
+    const [pay] = isDirect
+      ? [null]
+      : await trx
+          .insert(protectedPayments)
+          .values({
+            orderId: order.id,
+            storeId: store.id,
+            customerId: null,
+            total: String(total),
+            buyerFee: String(split.buyerFee),
+            sellerFee: String(split.sellerFee),
+            sellerNet: String(split.sellerNet),
+            status: "initiated",
+            paymentMethod: input.paymentMethod === "PSE" ? "PSE" : "NEQUI",
+          })
+          .returning({ id: protectedPayments.id });
 
-    return { orderId: order.id, payId: pay.id };
+    return { orderId: order.id, payId: pay?.id ?? null };
   });
 
   if (!created) {
     return { ok: false, status: 500, code: "order_failed", message: "No se pudo crear el pedido." };
+  }
+
+  // Pago directo: no se crea cobro en Wompi. El comprador transfiere al Nequi
+  // del comerciante y este confirma el pedido desde su panel.
+  if (isDirect) {
+    return {
+      ok: true,
+      orderId: created.orderId,
+      guestCode,
+      total,
+      charge: total,
+      sellerNet: total,
+      paymentMethod: "NEQUI_DIRECTO",
+      directNequi: { phone: store.paymentNequi!, holder: store.name },
+    };
   }
 
   const reference = `GUEST_${created.orderId.slice(0, 8)}_${Date.now().toString(36)}`;
@@ -218,7 +252,7 @@ export async function createGuestOrder(input: {
     await db
       .update(protectedPayments)
       .set({ wompiTxId: tx.id })
-      .where(eq(protectedPayments.id, created.payId));
+      .where(eq(protectedPayments.id, created.payId!));
 
     return {
       ok: true,
@@ -227,6 +261,7 @@ export async function createGuestOrder(input: {
       total,
       charge: split.charge,
       sellerNet: split.sellerNet,
+      paymentMethod: input.paymentMethod,
       transactionId: tx.id,
       statusTx: tx.status,
       redirectUrl: tx.redirectUrl,

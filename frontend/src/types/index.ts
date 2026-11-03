@@ -66,6 +66,8 @@ export interface Store {
   logoUrl: string | null;
   bannerUrl: string | null;
   whatsapp?: string | null;
+  /** Número Nequi del comerciante para pagos directos (sin custodia). */
+  paymentNequi?: string | null;
   plan: 'FREE' | 'PRO' | 'BUSINESS';
   /** Tienda habilitada para Cici Payments (compra en línea sin cuenta). */
   protectedEnabled?: boolean;

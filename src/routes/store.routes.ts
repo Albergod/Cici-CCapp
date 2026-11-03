@@ -412,7 +412,7 @@ router.get("/", async (req, res) => {
       .where(and(inArray(stores.id, eligible.map((s) => s.id)), isNull(stores.verifiedAt)));
   }
 
-  const withCounts = results.map(({ referralCode: _rc, referredByStoreId: _rbid, ...store }) => {
+  const withCounts = results.map(({ referralCode: _rc, referredByStoreId: _rbid, paymentNequi: _pn, ...store }) => {
     const elig = getContactEligibility(
       store.trialStartedAt,
       store.subscriptionExpiresAt,
@@ -650,6 +650,7 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
       logoUrl: imageUrl().optional().or(z.literal("")),
       bannerUrl: imageUrl().optional().or(z.literal("")),
       whatsapp: z.string().max(20).optional(),
+      paymentNequi: z.string().max(20).optional(),
       businessType: z.enum(BUSINESS_TYPES).optional(),
       schedule: scheduleSchema.optional(),
     })
@@ -682,6 +683,7 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
   if (parsed.data.logoUrl !== undefined) patch.logoUrl = parsed.data.logoUrl || null;
   if (parsed.data.bannerUrl !== undefined) patch.bannerUrl = parsed.data.bannerUrl || null;
   if (parsed.data.whatsapp !== undefined) patch.whatsapp = parsed.data.whatsapp || null;
+  if (parsed.data.paymentNequi !== undefined) patch.paymentNequi = parsed.data.paymentNequi || null;
   if (parsed.data.businessType !== undefined) patch.businessType = parsed.data.businessType;
   if (parsed.data.schedule !== undefined) patch.schedule = parsed.data.schedule;
 

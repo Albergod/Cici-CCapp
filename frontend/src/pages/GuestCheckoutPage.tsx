@@ -30,7 +30,7 @@ export function GuestCheckoutPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [method, setMethod] = useState<'NEQUI' | 'PSE'>('NEQUI');
+  const [method, setMethod] = useState<'NEQUI_DIRECTO' | 'NEQUI' | 'PSE'>('NEQUI');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [institutions, setInstitutions] = useState<PseInstitution[] | null>(null);
   const [institutionsError, setInstitutionsError] = useState<string | null>(null);
@@ -52,6 +52,7 @@ export function GuestCheckoutPage() {
       .getBySlug(slug)
       .then((s) => {
         setStore(s);
+        if (s.paymentNequi) setMethod('NEQUI_DIRECTO');
         document.title = `Comprar en ${s.name} · CC Platform`;
       })
       .catch((err) =>
@@ -83,10 +84,11 @@ export function GuestCheckoutPage() {
     setError(null);
     if (!store || !product) return;
     if (!email.trim()) return setError('Escribe tu email para enviarte el comprobante.');
-    if (method === 'NEQUI' && !/^3\d{9}$/.test(phoneNumber.trim())) {
+    if (method === 'NEQUI_DIRECTO') {
+      // Pago directo: solo hace falta el email de contacto.
+    } else if (method === 'NEQUI' && !/^3\d{9}$/.test(phoneNumber.trim())) {
       return setError('El número Nequi debe tener 10 dígitos y empezar por 3.');
-    }
-    if (method === 'PSE') {
+    } else if (method === 'PSE') {
       if (!bankCode) return setError('Selecciona tu banco.');
       if (!/^\d{5,15}$/.test(legalId.trim())) return setError('Número de documento inválido.');
     }
@@ -195,11 +197,27 @@ export function GuestCheckoutPage() {
               </p>
               <p className="flex justify-between">
                 <span>Método</span>
-                <span className="font-semibold">{method}</span>
+                <span className="font-semibold">
+                  {result.directNequi ? 'Nequi directo' : method}
+                </span>
               </p>
             </div>
 
-            {result.payment.redirectUrl ? (
+            {result.directNequi ? (
+              <div className="mt-6 space-y-2 rounded-xl border border-brand-200 bg-brand-50/60 p-4 text-left text-sm">
+                <p className="font-semibold text-surface-900">Paga directo por Nequi</p>
+                <p className="text-surface-600">
+                  Transfiere <strong>{formatCOP(result.charge)}</strong> al Nequi:
+                </p>
+                <p className="font-mono text-xl font-bold text-surface-900 break-all">
+                  {result.directNequi.phone}
+                </p>
+                <p className="text-surface-600">Titular: {result.directNequi.holder}</p>
+                <p className="text-xs text-surface-500">
+                  Envía el comprobante a la tienda. Cuando reciba el pago, confirmará tu pedido.
+                </p>
+              </div>
+            ) : result.payment.redirectUrl ? (
               <a href={result.payment.redirectUrl} className="btn-primary mt-6 w-full inline-flex justify-center">
                 Ir a pagar en mi banco
               </a>
@@ -243,7 +261,9 @@ export function GuestCheckoutPage() {
           <div className="card p-5 md:p-7">
             <h1 className="font-display text-2xl font-bold text-surface-900">Compra sin cuenta</h1>
             <p className="text-sm text-surface-500 mt-1">
-              Paga con Nequi o PSE. No necesitas registrarte.
+              {store.paymentNequi
+                ? 'Paga directo por Nequi. No necesitas registrarte.'
+                : 'Paga con Nequi o PSE. No necesitas registrarte.'}
             </p>
 
             <div className="mt-6 space-y-4">
@@ -282,115 +302,128 @@ export function GuestCheckoutPage() {
                 </label>
               </div>
 
-              <div>
-                <p className="text-sm font-medium text-surface-700 mb-2">Método de pago</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMethod('NEQUI')}
-                    className={`flex items-center gap-2 rounded-xl border p-3 text-sm font-semibold transition ${
-                      method === 'NEQUI'
-                        ? 'border-brand-500 bg-brand-50 text-brand-700'
-                        : 'border-surface-200 text-surface-600 hover:border-surface-300'
-                    }`}
-                  >
-                    <Smartphone className="w-4 h-4" /> Nequi
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMethod('PSE')}
-                    className={`flex items-center gap-2 rounded-xl border p-3 text-sm font-semibold transition ${
-                      method === 'PSE'
-                        ? 'border-brand-500 bg-brand-50 text-brand-700'
-                        : 'border-surface-200 text-surface-600 hover:border-surface-300'
-                    }`}
-                  >
-                    <Banknote className="w-4 h-4" /> PSE
-                  </button>
+              {store.paymentNequi ? (
+                <div className="rounded-xl border border-brand-200 bg-brand-50/60 p-4 text-sm">
+                  <p className="font-semibold text-surface-900">Pago directo por Nequi</p>
+                  <p className="text-surface-600 mt-1">
+                    Transfiere el total al Nequi{' '}
+                    <span className="font-mono font-bold text-surface-900">{store.paymentNequi}</span>{' '}
+                    ({store.name}). La tienda confirmará tu pedido cuando reciba el pago.
+                  </p>
                 </div>
-              </div>
-
-              {method === 'NEQUI' ? (
-                <label className="block">
-                  <span className="text-sm font-medium text-surface-700">Número Nequi *</span>
-                  <input
-                    inputMode="numeric"
-                    maxLength={10}
-                    className="input mt-1"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
-                    placeholder="3001234567"
-                  />
-                </label>
               ) : (
-                <div className="space-y-3 rounded-xl border border-surface-200 p-4">
-                  <label className="block">
-                    <span className="text-sm font-medium text-surface-700">Banco *</span>
-                    <select
-                      className="input mt-1"
-                      value={bankCode}
-                      onChange={(e) => setBankCode(e.target.value)}
-                      disabled={!institutions}
-                    >
-                      <option value="">
-                        {institutions ? 'Selecciona tu banco' : 'Cargando bancos…'}
-                      </option>
-                      {institutions?.map((b) => (
-                        <option key={b.code} value={b.code}>
-                          {b.name}
-                        </option>
-                      ))}
-                    </select>
-                    {institutionsError && (
-                      <span className="text-xs text-accent-600">{institutionsError}</span>
-                    )}
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="block">
-                      <span className="text-sm font-medium text-surface-700">Tipo de persona</span>
-                      <select
-                        className="input mt-1"
-                        value={userType}
-                        onChange={(e) => setUserType(Number(e.target.value) as 0 | 1)}
+                <>
+                  <div>
+                    <p className="text-sm font-medium text-surface-700 mb-2">Método de pago</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMethod('NEQUI')}
+                        className={`flex items-center gap-2 rounded-xl border p-3 text-sm font-semibold transition ${
+                          method === 'NEQUI'
+                            ? 'border-brand-500 bg-brand-50 text-brand-700'
+                            : 'border-surface-200 text-surface-600 hover:border-surface-300'
+                        }`}
                       >
-                        <option value={0}>Natural</option>
-                        <option value={1}>Jurídica</option>
-                      </select>
-                    </label>
-                    <label className="block">
-                      <span className="text-sm font-medium text-surface-700">Documento</span>
-                      <select
-                        className="input mt-1"
-                        value={legalIdType}
-                        onChange={(e) => setLegalIdType(e.target.value)}
+                        <Smartphone className="w-4 h-4" /> Nequi
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMethod('PSE')}
+                        className={`flex items-center gap-2 rounded-xl border p-3 text-sm font-semibold transition ${
+                          method === 'PSE'
+                            ? 'border-brand-500 bg-brand-50 text-brand-700'
+                            : 'border-surface-200 text-surface-600 hover:border-surface-300'
+                        }`}
                       >
-                        {DOC_TYPES.map((d) => (
-                          <option key={d} value={d}>
-                            {d}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                        <Banknote className="w-4 h-4" /> PSE
+                      </button>
+                    </div>
                   </div>
-                  <label className="block">
-                    <span className="text-sm font-medium text-surface-700">Número de documento *</span>
-                    <input
-                      inputMode="numeric"
-                      className="input mt-1"
-                      value={legalId}
-                      onChange={(e) => setLegalId(e.target.value.replace(/\D/g, ''))}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-sm font-medium text-surface-700">Nombre del titular</span>
-                    <input
-                      className="input mt-1"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder={name || 'Como aparece en el banco'}
-                    />
-                  </label>
-                </div>
+
+                  {method === 'NEQUI' ? (
+                    <label className="block">
+                      <span className="text-sm font-medium text-surface-700">Número Nequi *</span>
+                      <input
+                        inputMode="numeric"
+                        maxLength={10}
+                        className="input mt-1"
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
+                        placeholder="3001234567"
+                      />
+                    </label>
+                  ) : (
+                    <div className="space-y-3 rounded-xl border border-surface-200 p-4">
+                      <label className="block">
+                        <span className="text-sm font-medium text-surface-700">Banco *</span>
+                        <select
+                          className="input mt-1"
+                          value={bankCode}
+                          onChange={(e) => setBankCode(e.target.value)}
+                          disabled={!institutions}
+                        >
+                          <option value="">
+                            {institutions ? 'Selecciona tu banco' : 'Cargando bancos…'}
+                          </option>
+                          {institutions?.map((b) => (
+                            <option key={b.code} value={b.code}>
+                              {b.name}
+                            </option>
+                          ))}
+                        </select>
+                        {institutionsError && (
+                          <span className="text-xs text-accent-600">{institutionsError}</span>
+                        )}
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="block">
+                          <span className="text-sm font-medium text-surface-700">Tipo de persona</span>
+                          <select
+                            className="input mt-1"
+                            value={userType}
+                            onChange={(e) => setUserType(Number(e.target.value) as 0 | 1)}
+                          >
+                            <option value={0}>Natural</option>
+                            <option value={1}>Jurídica</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className="text-sm font-medium text-surface-700">Documento</span>
+                          <select
+                            className="input mt-1"
+                            value={legalIdType}
+                            onChange={(e) => setLegalIdType(e.target.value)}
+                          >
+                            {DOC_TYPES.map((d) => (
+                              <option key={d} value={d}>
+                                {d}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <label className="block">
+                        <span className="text-sm font-medium text-surface-700">Número de documento *</span>
+                        <input
+                          inputMode="numeric"
+                          className="input mt-1"
+                          value={legalId}
+                          onChange={(e) => setLegalId(e.target.value.replace(/\D/g, ''))}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-sm font-medium text-surface-700">Nombre del titular</span>
+                        <input
+                          className="input mt-1"
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          placeholder={name || 'Como aparece en el banco'}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </>
               )}
 
               {error && (
@@ -401,10 +434,16 @@ export function GuestCheckoutPage() {
 
               <button onClick={submit} disabled={busy} className="btn-primary w-full inline-flex justify-center items-center gap-2">
                 {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                {busy ? 'Creando pago…' : `Pagar ${formatCOP(total)}`}
+                {busy
+                  ? 'Creando pedido…'
+                  : store.paymentNequi
+                    ? `Confirmar pedido · ${formatCOP(total)}`
+                    : `Pagar ${formatCOP(total)}`}
               </button>
               <p className="text-xs text-surface-400 text-center">
-                El dinero queda protegido hasta que la tienda confirme y entregue tu pedido.
+                {store.paymentNequi
+                  ? 'El pago va directo al Nequi del comerciante; guarda tu comprobante.'
+                  : 'El dinero queda protegido hasta que la tienda confirme y entregue tu pedido.'}
               </p>
             </div>
           </div>
@@ -428,16 +467,22 @@ export function GuestCheckoutPage() {
               <span className="text-surface-500">Subtotal</span>
               <span className="font-semibold text-surface-900">{formatCOP(total)}</span>
             </div>
-            <div className="mt-1 flex justify-between text-sm">
-              <span className="text-surface-500">Protección Cici</span>
-              <span className="font-semibold text-surface-900">Incluida</span>
-            </div>
+            {!store.paymentNequi && (
+              <>
+                <div className="mt-1 flex justify-between text-sm">
+                  <span className="text-surface-500">Protección Cici</span>
+                  <span className="font-semibold text-surface-900">Incluida</span>
+                </div>
+              </>
+            )}
             <div className="mt-3 pt-3 border-t border-surface-200 flex justify-between">
               <span className="font-semibold text-surface-900">Total</span>
               <span className="font-bold text-accent-600">{formatCOP(total)}</span>
             </div>
             <p className="text-xs text-surface-400 mt-3">
-              El valor de la protección se suma al confirmar el pago.
+              {store.paymentNequi
+                ? 'Transfiere este valor al Nequi del comerciante y guarda el comprobante.'
+                : 'El valor de la protección se suma al confirmar el pago.'}
             </p>
           </aside>
         </div>

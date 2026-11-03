@@ -465,12 +465,12 @@ export function StorePage() {
             </div>
           ) : (
             <>
-              {!store.protectedEnabled && (
+              {!store.paymentNequi && !store.protectedEnabled && (
                 <div className="card p-4 mb-4 flex items-start gap-2.5">
                   <TriangleAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                   <p className="text-sm text-surface-600">
                     <strong className="text-surface-900">Comerciante sin canal directo.</strong> Esta tienda aún no
-                    acepta pagos en línea por la plataforma.
+                    configuró un Nequi para recibir pagos.
                   </p>
                 </div>
               )}
@@ -481,7 +481,7 @@ export function StorePage() {
                     product={product}
                     businessType={store.businessType}
                     onBuy={handleBuy}
-                    onContact={store.protectedEnabled ? undefined : handleContact}
+                    onContact={handleContact}
                     imageZoom
                     armedId={armedProductId}
                     onArm={setArmedProductId}

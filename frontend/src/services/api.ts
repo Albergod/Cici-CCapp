@@ -58,7 +58,7 @@ export interface GuestCheckoutInput {
   email: string;
   phone?: string;
   name?: string;
-  paymentMethod: 'NEQUI' | 'PSE';
+  paymentMethod: 'NEQUI' | 'PSE' | 'NEQUI_DIRECTO';
   phoneNumber?: string;
   pse?: PseData;
 }
@@ -69,7 +69,9 @@ export interface GuestCheckoutResult {
   total: number;
   charge: number;
   sellerNet: number;
-  payment: { transactionId: string; status: string; redirectUrl: string | null };
+  paymentMethod?: 'NEQUI' | 'PSE' | 'NEQUI_DIRECTO';
+  directNequi?: { phone: string; holder: string } | null;
+  payment: { transactionId: string | null; status: string | null; redirectUrl: string | null };
   note: string;
 }
 
@@ -79,7 +81,14 @@ export interface GuestOrderStatus {
   createdAt: string;
   note: string | null;
   items: Array<{ name: string; quantity: number; unitPrice: number }>;
-  store: { id: string; name: string; slug: string; logoUrl: string | null; whatsapp?: string | null } | null;
+  store: {
+    id: string;
+    name: string;
+    slug: string;
+    logoUrl: string | null;
+    whatsapp?: string | null;
+    paymentNequi?: string | null;
+  } | null;
   payment: {
     status: string;
     method: string;
@@ -302,6 +311,7 @@ export const api = {
       logoUrl?: string;
       bannerUrl?: string;
       whatsapp?: string;
+      paymentNequi?: string;
       businessType?: BusinessType;
       schedule?: {
         openTime: string;
