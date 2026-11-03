@@ -6,6 +6,7 @@ import {
   Check,
   Copy,
   Loader2,
+  MessageCircle,
   ShieldCheck,
   Smartphone,
   TriangleAlert,
@@ -44,6 +45,9 @@ export function GuestCheckoutPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Awaited<ReturnType<typeof api.orders.guestCreate>> | null>(null);
   const [copied, setCopied] = useState(false);
+  const [reported, setReported] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!slug) return;
@@ -135,6 +139,27 @@ export function GuestCheckoutPage() {
     }
   };
 
+  const reportPaid = async () => {
+    if (!result) return;
+    setReporting(true);
+    setReportError(null);
+    try {
+      await api.orders.guestReportPaid(email.trim(), result.guestCode);
+      setReported(true);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : 'No se pudo avisar a la tienda.');
+    } finally {
+      setReporting(false);
+    }
+  };
+
+  const receiptWhatsapp =
+    store?.whatsapp && result
+      ? `https://wa.me/${store.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(
+          `Hola ${store.name}, ya transferí ${formatCOP(result.charge)} por mi pedido ${result.guestCode}. Envío el comprobante.`,
+        )}`
+      : null;
+
   if (loading) {
     return (
       <div className="min-h-screen pt-[7.5rem] md:pt-16 flex items-center justify-center">
@@ -214,8 +239,35 @@ export function GuestCheckoutPage() {
                 </p>
                 <p className="text-surface-600">Titular: {result.directNequi.holder}</p>
                 <p className="text-xs text-surface-500">
-                  Envía el comprobante a la tienda. Cuando reciba el pago, confirmará tu pedido.
+                  Cuando termines la transferencia, avísale a la tienda. Confirmará tu pedido al
+                  verificar el pago.
                 </p>
+                {reported ? (
+                  <p className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-700">
+                    Avisamos a la tienda que ya pagaste. Confirmará tu pedido cuando verifique el pago.
+                  </p>
+                ) : (
+                  <button
+                    onClick={reportPaid}
+                    disabled={reporting}
+                    className="btn-primary w-full inline-flex items-center justify-center gap-2"
+                  >
+                    {reporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    Ya transferí
+                  </button>
+                )}
+                {reportError && <p className="text-sm text-accent-700">{reportError}</p>}
+                {receiptWhatsapp && (
+                  <a
+                    href={receiptWhatsapp}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary w-full inline-flex items-center justify-center gap-2"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    Enviar comprobante por WhatsApp
+                  </a>
+                )}
               </div>
             ) : result.payment.redirectUrl ? (
               <a href={result.payment.redirectUrl} className="btn-primary mt-6 w-full inline-flex justify-center">

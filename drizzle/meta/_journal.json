@@ -176,6 +176,13 @@
       "when": 1793673387861,
       "tag": "0024_empty_toad",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793673961064,
+      "tag": "0025_tough_warbird",
+      "breakpoints": true
     }
   ]
 }

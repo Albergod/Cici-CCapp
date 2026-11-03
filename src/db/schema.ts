@@ -483,6 +483,12 @@ export const orders = pgTable("orders", {
   guestCodeHash: text("guest_code_hash"),
   // Venta generada al confirmar el pedido. Idempotencia: un pedido → máx 1 venta.
   saleId: uuid("sale_id").references(() => sales.id),
+  // Método con el que nació el pedido (NEQUI_DIRECTO, NEQUI, PSE...). Para el
+  // pago directo permite saber que la confirmación es manual del comerciante.
+  paymentMethod: text("payment_method"),
+  // El comprador avisó "ya pagué" (pago directo Nequi). No confirma el pago:
+  // solo avisa al comerciante para que lo verifique y confirme el pedido.
+  buyerReportedPaidAt: timestamp("buyer_reported_paid_at"),
 });
 
 export const orderItems = pgTable("order_items", {

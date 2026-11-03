@@ -140,6 +140,19 @@ export function OrdersPanel({ isFreePlan }: Props) {
                     }[o.protectedStatus] ?? o.protectedStatus}
                   </p>
                 )}
+                {o.paymentMethod === 'NEQUI_DIRECTO' && (
+                  <p
+                    className={`mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                      o.buyerReportedPaidAt
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-amber-100 text-amber-700'
+                    }`}
+                  >
+                    {o.buyerReportedPaidAt
+                      ? '💸 El comprador reportó el pago'
+                      : 'Nequi directo · esperando pago'}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button

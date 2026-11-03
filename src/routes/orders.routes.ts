@@ -15,6 +15,7 @@ import { createGuestOrder, findGuestOrder } from "../lib/guest";
 import { PSE_SCHEMA } from "../lib/pse";
 import { guestCheckoutLimiter, guestStatusLimiter } from "../middleware/rate-limit";
 import { getWompiTransaction } from "../lib/wompi";
+import { notifyUser } from "../lib/push";
 
 const router = Router();
 
@@ -267,6 +268,54 @@ router.post("/guest", guestCheckoutLimiter, async (req, res) => {
   });
 });
 
+// POST /api/orders/guest/paid — el comprador avisa que ya transfirió. No
+// confirma el pago: solo marca el pedido y avisa al comerciante para que lo
+// verifique. Idempotente y sin revelar datos a quien no tenga email + código.
+router.post("/guest/paid", guestStatusLimiter, async (req, res) => {
+  const email = String(req.body?.email ?? "").trim();
+  const code = String(req.body?.code ?? "").trim();
+  if (!email || email.length > 200 || !code || code.length > 64) {
+    return res.status(400).json({ error: "Email y código son obligatorios." });
+  }
+
+  const found = await findGuestOrder(email, code);
+  if (!found) return res.status(404).json({ error: "No encontramos una compra con esos datos." });
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, found.id)).limit(1);
+  if (!order) return res.status(404).json({ error: "No encontramos una compra con esos datos." });
+
+  // Solo aplica a pago directo (transferencia al Nequi del comerciante).
+  if (order.paymentMethod !== "NEQUI_DIRECTO") {
+    return res.status(400).json({ error: "Este pedido no es de pago directo." });
+  }
+  // Pedido ya resuelto: no se toca, pero no se filtra nada.
+  if (order.status !== "pending") {
+    return res.json({ ok: true, status: order.status });
+  }
+
+  if (!order.buyerReportedPaidAt) {
+    await db
+      .update(orders)
+      .set({ buyerReportedPaidAt: new Date() })
+      .where(eq(orders.id, order.id));
+    const [store] = await db
+      .select({ ownerId: stores.ownerId, name: stores.name })
+      .from(stores)
+      .where(eq(stores.id, order.storeId))
+      .limit(1);
+    if (store?.ownerId) {
+      const who = order.customerName?.trim() || email;
+      void notifyUser(store.ownerId, {
+        title: "El comprador dice que ya pagó",
+        body: `${who} reportó el pago de un pedido. Verifica tu Nequi y confirma en Pedidos.`,
+        data: { type: "order_paid_reported", orderId: order.id },
+      }).catch(() => {});
+    }
+  }
+
+  res.json({ ok: true, status: order.status });
+});
+
 // GET /api/orders/guest?email=&code= — consulta de invitado. No revela si el
 // email existe: email y código incorrectos devuelven el mismo 404.
 router.get("/guest", guestStatusLimiter, async (req, res) => {
@@ -320,6 +369,8 @@ router.get("/guest", guestStatusLimiter, async (req, res) => {
     status: order.status,
     createdAt: order.createdAt,
     note: order.note,
+    paymentMethod: order.paymentMethod,
+    buyerReportedPaidAt: order.buyerReportedPaidAt,
     items: order.items.map((item) => ({
       name: item.name,
       quantity: Number(item.quantity),

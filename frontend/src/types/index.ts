@@ -259,6 +259,10 @@ export interface Order {
   note?: string | null;
   saleId?: string | null;
   sale?: { id: string; total: number } | null;
+  paymentMethod?: string | null;
+  buyerReportedPaidAt?: string | null;
+  customerName?: string | null;
+  customerEmail?: string | null;
   items: OrderItem[];
   /** Estado del pago protegido (null = sin pago protegido). */
   protectedStatus?: string | null;

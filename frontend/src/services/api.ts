@@ -80,6 +80,8 @@ export interface GuestOrderStatus {
   status: Order['status'];
   createdAt: string;
   note: string | null;
+  paymentMethod?: string | null;
+  buyerReportedPaidAt?: string | null;
   items: Array<{ name: string; quantity: number; unitPrice: number }>;
   store: {
     id: string;
@@ -592,6 +594,11 @@ export const api = {
       request<GuestOrderStatus>(
         `/orders/guest?email=${encodeURIComponent(email)}&code=${encodeURIComponent(code)}`,
       ),
+    guestReportPaid: (email: string, code: string) =>
+      request<{ ok: boolean; status?: Order['status'] }>('/orders/guest/paid', {
+        method: 'POST',
+        body: JSON.stringify({ email, code }),
+      }),
   },
 
   payouts: {

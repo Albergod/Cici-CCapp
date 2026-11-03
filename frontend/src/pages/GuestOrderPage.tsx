@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Loader2, Package, Search, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Loader2, MessageCircle, Package, Search, ShieldCheck } from 'lucide-react';
 import { api, GuestOrderStatus } from '@/services/api';
 import { formatCOP } from '@/lib/format';
 
@@ -27,6 +27,8 @@ export function GuestOrderPage() {
   const [order, setOrder] = useState<GuestOrderStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reporting, setReporting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   const lookup = useCallback(
     async (mail: string, guestCode: string, silent = false) => {
@@ -70,6 +72,29 @@ export function GuestOrderPage() {
     setParams({ email: email.trim(), code: code.trim() });
     void lookup(email, code);
   };
+
+  const reportPaid = async () => {
+    setReporting(true);
+    setReportError(null);
+    try {
+      await api.orders.guestReportPaid(email.trim(), code.trim());
+      await lookup(email, code, true);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : 'No se pudo avisar a la tienda.');
+    } finally {
+      setReporting(false);
+    }
+  };
+
+  const directTotal = order
+    ? order.items.reduce((acc, it) => acc + it.unitPrice * it.quantity, 0)
+    : 0;
+  const receiptWhatsapp =
+    order?.store?.whatsapp && order.paymentMethod === 'NEQUI_DIRECTO'
+      ? `https://wa.me/${order.store.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(
+          `Hola ${order.store.name}, ya transferí ${formatCOP(directTotal)} por mi pedido ${order.orderId.slice(0, 8)}. Envío el comprobante.`,
+        )}`
+      : null;
 
   return (
     <div className="min-h-screen pt-[7.5rem] md:pt-16">
@@ -172,6 +197,48 @@ export function GuestOrderPage() {
                 )}
               </div>
             )}
+
+            {order.paymentMethod === 'NEQUI_DIRECTO' &&
+              order.status === 'pending' &&
+              order.store?.paymentNequi && (
+                <div className="mt-4 rounded-xl border border-brand-200 bg-brand-50/60 p-4">
+                  <p className="font-semibold text-surface-900">Paga directo por Nequi</p>
+                  <p className="mt-1 text-sm text-surface-600">
+                    Transfiere <strong>{formatCOP(directTotal)}</strong> al Nequi de la tienda:
+                  </p>
+                  <p className="mt-1 font-mono text-lg font-bold text-surface-900 break-all">
+                    {order.store.paymentNequi}
+                  </p>
+                  <p className="text-sm text-surface-600">Titular: {order.store.name}</p>
+
+                  {order.buyerReportedPaidAt ? (
+                    <p className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-700">
+                      Ya avisaste que pagaste. La tienda confirmará tu pedido al verificar el pago.
+                    </p>
+                  ) : (
+                    <button
+                      onClick={reportPaid}
+                      disabled={reporting}
+                      className="btn-primary mt-3 w-full inline-flex items-center justify-center gap-2"
+                    >
+                      {reporting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                      Ya transferí
+                    </button>
+                  )}
+                  {reportError && <p className="mt-2 text-sm text-accent-700">{reportError}</p>}
+                  {receiptWhatsapp && (
+                    <a
+                      href={receiptWhatsapp}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary mt-2 w-full inline-flex items-center justify-center gap-2"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      Enviar comprobante por WhatsApp
+                    </a>
+                  )}
+                </div>
+              )}
 
             {order.note && <p className="mt-4 text-sm text-surface-500">{order.note}</p>}
           </div>

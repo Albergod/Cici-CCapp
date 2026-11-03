@@ -278,6 +278,35 @@ describe("Compra de invitado (sin cuenta)", () => {
     expect(status.status).toBe(200);
     expect(status.body.payment).toBeNull();
     expect(status.body.store.paymentNequi).toBe("3001234567");
+    expect(status.body.paymentMethod).toBe("NEQUI_DIRECTO");
+    expect(status.body.buyerReportedPaidAt).toBeNull();
+
+    // El comprador avisa "ya pagué": se marca (sin confirmar la venta) y el
+    // comerciante lo ve en su panel para verificar el Nequi.
+    const paid = await request(app)
+      .post("/api/orders/guest/paid")
+      .send({ email: guestEmail, code: r.body.guestCode });
+    expect(paid.status).toBe(200);
+    expect(paid.body.ok).toBe(true);
+
+    const [reported] = await db
+      .select({ status: orders.status, reportedAt: orders.buyerReportedPaidAt })
+      .from(orders)
+      .where(eq(orders.id, r.body.orderId))
+      .limit(1);
+    expect(reported?.status).toBe("pending");
+    expect(reported?.reportedAt).toBeTruthy();
+
+    const afterPaid = await request(app).get(
+      `/api/orders/guest?email=${encodeURIComponent(guestEmail)}&code=${r.body.guestCode}`,
+    );
+    expect(afterPaid.body.buyerReportedPaidAt).toBeTruthy();
+
+    // Un código inválido no revela ni permite marcar el pedido.
+    const badCode = await request(app)
+      .post("/api/orders/guest/paid")
+      .send({ email: guestEmail, code: "CICI-NOEXISTE" });
+    expect(badCode.status).toBe(404);
 
     // Sin Nequi configurado no se puede cobrar directo.
     await db.update(stores).set({ paymentNequi: null }).where(eq(stores.id, storeId));

@@ -13,6 +13,7 @@ import { orders, orderItems, products, protectedPayments, stores } from "../db/s
 import { withOfferFlags } from "./offers";
 import { PROTECTED_MAX_TOTAL, splitFees } from "./protected";
 import { generateGuestCode, hashGuestCode } from "./crypto";
+import { notifyUser } from "./push";
 import {
   createNequiTransaction,
   createPseTransaction,
@@ -69,6 +70,7 @@ export async function createGuestOrder(input: {
   const [store] = await db
     .select({
       id: stores.id,
+      ownerId: stores.ownerId,
       name: stores.name,
       status: stores.status,
       protectedEnabled: stores.protectedEnabled,
@@ -174,6 +176,7 @@ export async function createGuestOrder(input: {
         customerEmail: email,
         customerPhone: input.phone?.trim().slice(0, 30) || null,
         guestCodeHash,
+        paymentMethod: input.paymentMethod,
       })
       .returning({ id: orders.id });
     if (!order) return null;
@@ -215,6 +218,15 @@ export async function createGuestOrder(input: {
   // Pago directo: no se crea cobro en Wompi. El comprador transfiere al Nequi
   // del comerciante y este confirma el pedido desde su panel.
   if (isDirect) {
+    // Best-effort: avisa al comerciante que entró un pedido por confirmar.
+    // El panel de pedidos es la fuente confiable; el push puede no existir.
+    if (store.ownerId) {
+      void notifyUser(store.ownerId, {
+        title: "Nuevo pedido por Nequi",
+        body: `${input.name?.trim().slice(0, 60) || "Un cliente"} pidió ${money(total)}. Confirma cuando recibas el pago.`,
+        data: { type: "order_pending", orderId: created.orderId },
+      }).catch(() => {});
+    }
     return {
       ok: true,
       orderId: created.orderId,
