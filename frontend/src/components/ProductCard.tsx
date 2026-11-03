@@ -165,7 +165,7 @@ export function ProductCard({
                   Comprar
                 </button>
               )}
-              {onContact && (
+              {onContact && !onBuy && (
                 <button
                   onClick={() => onContact(product.id)}
                   title="Preguntar por chat"

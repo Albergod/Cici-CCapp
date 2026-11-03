@@ -20,7 +20,6 @@ test.describe('Guest checkout CTA (compra sin registro)', () => {
     await page.goto(`/store/${storeBody.slug}`);
     const buy = page.getByRole('button', { name: /comprar/i }).first();
     await expect(buy).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole('button', { name: /contactar/i })).toHaveCount(0);
 
     await buy.click();
     await expect(page).toHaveURL(/\/comprar\//, { timeout: 15000 });

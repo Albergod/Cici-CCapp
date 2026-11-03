@@ -6,7 +6,7 @@ import { useAuth } from '@/stores/authStore';
 import { useFollowsVersion } from '@/stores/followsStore';
 import { ProductCard } from '@/components/ProductCard';
 import { formatCOP } from '@/lib/format';
-import { Loader2, Users, Package, MessageSquare, ArrowLeft, UserCheck, BadgeCheck, Share2, Check, Sparkles, Flag, Star, MessageCircle } from 'lucide-react';
+import { Loader2, Users, Package, MessageSquare, ArrowLeft, UserCheck, BadgeCheck, Share2, Check, Sparkles, Flag, Star, MessageCircle, TriangleAlert } from 'lucide-react';
 
 export function StorePage() {
   const { slug } = useParams<{ slug: string }>();
@@ -464,20 +464,31 @@ export function StorePage() {
               <p className="text-surface-400 text-sm">Vuelve pronto, esta tienda está abriendo su vitrina.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {store.products.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  businessType={store.businessType}
-                  onContact={store.protectedEnabled ? undefined : handleContact}
-                  onBuy={store.protectedEnabled ? handleBuy : undefined}
-                  imageZoom
-                  armedId={armedProductId}
-                  onArm={setArmedProductId}
-                />
-              ))}
-            </div>
+            <>
+              {!store.protectedEnabled && (
+                <div className="card p-4 mb-4 flex items-start gap-2.5">
+                  <TriangleAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-sm text-surface-600">
+                    <strong className="text-surface-900">Comerciante sin canal directo.</strong> Esta tienda aún no
+                    acepta pagos en línea por la plataforma.
+                  </p>
+                </div>
+              )}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {store.products.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    businessType={store.businessType}
+                    onBuy={handleBuy}
+                    onContact={store.protectedEnabled ? undefined : handleContact}
+                    imageZoom
+                    armedId={armedProductId}
+                    onArm={setArmedProductId}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
 
