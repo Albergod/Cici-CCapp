@@ -9,10 +9,11 @@
 //    tienda lo confirma. Un pedido impago no descuenta inventario.
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../db/client";
-import { orders, orderItems, products, stores } from "../db/schema";
+import { orders, orderItems, products, stores, users } from "../db/schema";
 import { withOfferFlags } from "./offers";
 import { generateGuestCode, hashGuestCode } from "./crypto";
 import { notifyUser } from "./push";
+import { emailConfigured, sendGuestOrderCode, sendMerchantBuyerReportedPaid, sendMerchantNewOrder } from "./email";
 
 export interface GuestItemInput {
   productId: string;
@@ -30,6 +31,8 @@ export type GuestOrderResult =
       paymentMethod: "NEQUI_DIRECTO";
       /** Pago directo: número Nequi del comerciante (sin custodia). */
       directNequi: { phone: string; holder: string };
+      /** Si el entorno tiene email configurado, se intentó enviar el código. */
+      emailed: boolean;
     }
   | { ok: false; status: number; code: string; message: string };
 
@@ -65,6 +68,7 @@ export async function createGuestOrder(input: {
     .select({
       id: stores.id,
       ownerId: stores.ownerId,
+      slug: stores.slug,
       name: stores.name,
       status: stores.status,
       paymentNequi: stores.paymentNequi,
@@ -178,15 +182,47 @@ export async function createGuestOrder(input: {
 
   // Pago directo: no se crea cobro en Wompi. El comprador transfiere al Nequi
   // del comerciante y este confirma el pedido desde su panel.
-  // Best-effort: avisa al comerciante que entró un pedido por confirmar.
-  // El panel de pedidos es la fuente confiable; el push puede no existir.
-  if (store.ownerId) {
+  // Avisos best-effort: si fallan, la compra sigue válida (el panel de pedidos
+  // es la fuente confiable). Se envían en paralelo y nunca lanzan.
+  const emailJobs: Promise<unknown>[] = [
+    sendGuestOrderCode({
+      email,
+      orderId: created.orderId,
+      guestCode,
+      storeName: store.name,
+      customerName: input.name?.trim().slice(0, 120) || null,
+      total,
+      nequiPhone: store.paymentNequi!,
+      nequiHolder: store.name,
+      storeSlug: store.slug,
+    }),
+  ];
+  if (store.ownerId && store.paymentNequi) {
+    const [owner] = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, store.ownerId))
+      .limit(1);
+    if (owner?.email) {
+      emailJobs.push(
+        sendMerchantNewOrder({
+          ownerEmail: owner.email,
+          storeName: store.name,
+          customerName: input.name?.trim().slice(0, 120) || null,
+          customerEmail: email,
+          total,
+          orderId: created.orderId,
+          storeSlug: store.slug,
+        }),
+      );
+    }
     void notifyUser(store.ownerId, {
       title: "Nuevo pedido por Nequi",
       body: `${input.name?.trim().slice(0, 60) || "Un cliente"} pidió ${money(total)}. Confirma cuando recibas el pago.`,
       data: { type: "order_pending", orderId: created.orderId },
     }).catch(() => {});
   }
+  await Promise.allSettled(emailJobs);
   return {
     ok: true,
     orderId: created.orderId,
@@ -196,6 +232,7 @@ export async function createGuestOrder(input: {
     sellerNet: total,
     paymentMethod: "NEQUI_DIRECTO",
     directNequi: { phone: store.paymentNequi!, holder: store.name },
+    emailed: emailConfigured(),
   };
 }
 

@@ -25,6 +25,12 @@
    TRUST_PROXY       → 1 (para rate-limit y URLs reales).
    PUBLIC_BASE_URL   → https://tu-dominio-o-URL-de-render
 
+   ── EMAIL TRANSACCIONAL (Resend) ─────────────────────────
+   EMAIL_PROVIDER    → resend
+   RESEND_API_KEY    → clave de Resend (sin esto no llega ningún correo).
+   EMAIL_FROM        → dirección verificada en Resend (ej: pedidos@tu-dominio.com)
+   PUBLIC_BASE_URL   → https://tu-dominio-o-URL-de-render   (para enlaces de email)
+
    ── PAGOS (Wompi/Nequi) ─────────────────────────────────
    WOMPI_SANDBOX        → true en pruebas / false en producción.
    WOMPI_PUBLIC_KEY

@@ -172,6 +172,26 @@ export function GuestCheckoutPage() {
               {store.name} recibirá tu pedido. Guarda este código: junto a tu email es la única forma
               de consultarlo.
             </p>
+            {result.emailed && (
+              <p className="text-sm text-surface-500 mt-1">
+                También enviamos el código a <strong>{email.trim()}</strong>. Revisa la bandeja de
+                entrada y spam. Si no lo recibiste, puedes solicitar uno nuevo en{" "}
+                <Link to={`/pedido?email=${encodeURIComponent(email.trim())}&code=${encodeURIComponent(result.guestCode)}`} className="text-brand-600 hover:underline">
+                  Seguir mi pedido
+                </Link>
+                .
+              </p>
+            )}
+            {!result.emailed && (
+              <p className="text-sm text-surface-500 mt-1">
+                El comercio no tiene notificaciones por correo configuradas:{" "}
+                <strong>guarda este código</strong>. Si lo pierdes, puedes solicitar uno nuevo en{" "}
+                <Link to={`/pedido?email=${encodeURIComponent(email.trim())}&code=${encodeURIComponent(result.guestCode)}`} className="text-brand-600 hover:underline">
+                  Seguir mi pedido
+                </Link>
+                con tu email.
+              </p>
+            )}
 
             <div className="mt-6 rounded-2xl border-2 border-dashed border-brand-200 bg-brand-50/60 p-5">
               <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">

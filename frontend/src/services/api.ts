@@ -72,7 +72,7 @@ export interface GuestCheckoutResult {
   paymentMethod?: 'NEQUI' | 'PSE' | 'NEQUI_DIRECTO';
   directNequi?: { phone: string; holder: string } | null;
   payment: { transactionId: string | null; status: string | null; redirectUrl: string | null } | null;
-  note: string;
+  emailed?: boolean | null;
 }
 
 export interface GuestOrderStatus {
@@ -594,6 +594,11 @@ export const api = {
       request<GuestOrderStatus>(
         `/orders/guest?email=${encodeURIComponent(email)}&code=${encodeURIComponent(code)}`,
       ),
+    guestResendCode: (email: string) =>
+      request<{ ok: boolean; message: string }>('/orders/guest/resend-code', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      }),
     guestReportPaid: (email: string, code: string) =>
       request<{ ok: boolean; status?: Order['status'] }>('/orders/guest/paid', {
         method: 'POST',

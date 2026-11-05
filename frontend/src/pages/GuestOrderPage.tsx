@@ -29,6 +29,10 @@ export function GuestOrderPage() {
   const [error, setError] = useState<string | null>(null);
   const [reporting, setReporting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
+  const [resendEmail, setResendEmail] = useState(params.get('email') ?? '');
+  const [resendOk, setResendOk] = useState(false);
 
   const lookup = useCallback(
     async (mail: string, guestCode: string, silent = false) => {
@@ -83,6 +87,23 @@ export function GuestOrderPage() {
       setReportError(err instanceof Error ? err.message : 'No se pudo avisar a la tienda.');
     } finally {
       setReporting(false);
+    }
+  };
+
+  const resendCode = async () => {
+    const mail = resendEmail.trim();
+    if (!mail) return setResendError('Escribe tu email.');
+    setResending(true);
+    setResendError(null);
+    setResendOk(false);
+    try {
+      await api.orders.guestResendCode(mail);
+      setResendOk(true);
+      setResendError(null);
+    } catch (err) {
+      setResendError(err instanceof Error ? err.message : 'No se pudo reenviar el código.');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -241,6 +262,47 @@ export function GuestOrderPage() {
               )}
 
             {order.note && <p className="mt-4 text-sm text-surface-500">{order.note}</p>}
+
+            {/* Recuperación de código de acceso (sólo compras de invitado) */}
+            <div className="mt-6 rounded-xl border border-surface-200 p-4">
+              <p className="text-sm font-semibold text-surface-700 mb-2">
+                ¿Perdiste tu código de acceso?
+              </p>
+              <p className="text-xs text-surface-500 mb-3">
+                Generamos uno nuevo y lo enviamos a tu email. El código anterior deja de funcionar.
+              </p>
+              <form onSubmit={(e) => { e.preventDefault(); void resendCode(); }} className="grid sm:grid-cols-[1fr_auto] gap-2">
+                <label className="block">
+                  <span className="text-xs font-medium text-surface-600">Email</span>
+                  <input
+                    type="email"
+                    className="input mt-1"
+                    value={resendEmail}
+                    onChange={(e) => setResendEmail(e.target.value)}
+                    placeholder="tu@correo.com"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={resending}
+                  className="btn-secondary px-4"
+                >
+                  {resending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  Enviar código
+                </button>
+              </form>
+              {resendOk && (
+                <p className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50 p-2 text-sm text-emerald-700">
+                  Listo. Si hay una compra pendiente con ese email, te enviamos un código nuevo.{" "}
+                  <span className="font-semibold">Revisa la bandeja de entrada y spam.</span>
+                </p>
+              )}
+              {resendError && (
+                <p className="mt-2 rounded-lg border border-accent-100 bg-accent-50 p-2 text-sm text-accent-700">
+                  {resendError}
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>

@@ -69,6 +69,16 @@ export const guestStatusLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Reenvío del código de acceso de invitado: solo email, por si lo perdió.
+// Límite estricto por IP para evitar abusos.
+export const guestResendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "test" ? 500 : 5,
+  message: { error: "Demasiados intentos de reenvío de código. Espera unos minutos." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Formulario público de Cici Empresarios: frena spam sin bloquear una
 // solicitud legítima. En tests se amplía porque cada caso crea un lead.
 export const empresariosLeadLimiter = rateLimit({

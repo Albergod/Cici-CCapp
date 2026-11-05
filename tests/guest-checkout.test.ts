@@ -1,11 +1,16 @@
-import "./wompi-env";
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import request from "supertest";
-import crypto from "node:crypto";
 import type { Express } from "express";
 import { eq } from "drizzle-orm";
 import { db } from "../src/db/client";
-import { users, stores, products, orders, orderItems, protectedPayments } from "../src/db/schema";
+import {
+  users,
+  stores,
+  products,
+  orders,
+  orderItems,
+  protectedPayments,
+} from "../src/db/schema";
 import "dotenv/config";
 
 let app: Express;
@@ -15,6 +20,18 @@ const guestEmail = `guest-buyer-${ts}@example.com`;
 let ownerToken = "";
 let storeId = "";
 let productId = "";
+
+// Correos "enviados" por Resend (mock de fetch).
+const sentEmails: Array<{ to: string[]; subject: string; html?: string }> = [];
+
+function jsonResponse(data: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => data,
+    text: async () => JSON.stringify(data),
+  } as unknown as Response;
+}
 
 async function register(email: string) {
   await request(app).post("/api/auth/register").send({
@@ -41,8 +58,33 @@ function guestBody(overrides: Record<string, unknown> = {}) {
 
 describe("Compra de invitado (sin cuenta) — pago directo por Nequi", () => {
   beforeAll(async () => {
+    // Email activo para este archivo: Resend se mockea con fetch.
+    process.env.EMAIL_PROVIDER = "resend";
+    process.env.RESEND_API_KEY = "re_test_guest_checkout";
+
     const mod = await import("../src/index");
     app = (mod as unknown as { default: Express }).default || (mod as unknown as Express);
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "https://api.resend.com/emails") {
+        const body = JSON.parse(String(init?.body)) as {
+          from?: string;
+          to: string[];
+          subject: string;
+          html?: string;
+          text?: string;
+        };
+        sentEmails.push(body);
+        return jsonResponse({ id: "res_test_" + Date.now() });
+      }
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({}),
+        text: async () => "not found",
+      } as unknown as Response;
+    });
 
     ownerToken = await register(ownerEmail);
     const s = await request(app)
@@ -61,7 +103,12 @@ describe("Compra de invitado (sin cuenta) — pago directo por Nequi", () => {
     productId = p.body.id;
   });
 
+  beforeEach(() => {
+    sentEmails.length = 0;
+  });
+
   afterAll(async () => {
+    vi.restoreAllMocks();
     await db.delete(protectedPayments).where(eq(protectedPayments.storeId, storeId));
     const ords = await db.select({ id: orders.id }).from(orders).where(eq(orders.storeId, storeId));
     for (const o of ords) await db.delete(orderItems).where(eq(orderItems.orderId, o.id));
@@ -71,13 +118,14 @@ describe("Compra de invitado (sin cuenta) — pago directo por Nequi", () => {
     await db.delete(users).where(eq(users.email, ownerEmail));
   });
 
-  it("crea el pedido sin sesión, calcula el precio en el servidor y devuelve código una vez", async () => {
+  it("crea el pedido directo, calcula el precio en el servidor y envía el código al comprador y aviso al comerciante", async () => {
     const r = await request(app)
       .post("/api/orders/guest")
       .send(guestBody({ items: [{ productId, quantity: 2 }] }));
     expect(r.status).toBe(201);
     expect(r.body.guestCode).toMatch(/^[A-F0-9]{32}$/);
     expect(r.body.paymentMethod).toBe("NEQUI_DIRECTO");
+    expect(r.body.emailed).toBe(true);
     expect(r.body.total).toBe(100000);
     expect(r.body.charge).toBe(100000);
     expect(r.body.sellerNet).toBe(100000);
@@ -98,6 +146,18 @@ describe("Compra de invitado (sin cuenta) — pago directo por Nequi", () => {
       .where(eq(protectedPayments.orderId, r.body.orderId))
       .limit(1);
     expect(pay).toBeUndefined();
+
+    // Email al comprador con el código.
+    const toBuyer = sentEmails.find((e) => e.to.includes(guestEmail));
+    expect(toBuyer).toBeTruthy();
+    expect(toBuyer!.subject).toContain("está listo");
+    expect(toBuyer!.html).toContain(r.body.guestCode);
+    expect(toBuyer!.html).toContain("3001234567");
+
+    // Email al comerciante avisando del nuevo pedido.
+    const toMerchant = sentEmails.find((e) => e.to.includes(ownerEmail));
+    expect(toMerchant).toBeTruthy();
+    expect(toMerchant!.subject).toContain("Nuevo pedido por Nequi");
   });
 
   it("consulta con email + código; un código incorrecto no revela nada", async () => {
@@ -157,7 +217,7 @@ describe("Compra de invitado (sin cuenta) — pago directo por Nequi", () => {
 
     const missingProduct = await request(app)
       .post("/api/orders/guest")
-      .send(guestBody({ items: [{ productId: crypto.randomUUID(), quantity: 1 }] }));
+      .send(guestBody({ items: [{ productId: "00000000-0000-0000-0000-000000000000", quantity: 1 }] }));
     expect(missingProduct.status).toBe(404);
 
     await db.update(stores).set({ paymentNequi: null }).where(eq(stores.id, storeId));
@@ -168,9 +228,14 @@ describe("Compra de invitado (sin cuenta) — pago directo por Nequi", () => {
     await db.update(stores).set({ paymentNequi: "3001234567" }).where(eq(stores.id, storeId));
   });
 
-  it("el comprador avisa 'ya pagué' sin confirmar la venta", async () => {
+  it("el comprador avisa 'ya pagué' sin confirmar la venta y se avisa al comerciante", async () => {
     const created = await request(app).post("/api/orders/guest").send(guestBody());
     expect(created.status).toBe(201);
+
+    const before = await request(app).get(
+      `/api/orders/guest?email=${encodeURIComponent(guestEmail)}&code=${created.body.guestCode}`,
+    );
+    expect(before.body.buyerReportedPaidAt).toBeNull();
 
     const paid = await request(app)
       .post("/api/orders/guest/paid")
@@ -183,18 +248,63 @@ describe("Compra de invitado (sin cuenta) — pago directo por Nequi", () => {
       .from(orders)
       .where(eq(orders.id, created.body.orderId))
       .limit(1);
-    expect(reported?.status).toBe("pending");
-    expect(reported?.reportedAt).toBeTruthy();
+    expect(reported!.status).toBe("pending");
+    expect(reported!.reportedAt).toBeTruthy();
 
     const afterPaid = await request(app).get(
       `/api/orders/guest?email=${encodeURIComponent(guestEmail)}&code=${created.body.guestCode}`,
     );
     expect(afterPaid.body.buyerReportedPaidAt).toBeTruthy();
 
+    // Email al comerciante de "el comprador dice que ya pagó".
+    const toMerchant = sentEmails.find((e) => e.to.includes(ownerEmail) && e.subject.includes("ya pagó"));
+    expect(toMerchant).toBeTruthy();
+
     // Un código inválido no revela ni permite marcar el pedido.
     const badCode = await request(app)
       .post("/api/orders/guest/paid")
       .send({ email: guestEmail, code: "CICI-NOEXISTE" });
     expect(badCode.status).toBe(404);
+  });
+
+  it("resend-code rota el código del pedido pendiente más reciente y envía email", async () => {
+    const created = await request(app).post("/api/orders/guest").send(guestBody());
+    expect(created.status).toBe(201);
+    const oldCode = created.body.guestCode;
+
+    // El código antiguo todavía funciona.
+    const before = await request(app).get(
+      `/api/orders/guest?email=${encodeURIComponent(guestEmail)}&code=${oldCode}`,
+    );
+    expect(before.status).toBe(200);
+
+    // Solicitar reenvío: genera un código nuevo (rota el hash).
+    const resend = await request(app)
+      .post("/api/orders/guest/resend-code")
+      .send({ email: guestEmail });
+    expect(resend.status).toBe(200);
+    expect(resend.body.ok).toBe(true);
+    expect(resend.body.message).toContain("compra pendiente");
+
+    // Se envió un email con el nuevo código.
+    const toBuyer = sentEmails.find((e) => e.to.includes(guestEmail) && e.subject.includes("listo"));
+    expect(toBuyer).toBeTruthy();
+
+    // El código antiguo dejó de funcionar.
+    const after = await request(app).get(
+      `/api/orders/guest?email=${encodeURIComponent(guestEmail)}&code=${oldCode}`,
+    );
+    expect(after.status).toBe(404);
+  });
+
+  it("resend-code con email desconocido responde igual y no envía nada", async () => {
+    const beforeCount = sentEmails.length;
+    const resend = await request(app)
+      .post("/api/orders/guest/resend-code")
+      .send({ email: `nadie-${ts}@example.com` });
+    expect(resend.status).toBe(200);
+    expect(resend.body.ok).toBe(true);
+    expect(resend.body.message).toContain("compra pendiente");
+    expect(sentEmails.length).toBe(beforeCount);
   });
 });

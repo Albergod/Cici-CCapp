@@ -5,17 +5,19 @@
 // por un cliente real: no cuentan como inflación de prestigio.
 import { Router } from "express";
 import { z } from "zod";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../db/client";
-import { orders, orderItems, stores, protectedPayments } from "../db/schema";
+import { orders, orderItems, stores, users, protectedPayments } from "../db/schema";
 import { createSale } from "../lib/sales";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { myWorkStore } from "../lib/members";
 import { createGuestOrder, findGuestOrder } from "../lib/guest";
 import { PSE_SCHEMA } from "../lib/pse";
-import { guestCheckoutLimiter, guestStatusLimiter } from "../middleware/rate-limit";
+import { guestCheckoutLimiter, guestStatusLimiter, guestResendLimiter } from "../middleware/rate-limit";
 import { getWompiTransaction } from "../lib/wompi";
 import { notifyUser } from "../lib/push";
+import { sendMerchantBuyerReportedPaid, sendGuestOrderCode } from "../lib/email";
+import { generateGuestCode, hashGuestCode } from "../lib/crypto";
 
 const router = Router();
 
@@ -259,6 +261,7 @@ router.post("/guest", guestCheckoutLimiter, async (req, res) => {
     sellerNet: result.sellerNet,
     paymentMethod: result.paymentMethod,
     directNequi: result.directNequi ?? null,
+    emailed: result.emailed,
     payment: null,
     note: "Guarda tu código: lo necesitas junto a tu email para consultar la compra.",
   });
@@ -294,12 +297,31 @@ router.post("/guest/paid", guestStatusLimiter, async (req, res) => {
       .update(orders)
       .set({ buyerReportedPaidAt: new Date() })
       .where(eq(orders.id, order.id));
-    const [store] = await db
-      .select({ ownerId: stores.ownerId, name: stores.name })
-      .from(stores)
-      .where(eq(stores.id, order.storeId))
-      .limit(1);
+      const [store] = await db
+        .select({ ownerId: stores.ownerId, slug: stores.slug, name: stores.name })
+        .from(stores)
+        .where(eq(stores.id, order.storeId))
+        .limit(1);
     if (store?.ownerId) {
+      const [owner] = await db
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, store.ownerId))
+        .limit(1);
+      if (owner?.email) {
+        const who = order.customerName?.trim() || email;
+        const its = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+        const total = its.reduce((acc, it) => acc + Number(it.unitPrice) * Number(it.quantity), 0);
+        await sendMerchantBuyerReportedPaid({
+          ownerEmail: owner.email,
+          storeName: store.name,
+          customerName: order.customerName?.trim() || null,
+          customerEmail: order.customerEmail || null,
+          total,
+          orderId: order.id,
+          storeSlug: store.slug,
+        });
+      }
       const who = order.customerName?.trim() || email;
       void notifyUser(store.ownerId, {
         title: "El comprador dice que ya pagó",
@@ -310,6 +332,61 @@ router.post("/guest/paid", guestStatusLimiter, async (req, res) => {
   }
 
   res.json({ ok: true, status: order.status });
+});
+
+// POST /api/orders/guest/resend-code — el comprador perdió su código. Solo
+// email: rota el código del pedido pendiente más reciente y lo envía por
+// correo. Respuesta genérica: no revela si el email tiene compras.
+router.post("/guest/resend-code", guestResendLimiter, async (req, res) => {
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  if (!email || email.length > 200) {
+    return res.status(400).json({ error: "Email obligatorio." });
+  }
+
+  const [order] = await db
+    .select({ id: orders.id, storeId: orders.storeId })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.customerEmail, email),
+        isNull(orders.customerId),
+        eq(orders.paymentMethod, "NEQUI_DIRECTO"),
+        eq(orders.status, "pending"),
+      ),
+    )
+    .orderBy(desc(orders.createdAt))
+    .limit(1);
+
+  const okMessage =
+    "Si hay una compra pendiente con ese email, te enviamos un código nuevo.";
+  if (!order) return res.json({ ok: true, message: okMessage });
+
+  const code = generateGuestCode();
+  await db.update(orders).set({ guestCodeHash: hashGuestCode(code) }).where(eq(orders.id, order.id));
+
+  const [store] = await db
+    .select({ name: stores.name, slug: stores.slug, paymentNequi: stores.paymentNequi })
+    .from(stores)
+    .where(eq(stores.id, order.storeId))
+    .limit(1);
+
+  if (store) {
+    const its = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+    const total = its.reduce((acc, it) => acc + Number(it.unitPrice) * Number(it.quantity), 0);
+    await sendGuestOrderCode({
+      email,
+      orderId: order.id,
+      guestCode: code,
+      storeName: store.name,
+      customerName: null,
+      total,
+      nequiPhone: store.paymentNequi ?? "",
+      nequiHolder: store.name,
+      storeSlug: store.slug,
+    });
+  }
+
+  res.json({ ok: true, message: okMessage });
 });
 
 // GET /api/orders/guest?email=&code= — consulta de invitado. No revela si el

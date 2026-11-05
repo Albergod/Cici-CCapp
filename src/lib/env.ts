@@ -186,6 +186,14 @@ export function validateEnv(env: EnvLike = process.env): EnvValidation {
   errors.push(...payments.errors);
   warnings.push(...payments.warnings);
 
+  // Email transaccional (best-effort): si se pide Resend pero no hay clave,
+  // los avisos simplemente no se envían; no es un bloqueante de despliegue.
+  if (env.EMAIL_PROVIDER?.toLowerCase() === "resend" && !hasValue(env.RESEND_API_KEY)) {
+    warnings.push(
+      "EMAIL_PROVIDER=resend sin RESEND_API_KEY: los correos transaccionales (código de compra, aviso al comerciante) no se enviarán.",
+    );
+  }
+
   return { errors, warnings };
 }
 
