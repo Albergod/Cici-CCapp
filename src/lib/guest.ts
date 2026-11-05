@@ -5,9 +5,11 @@
 //    confía en importes enviados por el navegador.
 //  - El pedido se identifica por email + código de acceso de alta entropía.
 //    En la base solo se guarda el HMAC del código.
-//  - No hay stock retenido antes de pagar; el pedido queda pendiente y la
-//    tienda lo confirma. Un pedido impago no descuenta inventario.
-import { and, eq, inArray } from "drizzle-orm";
+//  - El stock se RESERVA al crear el pedido (descuento atómico condicional):
+//    dos invitados no pueden comprar la última unidad. Si el comerciante
+//    cancela, el stock se devuelve; al confirmar, la venta no lo descuenta
+//    otra vez porque ya estaba reservado.
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { orders, orderItems, products, stores, users } from "../db/schema";
 import { withOfferFlags } from "./offers";
@@ -148,6 +150,29 @@ export async function createGuestOrder(input: {
   const guestCodeHash = hashGuestCode(guestCode);
 
   const created = await db.transaction(async (trx) => {
+    // Reserva atómica de stock: el UPDATE solo aplica si queda suficiente y el
+    // producto sigue disponible. Se ordena por id para evitar deadlocks entre
+    // pedidos con varios productos. Si una línea no se puede reservar, la
+    // transacción completa se revierte (no queda pedido a medias).
+    for (const line of [...lines].sort((a, b) => a.product.id.localeCompare(b.product.id))) {
+      const [reserved] = await trx
+        .update(products)
+        .set({
+          stock: sql`${products.stock} - ${line.qty}`,
+          available: sql`CASE WHEN ${products.stock} - ${line.qty} <= 0 THEN false ELSE ${products.available} END`,
+        })
+        .where(
+          and(
+            eq(products.id, line.product.id),
+            eq(products.storeId, store.id),
+            eq(products.available, true),
+            sql`${products.stock} >= ${line.qty}`,
+          ),
+        )
+        .returning({ id: products.id });
+      if (!reserved) return { kind: "no_stock" as const, name: line.product.name };
+    }
+
     const [order] = await trx
       .insert(orders)
       .values({
@@ -159,9 +184,10 @@ export async function createGuestOrder(input: {
         customerPhone: input.phone?.trim().slice(0, 30) || null,
         guestCodeHash,
         paymentMethod: input.paymentMethod,
+        stockReserved: true,
       })
       .returning({ id: orders.id });
-    if (!order) return null;
+    if (!order) return { kind: "failed" as const };
 
     await trx.insert(orderItems).values(
       lines.map((line) => ({
@@ -173,12 +199,21 @@ export async function createGuestOrder(input: {
       })),
     );
 
-    return { orderId: order.id };
+    return { kind: "ok" as const, orderId: order.id };
   });
 
-  if (!created) {
+  if (created.kind === "no_stock") {
+    return {
+      ok: false,
+      status: 409,
+      code: "insufficient_stock",
+      message: `Ya no queda stock suficiente de "${created.name}".`,
+    };
+  }
+  if (created.kind === "failed") {
     return { ok: false, status: 500, code: "order_failed", message: "No se pudo crear el pedido." };
   }
+  const orderId = created.orderId;
 
   // Pago directo: no se crea cobro en Wompi. El comprador transfiere al Nequi
   // del comerciante y este confirma el pedido desde su panel.
@@ -187,7 +222,7 @@ export async function createGuestOrder(input: {
   const emailJobs: Promise<unknown>[] = [
     sendGuestOrderCode({
       email,
-      orderId: created.orderId,
+      orderId,
       guestCode,
       storeName: store.name,
       customerName: input.name?.trim().slice(0, 120) || null,
@@ -211,7 +246,7 @@ export async function createGuestOrder(input: {
           customerName: input.name?.trim().slice(0, 120) || null,
           customerEmail: email,
           total,
-          orderId: created.orderId,
+          orderId,
           storeSlug: store.slug,
         }),
       );
@@ -219,13 +254,13 @@ export async function createGuestOrder(input: {
     void notifyUser(store.ownerId, {
       title: "Nuevo pedido por Nequi",
       body: `${input.name?.trim().slice(0, 60) || "Un cliente"} pidió ${money(total)}. Confirma cuando recibas el pago.`,
-      data: { type: "order_pending", orderId: created.orderId },
+      data: { type: "order_pending", orderId },
     }).catch(() => {});
   }
   await Promise.allSettled(emailJobs);
   return {
     ok: true,
-    orderId: created.orderId,
+    orderId,
     guestCode,
     total,
     charge: total,

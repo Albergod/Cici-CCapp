@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Check,
   Copy,
+  Download,
   Loader2,
   MessageCircle,
   ShieldCheck,
@@ -96,6 +97,33 @@ export function GuestCheckoutPage() {
     }
   };
 
+  const downloadReceipt = () => {
+    if (!result) return;
+    const lines = [
+      `Pedido: ${result.orderId}`,
+      `Tienda: ${store?.name ?? ''}`,
+      `Producto: ${product?.name ?? ''} x${quantity}`,
+      `Total: ${formatCOP(result.charge)}`,
+      'Método: Nequi directo',
+      `Nequi: ${result.directNequi?.phone ?? store?.paymentNequi ?? ''}`,
+      `Titular: ${result.directNequi?.holder ?? store?.name ?? ''}`,
+      '',
+      `CÓDIGO DE ACCESO (guárdalo): ${result.guestCode}`,
+      `Consulta: ${window.location.origin}/pedido?email=${encodeURIComponent(email.trim())}&code=${encodeURIComponent(result.guestCode)}`,
+      '',
+      `Generado el ${new Date().toLocaleString('es-CO')}`,
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pedido-${result.orderId.slice(0, 8)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const reportPaid = async () => {
     if (!result) return;
     setReporting(true);
@@ -185,11 +213,8 @@ export function GuestCheckoutPage() {
             {!result.emailed && (
               <p className="text-sm text-surface-500 mt-1">
                 El comercio no tiene notificaciones por correo configuradas:{" "}
-                <strong>guarda este código</strong>. Si lo pierdes, puedes solicitar uno nuevo en{" "}
-                <Link to={`/pedido?email=${encodeURIComponent(email.trim())}&code=${encodeURIComponent(result.guestCode)}`} className="text-brand-600 hover:underline">
-                  Seguir mi pedido
-                </Link>
-                con tu email.
+                <strong>guarda o descarga este código</strong>. Lo necesitas junto a tu email para
+                consultar la compra.
               </p>
             )}
 
@@ -200,10 +225,16 @@ export function GuestCheckoutPage() {
               <p className="mt-2 font-mono text-2xl font-bold tracking-wider text-surface-900 break-all">
                 {result.guestCode}
               </p>
-              <button onClick={copyCode} className="btn-secondary mt-3 inline-flex items-center gap-2">
-                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                {copied ? 'Copiado' : 'Copiar código'}
-              </button>
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                <button onClick={copyCode} className="btn-secondary inline-flex items-center gap-2">
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  {copied ? 'Copiado' : 'Copiar código'}
+                </button>
+                <button onClick={downloadReceipt} className="btn-secondary inline-flex items-center gap-2">
+                  <Download className="w-4 h-4" />
+                  Descargar comprobante
+                </button>
+              </div>
             </div>
 
             <div className="mt-5 text-left text-sm space-y-1.5 text-surface-600">

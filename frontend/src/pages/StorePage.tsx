@@ -484,7 +484,7 @@ export function StorePage() {
                     key={product.id}
                     product={product}
                     businessType={store.businessType}
-                    onBuy={handleBuy}
+                    onBuy={store.paymentNequi ? handleBuy : undefined}
                     onContact={handleContact}
                     imageZoom
                     armedId={armedProductId}

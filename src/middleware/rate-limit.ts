@@ -79,6 +79,16 @@ export const guestResendLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Reporte de un problema por parte de un invitado: exige email + código, pero
+// igual se limita por IP para evitar que alguien sature el panel de moderación.
+export const guestReportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "test" ? 500 : 10,
+  message: { error: "Demasiados reportes desde esta conexión. Espera unos minutos." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Formulario público de Cici Empresarios: frena spam sin bloquear una
 // solicitud legítima. En tests se amplía porque cada caso crea un lead.
 export const empresariosLeadLimiter = rateLimit({

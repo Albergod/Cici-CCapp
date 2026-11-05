@@ -138,6 +138,72 @@ export async function insertViolation(v: ViolationInput): Promise<void> {
   });
 }
 
+export type BuyerReportAction = "none" | "suspended" | "banned";
+
+export interface BuyerReportOutcome {
+  action: BuyerReportAction;
+  suspendedUntil: Date | null;
+  flags: number;
+}
+
+/**
+ * Registra un reporte de comprador contra una tienda y aplica las sanciones
+ * escalonadas (suspensión a los 3 reportes abiertos, veto a los 5). Compartido
+ * por el reporte autenticado (tienda) y el reporte de invitado (pedido).
+ */
+export async function recordBuyerReport(opts: {
+  storeId: string;
+  reason: string;
+  reporterId?: string | null;
+  metadata?: Record<string, unknown>;
+}): Promise<BuyerReportOutcome> {
+  await insertViolation({
+    type: "buyer_report",
+    severity: "warning",
+    storeId: opts.storeId,
+    reporterId: opts.reporterId ?? null,
+    reason: `Comprador reportó la tienda: ${opts.reason}`,
+    metadata: opts.metadata,
+  });
+
+  const [openReports] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(violations)
+    .where(
+      and(
+        eq(violations.storeId, opts.storeId),
+        eq(violations.type, "buyer_report"),
+        eq(violations.status, "OPEN"),
+      ),
+    );
+  const flags = Number(openReports?.n ?? 0);
+
+  let action: BuyerReportAction = "none";
+  let suspendedUntil: Date | null = null;
+  if (flags >= BAN_REPORT_FLAGS) {
+    await banStore(opts.storeId, `${flags} reportes de compradores abiertos (último: ${opts.reason})`);
+    action = "banned";
+  } else if (flags >= SUSPENSION_REPORT_FLAGS) {
+    const applied = await applySuspension(opts.storeId, {
+      days: SUSPENSION_REPORTS_DAYS,
+      reason: `${flags} reportes de compradores abiertos. Suspendida automáticamente mientras el admin revisa.`,
+      actionTaken: `auto_suspend_${SUSPENSION_REPORTS_DAYS}d_by_reports`,
+    });
+    suspendedUntil = applied.until;
+    action = "suspended";
+  }
+
+  return { action, suspendedUntil, flags };
+}
+
+export function buyerReportMessage(action: BuyerReportAction): string {
+  return action === "banned"
+    ? "Gracias por avisarnos. Esta tienda fue retirada de la plataforma."
+    : action === "suspended"
+      ? "Gracias por avisarnos. La tienda quedó suspendida mientras revisamos el caso."
+      : "Gracias por tu reporte. Nuestro equipo lo revisará.";
+}
+
 export async function applySuspension(
   storeId: string,
   opts: { hours?: number; days?: number; reason: string; actionTaken: string },

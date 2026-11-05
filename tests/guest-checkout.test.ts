@@ -10,6 +10,9 @@ import {
   orders,
   orderItems,
   protectedPayments,
+  violations,
+  sales,
+  saleItems,
 } from "../src/db/schema";
 import "dotenv/config";
 
@@ -103,16 +106,27 @@ describe("Compra de invitado (sin cuenta) — pago directo por Nequi", () => {
     productId = p.body.id;
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     sentEmails.length = 0;
+    // Stock amplio por defecto; cada test que necesite inventario ajustado lo
+    // fija explícitamente.
+    await db
+      .update(products)
+      .set({ stock: "50", available: true })
+      .where(eq(products.id, productId));
+    await db.update(stores).set({ paymentNequi: "3001234567" }).where(eq(stores.id, storeId));
   });
 
   afterAll(async () => {
     vi.restoreAllMocks();
+    await db.delete(violations).where(eq(violations.storeId, storeId));
     await db.delete(protectedPayments).where(eq(protectedPayments.storeId, storeId));
     const ords = await db.select({ id: orders.id }).from(orders).where(eq(orders.storeId, storeId));
     for (const o of ords) await db.delete(orderItems).where(eq(orderItems.orderId, o.id));
     for (const o of ords) await db.delete(orders).where(eq(orders.id, o.id));
+    const sals = await db.select({ id: sales.id }).from(sales).where(eq(sales.storeId, storeId));
+    for (const s of sals) await db.delete(saleItems).where(eq(saleItems.saleId, s.id));
+    for (const s of sals) await db.delete(sales).where(eq(sales.id, s.id));
     await db.delete(products).where(eq(products.storeId, storeId));
     await db.delete(stores).where(eq(stores.id, storeId));
     await db.delete(users).where(eq(users.email, ownerEmail));
@@ -146,6 +160,14 @@ describe("Compra de invitado (sin cuenta) — pago directo por Nequi", () => {
       .where(eq(protectedPayments.orderId, r.body.orderId))
       .limit(1);
     expect(pay).toBeUndefined();
+
+    // El stock se reservó al crear el pedido (50 - 2).
+    const [prod] = await db
+      .select({ stock: products.stock })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    expect(Number(prod!.stock)).toBe(48);
 
     // Email al comprador con el código.
     const toBuyer = sentEmails.find((e) => e.to.includes(guestEmail));
@@ -209,6 +231,7 @@ describe("Compra de invitado (sin cuenta) — pago directo por Nequi", () => {
   });
 
   it("valida stock, producto y tienda sin Nequi configurado", async () => {
+    await db.update(products).set({ stock: "5" }).where(eq(products.id, productId));
     const overStock = await request(app)
       .post("/api/orders/guest")
       .send(guestBody({ items: [{ productId, quantity: 6 }] }));
@@ -306,5 +329,150 @@ describe("Compra de invitado (sin cuenta) — pago directo por Nequi", () => {
     expect(resend.body.ok).toBe(true);
     expect(resend.body.message).toContain("compra pendiente");
     expect(sentEmails.length).toBe(beforeCount);
+  });
+
+  it("reserva stock al crear y evita la sobreventa de la última unidad", async () => {
+    await db.update(products).set({ stock: "1", available: true }).where(eq(products.id, productId));
+
+    const first = await request(app)
+      .post("/api/orders/guest")
+      .send(guestBody({ items: [{ productId, quantity: 1 }] }));
+    expect(first.status).toBe(201);
+
+    let [prod] = await db
+      .select({ stock: products.stock, available: products.available })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    expect(Number(prod!.stock)).toBe(0);
+    expect(prod!.available).toBe(false);
+
+    // Segunda compra de la misma unidad: ya no hay stock, aunque sea otro invitado.
+    const second = await request(app)
+      .post("/api/orders/guest")
+      .send(guestBody({ email: `otro-${ts}@example.com`, items: [{ productId, quantity: 1 }] }));
+    expect(second.status).toBe(409);
+    expect(["insufficient_stock", "product_unavailable"]).toContain(second.body.code);
+
+    // Cancelar el pedido devuelve la reserva y reactiva el producto.
+    const cancel = await request(app)
+      .post(`/api/orders/${first.body.orderId}/cancel`)
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(cancel.status).toBe(200);
+    expect(cancel.body.status).toBe("cancelled");
+
+    [prod] = await db
+      .select({ stock: products.stock, available: products.available })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    expect(Number(prod!.stock)).toBe(1);
+    expect(prod!.available).toBe(true);
+
+    // Ahora sí puede comprarla el segundo invitado.
+    const retry = await request(app)
+      .post("/api/orders/guest")
+      .send(guestBody({ email: `otro-${ts}@example.com`, items: [{ productId, quantity: 1 }] }));
+    expect(retry.status).toBe(201);
+  });
+
+  it("confirmar un pedido con stock reservado no lo descuenta dos veces", async () => {
+    await db.update(products).set({ stock: "10", available: true }).where(eq(products.id, productId));
+
+    const created = await request(app)
+      .post("/api/orders/guest")
+      .send(guestBody({ items: [{ productId, quantity: 2 }] }));
+    expect(created.status).toBe(201);
+
+    let [prod] = await db
+      .select({ stock: products.stock })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    expect(Number(prod!.stock)).toBe(8); // reserva al crear
+
+    const confirm = await request(app)
+      .post(`/api/orders/${created.body.orderId}/confirm`)
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(confirm.status).toBe(200);
+    expect(confirm.body.status).toBe("sold");
+    expect(confirm.body.saleId).toBeTruthy();
+
+    [prod] = await db
+      .select({ stock: products.stock })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    expect(Number(prod!.stock)).toBe(8); // la venta no vuelve a descontar
+
+    const [order] = await db
+      .select({ status: orders.status, stockReserved: orders.stockReserved })
+      .from(orders)
+      .where(eq(orders.id, created.body.orderId))
+      .limit(1);
+    expect(order!.status).toBe("sold");
+    expect(order!.stockReserved).toBe(false);
+  });
+
+  it("el invitado puede reportar un problema con email + código (sin duplicados)", async () => {
+    const created = await request(app).post("/api/orders/guest").send(guestBody());
+    expect(created.status).toBe(201);
+
+    const wrong = await request(app)
+      .post("/api/orders/guest/report")
+      .send({ email: guestEmail, code: "NOEXISTE", reason: "No me llegó el pedido" });
+    expect(wrong.status).toBe(404);
+
+    const report = await request(app)
+      .post("/api/orders/guest/report")
+      .send({ email: guestEmail, code: created.body.guestCode, reason: "No me llegó el pedido" });
+    expect(report.status).toBe(201);
+    expect(report.body.ok).toBe(true);
+    expect(report.body.action).toBe("none");
+    expect(report.body.message).toContain("revisará");
+
+    const [row] = await db
+      .select({ type: violations.type, reason: violations.reason, metadata: violations.metadata })
+      .from(violations)
+      .where(eq(violations.storeId, storeId))
+      .limit(1);
+    expect(row!.type).toBe("buyer_report");
+    expect(row!.reason).toContain("No me llegó el pedido");
+    expect((row!.metadata as Record<string, unknown>).orderId).toBe(created.body.orderId);
+
+    // Un mismo pedido no dispara dos reportes (evita sanciones por duplicado).
+    const duplicate = await request(app)
+      .post("/api/orders/guest/report")
+      .send({ email: guestEmail, code: created.body.guestCode, reason: "Insisto, no llegó" });
+    expect(duplicate.status).toBe(429);
+  });
+
+  it("sin email configurado, resend-code NO rota el código (evita dejarlo sin acceso)", async () => {
+    const created = await request(app).post("/api/orders/guest").send(guestBody());
+    expect(created.status).toBe(201);
+    const code = created.body.guestCode;
+
+    const prevProvider = process.env.EMAIL_PROVIDER;
+    const prevKey = process.env.RESEND_API_KEY;
+    try {
+      delete process.env.EMAIL_PROVIDER;
+      delete process.env.RESEND_API_KEY;
+      const resend = await request(app)
+        .post("/api/orders/guest/resend-code")
+        .send({ email: guestEmail });
+      expect(resend.status).toBe(503);
+      expect(resend.body.code).toBe("email_not_configured");
+    } finally {
+      if (prevProvider) process.env.EMAIL_PROVIDER = prevProvider;
+      else delete process.env.EMAIL_PROVIDER;
+      if (prevKey) process.env.RESEND_API_KEY = prevKey;
+      else delete process.env.RESEND_API_KEY;
+    }
+
+    // El código anterior sigue sirviendo.
+    const after = await request(app).get(
+      `/api/orders/guest?email=${encodeURIComponent(guestEmail)}&code=${code}`,
+    );
+    expect(after.status).toBe(200);
   });
 });

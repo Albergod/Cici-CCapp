@@ -23,12 +23,9 @@ import {
   VERIFIED_MIN_SALES,
   refreshStoreStatus,
   insertViolation,
-  applySuspension,
-  banStore,
+  recordBuyerReport,
+  buyerReportMessage,
   REFERRAL_BURST_LIMIT,
-  SUSPENSION_REPORT_FLAGS,
-  BAN_REPORT_FLAGS,
-  SUSPENSION_REPORTS_DAYS,
 } from "../lib/moderation";
 
 const router = Router();
@@ -1057,52 +1054,18 @@ router.post("/:id/report", requireAuth, async (req: AuthRequest, res) => {
 
   const reason = parsed.data.reason;
 
-  // Anotar la violación y revisar si se alcanzó el umbral.
-  await insertViolation({
-    type: "buyer_report",
-    severity: "warning",
+  // Anotar la violación y aplicar sanciones escalonadas si corresponde.
+  const outcome = await recordBuyerReport({
     storeId: store.id,
     reporterId: req.userId!,
-    reason: `Comprador reportó la tienda: ${reason}`,
+    reason,
   });
-
-  const [openReports] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(violations)
-    .where(
-      and(
-        eq(violations.storeId, store.id),
-        eq(violations.type, "buyer_report"),
-        eq(violations.status, "OPEN"),
-      ),
-    );
-  const flags = Number(openReports?.n ?? 0);
-
-  let action: "none" | "suspended" | "banned" = "none";
-  let suspendedUntil: Date | null = null;
-  if (flags >= BAN_REPORT_FLAGS) {
-    await banStore(store.id, `${flags} reportes de compradores abiertos (último: ${reason})`);
-    action = "banned";
-  } else if (flags >= SUSPENSION_REPORT_FLAGS) {
-    const applied = await applySuspension(store.id, {
-      days: SUSPENSION_REPORTS_DAYS,
-      reason: `${flags} reportes de compradores abiertos. Suspendida automáticamente mientras el admin revisa.`,
-      actionTaken: `auto_suspend_${SUSPENSION_REPORTS_DAYS}d_by_reports`,
-    });
-    suspendedUntil = applied.until;
-    action = "suspended";
-  }
 
   res.status(201).json({
     ok: true,
-    action,
-    suspendedUntil,
-    message:
-      action === "banned"
-        ? "Gracias por avisarnos. Esta tienda fue retirada de la plataforma."
-        : action === "suspended"
-          ? "Gracias por avisarnos. La tienda quedó suspendida mientras revisamos el caso."
-          : "Gracias por tu reporte. Nuestro equipo lo revisará.",
+    action: outcome.action,
+    suspendedUntil: outcome.suspendedUntil,
+    message: buyerReportMessage(outcome.action),
   });
 });
 

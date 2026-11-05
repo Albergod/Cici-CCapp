@@ -29,6 +29,9 @@ export type CreateSaleInput = {
   customerId?: string | null;
   paymentMethod?: string | null;
   origin?: SaleOrigin;
+  // El stock ya se descontó al crear el pedido (compra de invitado). En ese
+  // caso la venta NO vuelve a descontar stock ni revalida disponibilidad.
+  stockAlreadyReserved?: boolean;
 };
 
 export type CreatedSale = {
@@ -175,7 +178,7 @@ export async function createSale(
   // Un pedido del chat JAMÁS se confirma sin stock. Las ventas manuales se
   // permiten aunque el stock esté desactualizado: son una venta física que ya
   // ocurrió y no se puede rechazar; el stock se ajusta con GREATEST(0, …).
-  if (origin === "order") {
+  if (origin === "order" && !input.stockAlreadyReserved) {
     for (const [productId, qty] of requestedByProduct) {
       const p = productInfo.get(productId)!;
       if (!p.available) {
@@ -257,6 +260,8 @@ export async function createSale(
     });
 
     if (item.productId) {
+      // Si el pedido ya reservó stock al crearse, no se descuenta de nuevo.
+      if (input.stockAlreadyReserved) continue;
       // Descontar stock: al llegar a 0 (o menos) el producto se desactiva solo
       // en vez de eliminarse, manteniendo su histórico.
       await d

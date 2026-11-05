@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Loader2, MessageCircle, Package, Search, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Flag, Loader2, MessageCircle, Package, Search, ShieldCheck } from 'lucide-react';
 import { api, GuestOrderStatus } from '@/services/api';
 import { formatCOP } from '@/lib/format';
 
@@ -33,6 +33,11 @@ export function GuestOrderPage() {
   const [resendError, setResendError] = useState<string | null>(null);
   const [resendEmail, setResendEmail] = useState(params.get('email') ?? '');
   const [resendOk, setResendOk] = useState(false);
+  const [problemOpen, setProblemOpen] = useState(false);
+  const [problemReason, setProblemReason] = useState('');
+  const [problemBusy, setProblemBusy] = useState(false);
+  const [problemMsg, setProblemMsg] = useState<string | null>(null);
+  const [problemDone, setProblemDone] = useState(false);
 
   const lookup = useCallback(
     async (mail: string, guestCode: string, silent = false) => {
@@ -104,6 +109,25 @@ export function GuestOrderPage() {
       setResendError(err instanceof Error ? err.message : 'No se pudo reenviar el código.');
     } finally {
       setResending(false);
+    }
+  };
+
+  const reportProblem = async () => {
+    const reason = problemReason.trim();
+    if (reason.length < 5) {
+      return setProblemMsg('Cuéntanos un poco más (mínimo 5 caracteres).');
+    }
+    setProblemBusy(true);
+    setProblemMsg(null);
+    try {
+      const res = await api.orders.guestReport(email.trim(), code.trim(), reason);
+      setProblemDone(true);
+      setProblemMsg(res.message);
+      setProblemReason('');
+    } catch (err) {
+      setProblemMsg(err instanceof Error ? err.message : 'No se pudo enviar el reporte.');
+    } finally {
+      setProblemBusy(false);
     }
   };
 
@@ -262,6 +286,59 @@ export function GuestOrderPage() {
               )}
 
             {order.note && <p className="mt-4 text-sm text-surface-500">{order.note}</p>}
+
+            {/* Reporte de problema (invitado): email + código prueban la compra */}
+            {order.status !== 'cancelled' && (
+              <div className="mt-6 rounded-xl border border-surface-200 p-4">
+                {problemDone ? (
+                  <p className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-700">
+                    {problemMsg}
+                  </p>
+                ) : !problemOpen ? (
+                  <button
+                    onClick={() => setProblemOpen(true)}
+                    className="inline-flex items-center gap-2 text-sm text-surface-500 hover:text-red-600 transition-colors"
+                  >
+                    <Flag className="w-4 h-4" />
+                    Reportar un problema con este pedido
+                  </button>
+                ) : (
+                  <div>
+                    <p className="text-sm font-semibold text-surface-700 mb-1">Reportar un problema</p>
+                    <p className="text-xs text-surface-500 mb-2">
+                      Cuéntanos qué pasó (no llegó, llegó distinto, etc.). Nuestro equipo revisará la
+                      tienda.
+                    </p>
+                    <textarea
+                      value={problemReason}
+                      onChange={(e) => setProblemReason(e.target.value.slice(0, 500))}
+                      placeholder="Ej. pagué hace 3 días y no me llegó el producto…"
+                      className="input w-full min-h-[90px]"
+                    />
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        onClick={() => {
+                          setProblemOpen(false);
+                          setProblemMsg(null);
+                        }}
+                        className="btn-ghost flex-1"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={() => void reportProblem()}
+                        disabled={problemBusy}
+                        className="btn-primary flex-1 inline-flex items-center justify-center gap-2"
+                      >
+                        {problemBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flag className="w-4 h-4" />}
+                        Enviar reporte
+                      </button>
+                    </div>
+                    {problemMsg && <p className="mt-2 text-sm text-accent-700">{problemMsg}</p>}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Recuperación de código de acceso (sólo compras de invitado) */}
             <div className="mt-6 rounded-xl border border-surface-200 p-4">

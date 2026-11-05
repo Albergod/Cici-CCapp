@@ -5,19 +5,20 @@
 // por un cliente real: no cuentan como inflación de prestigio.
 import { Router } from "express";
 import { z } from "zod";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { orders, orderItems, stores, users, protectedPayments } from "../db/schema";
+import { orders, orderItems, stores, users, products, protectedPayments } from "../db/schema";
 import { createSale } from "../lib/sales";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { myWorkStore } from "../lib/members";
 import { createGuestOrder, findGuestOrder } from "../lib/guest";
 import { PSE_SCHEMA } from "../lib/pse";
-import { guestCheckoutLimiter, guestStatusLimiter, guestResendLimiter } from "../middleware/rate-limit";
+import { guestCheckoutLimiter, guestStatusLimiter, guestResendLimiter, guestReportLimiter } from "../middleware/rate-limit";
 import { getWompiTransaction } from "../lib/wompi";
 import { notifyUser } from "../lib/push";
-import { sendMerchantBuyerReportedPaid, sendGuestOrderCode } from "../lib/email";
+import { sendMerchantBuyerReportedPaid, sendGuestOrderCode, emailConfigured } from "../lib/email";
 import { generateGuestCode, hashGuestCode } from "../lib/crypto";
+import { recordBuyerReport, buyerReportMessage } from "../lib/moderation";
 
 const router = Router();
 
@@ -125,6 +126,7 @@ router.post("/:id/confirm", requireAuth, async (req: AuthRequest, res) => {
         origin: "order",
         note: order.note ?? null,
         items,
+        stockAlreadyReserved: order.stockReserved,
       },
       tx as unknown as typeof db,
     );
@@ -134,7 +136,7 @@ router.post("/:id/confirm", requireAuth, async (req: AuthRequest, res) => {
 
     const [updated] = await tx
       .update(orders)
-      .set({ status: "sold", saleId: result.sale.id })
+      .set({ status: "sold", saleId: result.sale.id, stockReserved: false })
       .where(and(eq(orders.id, order.id), eq(orders.status, "pending")))
       .returning();
     if (!updated) {
@@ -166,7 +168,8 @@ router.post("/:id/confirm", requireAuth, async (req: AuthRequest, res) => {
 });
 
 // Cancelar pedido pendiente. El UPDATE condicional es atómico: si el pedido
-// pasa a 'sold' al mismo tiempo, no se cancela una venta ya generada.
+// pasa a 'sold' al mismo tiempo, no se cancela una venta ya generada. Si el
+// pedido había reservado stock, se devuelve al inventario.
 router.post("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
   if (!UUID_RX.test(req.params.id)) return res.status(400).json({ error: "ID inválido." });
 
@@ -174,30 +177,57 @@ router.post("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
   if (!work) return res.status(404).json({ error: "No tienes una tienda." });
   const store = { id: work.id };
 
-  const [updated] = await db
-    .update(orders)
-    .set({ status: "cancelled" })
-    .where(
-      and(
-        eq(orders.id, req.params.id),
-        eq(orders.storeId, store.id),
-        eq(orders.status, "pending"),
-      ),
-    )
-    .returning();
-
-  if (!updated) {
-    const [order] = await db
-      .select({ id: orders.id, status: orders.status })
+  const outcome = await db.transaction(async (tx) => {
+    const [order] = await tx
+      .select()
       .from(orders)
       .where(and(eq(orders.id, req.params.id), eq(orders.storeId, store.id)))
-      .limit(1);
-    if (!order) return res.status(404).json({ error: "Pedido no encontrado." });
-    return res.status(409).json({
-      error: order.status === "sold" ? "Este pedido ya fue confirmado." : "Este pedido ya fue cancelado.",
-    });
-  }
+      .limit(1)
+      .for("update");
+    if (!order) return { kind: "notfound" as const };
+    if (order.status !== "pending") {
+      return {
+        kind: "conflict" as const,
+        error:
+          order.status === "sold"
+            ? "Este pedido ya fue confirmado."
+            : "Este pedido ya fue cancelado.",
+      };
+    }
 
+    const [updated] = await tx
+      .update(orders)
+      .set({ status: "cancelled", stockReserved: false })
+      .where(and(eq(orders.id, order.id), eq(orders.status, "pending")))
+      .returning();
+    if (!updated) {
+      return { kind: "conflict" as const, error: "El pedido cambió de estado. Intenta de nuevo." };
+    }
+
+    // Devolver la reserva de stock (solo si este pedido la tomó al crearse).
+    if (order.stockReserved) {
+      const its = await tx.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+      for (const it of its) {
+        if (!it.productId) continue;
+        const qty = Math.floor(Number(it.quantity));
+        if (!(qty > 0)) continue;
+        await tx
+          .update(products)
+          .set({
+            stock: sql`${products.stock} + ${qty}`,
+            available: sql`CASE WHEN ${products.stock} + ${qty} > 0 THEN true ELSE ${products.available} END`,
+          })
+          .where(eq(products.id, it.productId));
+      }
+    }
+
+    return { kind: "ok" as const, updated };
+  });
+
+  if (outcome.kind === "notfound") return res.status(404).json({ error: "Pedido no encontrado." });
+  if (outcome.kind === "conflict") return res.status(409).json({ error: outcome.error });
+
+  const updated = outcome.updated;
   void (async () => {
     try {
       if (updated.customerId) {
@@ -338,6 +368,17 @@ router.post("/guest/paid", guestStatusLimiter, async (req, res) => {
 // email: rota el código del pedido pendiente más reciente y lo envía por
 // correo. Respuesta genérica: no revela si el email tiene compras.
 router.post("/guest/resend-code", guestResendLimiter, async (req, res) => {
+  if (!emailConfigured()) {
+    // Sin correo configurado NO rotamos el código: si lo hiciéramos, el
+    // comprador perdería el único código válido y no recibiría el nuevo.
+    return res.status(503).json({
+      ok: false,
+      code: "email_not_configured",
+      message:
+        "El envío de correos no está disponible en esta tienda. Guarda tu código actual; no lo cambiamos.",
+    });
+  }
+
   const email = String(req.body?.email ?? "").trim().toLowerCase();
   if (!email || email.length > 200) {
     return res.status(400).json({ error: "Email obligatorio." });
@@ -387,6 +428,74 @@ router.post("/guest/resend-code", guestResendLimiter, async (req, res) => {
   }
 
   res.json({ ok: true, message: okMessage });
+});
+
+// POST /api/orders/guest/report — un invitado reporta un problema con su
+// pedido (no le llegó, fue distinto, etc.). Email + código prueban que es su
+// compra; se registra una violación `buyer_report` para el equipo. Un mismo
+// pedido no se puede reportar dos veces (evita sanciones por duplicados).
+const GUEST_REPORT_SCHEMA = z.object({
+  email: z.string().trim().email().max(200),
+  code: z.string().trim().min(1).max(64),
+  reason: z.string().trim().min(5).max(500),
+});
+
+router.post("/guest/report", guestReportLimiter, async (req, res) => {
+  const parsed = GUEST_REPORT_SCHEMA.safeParse(req.body);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: "Cuéntanos brevemente qué pasó (mínimo 5 caracteres)." });
+  }
+
+  const email = parsed.data.email.toLowerCase();
+  const [order] = await db
+    .select({
+      id: orders.id,
+      storeId: orders.storeId,
+      guestReportedAt: orders.guestReportedAt,
+    })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.customerEmail, email),
+        eq(orders.guestCodeHash, hashGuestCode(parsed.data.code)),
+        isNull(orders.customerId),
+        inArray(orders.status, ["pending", "sold"]),
+      ),
+    )
+    .limit(1);
+
+  if (!order) return res.status(404).json({ error: "No encontramos esa compra." });
+  if (order.guestReportedAt) {
+    return res
+      .status(429)
+      .json({ error: "Ya reportaste este pedido. Nuestro equipo lo está revisando." });
+  }
+
+  // Marca atómica: solo el primero gana; evita doble violación si reintenta.
+  const [claimed] = await db
+    .update(orders)
+    .set({ guestReportedAt: new Date() })
+    .where(and(eq(orders.id, order.id), isNull(orders.guestReportedAt)))
+    .returning({ id: orders.id });
+  if (!claimed) {
+    return res
+      .status(429)
+      .json({ error: "Ya reportaste este pedido. Nuestro equipo lo está revisando." });
+  }
+
+  const outcome = await recordBuyerReport({
+    storeId: order.storeId,
+    reason: parsed.data.reason,
+    metadata: { orderId: order.id, channel: "guest", customerEmail: email },
+  });
+
+  res.status(201).json({
+    ok: true,
+    action: outcome.action,
+    message: buyerReportMessage(outcome.action),
+  });
 });
 
 // GET /api/orders/guest?email=&code= — consulta de invitado. No revela si el

@@ -599,6 +599,14 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ email }),
       }),
+    guestReport: (email: string, code: string, reason: string) =>
+      request<{ ok: boolean; action: 'none' | 'suspended' | 'banned'; message: string }>(
+        '/orders/guest/report',
+        {
+          method: 'POST',
+          body: JSON.stringify({ email, code, reason }),
+        },
+      ),
     guestReportPaid: (email: string, code: string) =>
       request<{ ok: boolean; status?: Order['status'] }>('/orders/guest/paid', {
         method: 'POST',

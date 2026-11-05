@@ -489,6 +489,14 @@ export const orders = pgTable("orders", {
   // El comprador avisó "ya pagué" (pago directo Nequi). No confirma el pago:
   // solo avisa al comerciante para que lo verifique y confirme el pedido.
   buyerReportedPaidAt: timestamp("buyer_reported_paid_at"),
+  // El pedido reservó stock al crearse (compra de invitado con pago directo).
+  // Evita que dos personas compren la última unidad: el stock se descuenta al
+  // crear el pedido y se devuelve si el comerciante lo cancela. Al confirmar,
+  // la venta NO vuelve a descontar stock (ya estaba reservado).
+  stockReserved: boolean("stock_reserved").default(false).notNull(),
+  // Un invitado ya reportó un problema con este pedido (evita reportes
+  // duplicados que disparen sanciones por error).
+  guestReportedAt: timestamp("guest_reported_at"),
 });
 
 export const orderItems = pgTable("order_items", {
