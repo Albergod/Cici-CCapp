@@ -89,7 +89,12 @@ export function DashboardPage() {
   const [showProductForm, setShowProductForm] = useState(false);
   const [offerProduct, setOfferProduct] = useState<Product | null>(null);
   // Pestañas del panel (mismos colores, sin cascada infinita).
-  const [dashTab, setDashTab] = useState<'resumen' | 'catalogo' | 'pedidos' | 'finanzas'>('resumen');
+  const initialTab = searchParams.get('tab');
+  const [dashTab, setDashTab] = useState<'resumen' | 'catalogo' | 'pedidos' | 'finanzas'>(
+    initialTab === 'pedidos' || initialTab === 'catalogo' || initialTab === 'finanzas'
+      ? initialTab
+      : 'resumen',
+  );
   const [addingProduct, setAddingProduct] = useState(false);
   const [showAnonPhoto, setShowAnonPhoto] = useState(false);
   const [productName, setProductName] = useState('');
